@@ -1,0 +1,5 @@
+Excludes:
+/.vs/
+/.cache/
+/MBPM_BuildFiles/
+Includes:

@@ -1,0 +1,11 @@
+/.*
+!.gitignore
+/compile_commands.json
+/test.idx
+/MBPM_BuildFiles/
+/MBPM_Builds
+/MBPM_FileInfo
+/clangd.dex
+/out/
+/README.md
+/MBPM_FileInfo

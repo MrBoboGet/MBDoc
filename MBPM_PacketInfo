@@ -1,0 +1,11 @@
+{
+	"PacketName": "MBDoc",
+	"Attributes": [ "Embeddable" ],
+	"OutputConfigurations": [ "StaticDebug", "StaticRelease" ],
+	"OutputTargetNames": {
+		"StaticRelease": "MBDoc_SR",
+		"StaticDebug": "MBDoc_SD"
+	},
+	"ExportedExecutableTargets": [ "mbdoc" ],
+	"Dependancies": [ "MBUtility","MBParsing","MBUnicode"]
+}

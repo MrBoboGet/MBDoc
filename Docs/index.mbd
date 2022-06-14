@@ -1,0 +1,185 @@
+# MBDoc
+
+
+
+MBDoc is a document/documentation program, that generates documents in different formats for files written in a syntax very similar to markdown.
+This document is ment to be a philosophical overview of the project, motivating the overarching design decisions, aswell as an essay of what inspired it's development. 
+For a overview of how this is then represented in the codebase, go @here.
+
+# History - A world in need of documentation
+
+The name of the project comes from what it's main purpose is, to create a convenient way to write documentation.
+The first real interaction I ever had with programming when was with GameMaker studio. Liking games, I wanted to try to make them myself. Having absolutely zero experience with 
+making games and GameMaker, I naturally begun by looking up a tutorial, and I found this really well structured and easy to understand tutorial made by 
+@[Shaun spalding](https://www.youtube.com/c/ShaunSpalding). Something I could never understand however, was how he could know so much about how GameMaker works! Everything was brand new for 
+me, the fact that he could use it and understand everything so well blew my mind. 
+
+After having used GameMaker for sometime, it came to a point where I needed to switch engine. The original version wasn't free to use anymore, and I saw no reason to pay for it if a free 
+alternative existed. That's when I started working with unity. I of course started with some tutorials the same way I did before, but having a bit more experience I also started
+googling for specific functionality I knew I was going to need, and that's when I first found it, the documentation. Looking through it I realised, that this must have been the way
+Shaun Spalding got so good, he must have read the documentation of course! I felt a bit stupid for not realising it sooner, of course there had to be some resource by the maker of the
+engine to explain how it works.
+
+I continued to use the documentation, and was happy with how convenient it was. This was also the point where I started to noticing something weird, not everything was explained very well.
+At this point I was working in C#, but still didn't actually understand any of the fancy advanced concepts such what an object is or why the magic word override was needed sometimes, so 
+I assumed that maybe I just missed something. At some point I started to work in C++ more, and after a lot of studying of the language and understanding the differences, I only really 
+used  the standard library, which is very well documented. But when I started to work with external libraries, and doing more stuff with Unity, I started to realise something horrifying,
+not everything was documented, even for so frequently used programs such as unity, unreal or ffmpeg.
+
+Compiling and using other peopeles code, googling documentation for operating system API's, and using common applications I realised that good documentation is an exception to the norm. There are many projects
+where the code is working and continually patched but where the documentation is a "work in progress". This is completely unacceptable. The idea that code or programs can exist without documentation
+is the number one biggest misconception in programming. Having gotten scarred with using undocumented programs, I decided that I wanted to provide good doucmentation for my own work, which culminated
+in the following project. But to be able to make a tool that's good for writing documentation, first one has to answer the question, what is good docuemntations?
+
+#_ The documentation Tenets
+
+# Undocumented behaviour is undefined behaviour
+
+The most central tenet, the core idea, is that the way a program behaves and what it does is only and solely determined by it's documentation.
+
+This might on one hand seem obvious or just some semantic reshuffling, but the consequnces are much larger than what might seem obvious. The main reason why, is because 
+*you can never determine what something is supposed to do based on observed behaviour*. There exist this idea that one can go "source diving", if you find a open source project that 
+you can simply open the source files and figure it out yourself. The problem here isn't only that this kind of reverse engineering is difficult and time consuming, but that you can 
+never know if this is what the author *intended*. If every source file did everything it was supposed to we would live in a bug free world, and obviously this isn't the case. The problem here
+is most prelevant when you update this undocumented dependancy. You assumed that the stream index for the streams extracted from a file would always contain valid indexes, but suddenly
+-1 is used as a sentinel. Maybe this was always assumed in the original source, maybe this was always the case and you didn't have a file resulting in that observed behaviour. Bug fixes
+and intended behaviour is of course always relative to the intended behaviour, which is separate from the source.
+
+# Unspecified behaviour can only be assumed to be the most restrictive 
+
+This differs from the previous point in the case when the function is documented, but insufficently so. The best example of when this becomes relevant, is with thread-safety. 
+
+When creating a program, you have to know wheter or not a function is safe to use from 2 separate threads at once. Lots of times thread safety one could think that 
+thread safety can be assumed, but at the same time, if that assumption is ever violated you are forced to debug some nasty and inconsistent bugs. Some seemingly trivial functions
+are also not guaranteed to be threadsafe, such as rand or (annat exempel), and when using something more high level the assumption gets harder to justify. Take for example ffmpeg.
+FFMpeg guarantees that opening a codec is thread safe, but what if it didn't specify it? Could you really assume it? You know that codecs are most likely buffered and share some sort global state
+in terms of using it. Without this guarantee, using ffmpeg in a multithreaded application would be impossible.
+
+This principle also extends to more general use cases. A good example is the documentation for std::regex_iterator. There is not question about what the iterator does, but can you assume
+that the matches are always in increasing distance from the first charcter? This is something that isn't necceserially needed, and the iterator is usable without it. But even though
+this is the most untuitive, and probably easiest to implement, behaviour, you can't assume it to be true and have to assume the worst case scenario, that the results are in an undetermined order.
+
+# An undocumented program/function is an unusable program/function
+
+This isn't a tenet in itself, more so a consequence of the previous points. If I can't know the consequnces of using your function or what it is supposed to do, I simply cannot make use of it,
+irrespective of how intuitive the naming is and how well used it is be people. One can never rely on undefined behaviour, and one can never assume the best case scenario
+
+# Semantics and Design description is just as important as the Technical description
+
+The example I often take to justify this position is an anecdote when I wanted to learn socket programming. I didn't know anything about how ***the internet*** was implemented
+from a software perspective, I only knew that there existed different protocols that ran on TCP. How these protocols are structured, and how TCP worked, was beyond the scope. I wanted to use the 
+lowest level possible, and reasearched TCP and came across the BSD socket API. I understood the general gist of it, and was able to construct a simple server client. There was however
+a question I never got an answer to, is the port of the socket a part of the hardware of the computer?
+
+While this question might seem silly or naive for a person who understand how these protocols work, still, the documentation I read didn't really explain what a socket truly was. It's relativly 
+easy to write what components constitutes a socket state, it contains an ip adress, a port and protocol etc. But *what is* a socket? A software abstraction for the way the underlying protocols
+are structered. This along with a link to the TCP specification, which I obviosuly wouldn't have read through, would clear up a lot of misconceptions regarding what a socket is. A similar example
+is how one would explain what an IP adress is. A pure technical barebones description would maybe say "4 opaque bytes", and maybe the difference between ipv6 and ipv4. Other function might 
+describe how 2 ip adresses can open a connection. While this example might seem a bit forced, no person would describe what an ip adress is like that, it still highlights why: It isn't
+enough to understand how a given field affects the observable effects of different functions, a semantic explaination is needed. 
+
+I often find this problem when trying to get into another field of programming, like music programming or Media related functionality. Often times the concepts and terms used are well established
+by the persons working in the field or knowledgable in it, which means that they aren't accuratly or sufficiently described in the documentation for the respective libraries. This is not neccesarially 
+a problem, a library implementing linear algebra functionality would have to spend an absurd amount of time to describe every single concept used. However, this is only true when the concepts used
+are well established and easily googlable, with a unambiguous definition. This is certainly true for a lot of mathematics, but where this often isn't true, is for software abstractions. 
+Software abstractions are often times difficult to understand because before actually having worked with for example media file formats, you don't understand what problems they
+are trying to solve in the first place. Take for example ffmpeg's "Detailed Description" of their stream struct:
+```
+Stream structure.
+
+New fields can be added to the end with minor version bumps. Removal, reordering and changes to existing fields require a major version bump. sizeof(AVStream) must not be used outside libav*. 
+```
+
+This doesn't say me anything. I do however think, that a person that has worked with different media API's can read what function's it's used in and get a pretty good understanding of it's
+semantics. But this is impossible if you don't have that experience. Now one might ask oneself, is the semantics of a stream unambiguous? Here I would also argue that it isn't. The concept
+of a stream is often used to describe how to read input from a file or socket, but in relation to media it's more often used to describe the act of reading media data from a source without being 
+able to search in the input, only getting access to the most recent outputted bytes. These are obvisouly entirely different concepts, but I would argue that this isn't neccesarially obvious. And,
+perhaps more importantly, it makes it difficult to google. Doing a simple google of "What are streams in media files"  gives me descriptions of streaming protocols. While I could make this
+search more precise by using more specific terminology to get the explanation I want, this assumes that I understand the question to a degree where I probably already have the answer.
+
+
+
+# Reverse index of concepts 
+
+(Har lite mer av en tutorial känsla till sig? Kanske inte passar som tenet?)
+
+A library or program is always designed to solve a problem. This problem might be abstract, and how the different parts of a system helps solve the problem might not be obvious. However,
+a library/program will still most likely have some common use cases that all users want to use, and is probably designed to solve some high level but still well defined problems. 
+
+There has to be some way to go from problem description to relevant part of the documentation. 
+
+This is often something that isn't easy to implement correctly, and getting the granularity right is also not obvious. However, understanding what your program does or how to use your library
+is almost impossible without it. Even the most beatifully structured codebase with complete and accurate description of how every function operates will be completely impossible to use 
+if the only way to get to the right function or entry is to walk through and read everything. The perfect example of this is compiler flags and options. When using GCC, the amount of options
+available is absurd. But if you now how C code is compiled and everything about the pipeline, what you want to do is easy to describe and specify. You might want to add an include directory,
+link to a specific library, configure the debug format etc etc. But if you needed to read through *all* options to get to the right one, using the program would be impossible.
+
+The previous examples might seem obvious, they are relativly concrete and atomic, and often times uses terminology specificed in the standard that's easy to search for. Not being
+able to find the correct flags for this functionality would obviously be really bad. There are however other examples where the problem you want to solve is a bit more abstract. Take 
+for example, the problem of making the code faster. What you want GCC to do is most likely something that you don't actually understand, or is something that is entirely GCC specific. While
+you might know about loop unrolling, is this something that GCC does automatically or not? And even if you are knowledgable about compiler optimizations, chances are that there 
+are still more obscure optimiations that GCC does, and things that GCC doesn't. If GCC would be content with just listing every single flag that affects performance and 
+what it does, compiling a program effectivly would be impossible. While the implementation might be difficult for the compiler, this is ultimately a implementation detail in the abstract
+problem of optimizing the code. If GCC didn't have a section specifically adressing this issue, your code would probably be a lot slower with this compiler.
+
+Just describing what individual functions does, despite how well made and  thourough it is, is ultimately not enough to make the documentation usable. If the documentation doesn't provide
+an easy way to answer a question regarding it's functionality, people are still going to need to rely on google and stackoverflow.
+
+/#_
+
+This is the philosophy regarding the Documentation side of the project, this is however relativly disjunct from the markup/output generation part of the project, which has developed a bit
+beyond the scope of just general documentation language.
+
+# What is a markup language?
+
+When writing documentation for my own projects, I a simple markup langauge that could compile to many different sources, mainly because I took inspiration 
+from many different kind of docuemntations.
+Reading a lot of HTML documentation, I appreciated how easy it was to integrate with the general website and how hyperlinks made refering to other resources trivial, one could 
+write documentation for a program while simoultansously refer to documentation from multiple different unrelated projects and to a wikipedia page describing TCP in depth.
+Using vim, I apprecieted how incredibly lightweight yet expressive the documentation for the program is, and how easy it is use within the program without needing to switch
+tab or use another window, also integrating with the terminal and the text paradigm. Writing a lot of math papers in Latex, I also appreciate the ability to pack everything that is needed
+in one easy to send file, that also follows all of the standard layout conventions without anything extra needed from the user. 
+
+This meant that I wanted to use all of these properties at the same time.
+
+However, by being able to use all of these at once, I also had to only be able to use the lowest common denominator. When the target is text for a terminal, good looking mathematical expressions
+are completely out of the picture. Being able to include images are also problematic, but also something that is very much needed lots of the time. But thinking about what functionality
+I knew that I could include without losing generality, I realised that it would be impossible to create a markup language that was expressive enough to be able to create arbitrary structures
+as in HTML while still being convenient to write in, and also be able to target raw text formats. I also realised that if specficic functionality is needed, that use case is very specific, 
+which all in all lead to 2 conclusions: A preprocessor is needed, and a seperation from semantics and format.
+
+# The Pre-processor
+
+When dealing with multiple output formats that have very different capabilities, there are a couple of ways one could deal with it. 1, use the lowest common denominator. 2, try 
+to emulate the behaviour, or 3, allow the user to decide what to do at compile time. As using the lowest common denominator would mean that images can't be used at all, the alternative
+is out of the question. Emulating the behaviour is extremly non trivial to, and most likely misses the point completely. The only really viable option, if one doesn't want to write
+seprate file depending on the format, is to provide a preprocessor that can change the file depending on the output format. This also provides a way to integreate some other tools
+into the format. Having a preprocessor as a part of the format, one could relativly easily integrate for example the output of other programs as a part of the compilation,
+greatly increasing the extensability.
+
+# Formats and Semantics
+
+When making documentation, or any other type of document like a blog or essay, making it look right is really important. But high controll of how the output looks comes at the expense of 
+having a more complex format, and therefore it's generally harder to write in. But more importantly, high controll of the exact properties of the way to output looks necessitates a 
+output modell where you have high controll. This means that outputting for the terminal or pure text formats get's impossible. But even more generally, I often times don't find myself
+wanting meticulous controll of the output, I want it to just look correct. The best example of this is writing math papers in latex. Tex is a format where you have really good controll
+of all aspects of how the text is position and rendered, but need to specify the relative offset of my exponents and the spacing of characters is something I'm rarely intrested in,
+I want good looking formulas. I don't want understand everything that goes into creating the paper, I want it to look professional and like other papers. This is for me the core 
+idea behind a high level markup language, the separation from writing the contents and how it's rendered.
+
+But this distinction is also something that few other formats really provide. Markdown is a markup langauge that *is supposed to look like markdown*. But if i write a specification that
+is supposed to look like a RFC document, I want all of the sections to be numbered and having the same text width and so on. If I want to output to vim help files, I want the structure
+to mimic the conventions used by other people. The key point here, is that the important part of the markup langauge is not to specify the exact look of the text, but 
+rather the semantics of the contents, that in turn can be interpreted and structured in a specific way uniform way.
+
+This leads to the core abstraction for the markup langauge, the difference between a output format and a target semantic. The output format determines the file format of the outputted file,
+HTTP, text, PDF,ebup etc, while the semantic determines how the output looks. Another key point of this abstraction, is that files outputted with the same file format are linkable to each other,
+no mather which semantics is used to create them.  
+
+In order to facilitate this, there needs to be a way to convert the semantic meaning of different elements. Take for example the format for writing documentation for a function. If the individual
+arguments are described with separate sections, the output might read very awkwardly. However, providing a unique element for each possible style of formatting is both difficult to write in, and difficult
+to maintain backends. Instead, a annotation system with attributes is used instead. 
+
+This provides 2 important properties: A semantic that doesnt recognize the attributes will easily ignore them with well defined result, by simply not taking them into account, 
+and it provides a uniform way to serialize formats.
+

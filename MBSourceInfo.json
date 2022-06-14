@@ -1,0 +1,1 @@
+{"Dependancies":["MBParsing","MBUtility"],"ExtraIncludes":[],"Language":"C++","Targets":{"MBDoc":{"Sources":["/MBDoc.cpp","/MBDocMain.cpp"],"TargetType":"Executable"}}}
