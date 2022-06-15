@@ -2,9 +2,9 @@ project(MBDoc)
 set(PROJECT_NAME "MBDoc")
 ##BEGIN MBPM_VARIABLES
 set(MBPM_DEPENDENCIES 
+	"MBUnicode"
 	"MBParsing"
 	"MBUtility"
-	"MBUnicode"
 )
 set(MBPM_SystemLibraries
 Ws2_32.lib

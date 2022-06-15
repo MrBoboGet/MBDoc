@@ -125,7 +125,7 @@ problem of optimizing the code. If GCC didn't have a section specifically adress
 Just describing what individual functions does, despite how well made and  thourough it is, is ultimately not enough to make the documentation usable. If the documentation doesn't provide
 an easy way to answer a question regarding it's functionality, people are still going to need to rely on google and stackoverflow.
 
-/#_
+/_
 
 This is the philosophy regarding the Documentation side of the project, this is however relativly disjunct from the markup/output generation part of the project, which has developed a bit
 beyond the scope of just general documentation language.

@@ -12,6 +12,26 @@
 #include <MBUnicode/MBUnicode.h>
 namespace MBDoc
 {
+
+    //BEGIN AttributeList
+    bool AttributeList::IsEmpty() const
+    {
+        return(m_Attributes.size() == 0);   
+    }
+    void AttributeList::Clear()
+    {
+        m_Attributes.clear();       
+        assert(IsEmpty() == false);
+    }
+    void AttributeList::AddAttribute(std::string const& AttributeName)
+    {
+        m_Attributes.insert(AttributeName);    
+    }
+    bool AttributeList::HasAttribute(std::string const& AttributeToCheck) const
+    {
+        return(m_Attributes.find(AttributeToCheck) != m_Attributes.end());        
+    }
+    //END AttributeList
     //BEGIN LineRetriever
     LineRetriever::LineRetriever(MBUtility::MBOctetInputStream* InputStream)
     {
@@ -47,6 +67,7 @@ namespace MBDoc
                 {
                     break;   
                 }
+                SearchOffset = m_Buffer.size();
                 constexpr size_t RecieveChunkSize = 4096;
                 char RecieveBuffer[RecieveChunkSize];
                 size_t RecievedBytes = m_InputStream->Read(RecieveBuffer,RecieveChunkSize);
@@ -56,7 +77,6 @@ namespace MBDoc
                     m_StreamFinished = true;
                     NewlinePosition = m_Buffer.find('\n',SearchOffset);
                 }
-                SearchOffset += RecieveChunkSize;
             }
             if(NewlinePosition == m_Buffer.npos)
             {
@@ -152,7 +172,7 @@ namespace MBDoc
     struct TextState
     {
         TextColor Color;
-        TextModifier Modifiers;   
+        TextModifier Modifiers = TextModifier::Null;   
     };
     TextState h_ParseTextState(void const* Data,size_t DataSize,size_t ParseOffset,size_t* OutParseOffset)
     {
@@ -189,6 +209,12 @@ namespace MBDoc
                 ResultParsed = true;
                 ParseOffset += 1;
             }   
+            if (CharData[ParseOffset] == '_')
+            {
+                ReturnValue.Modifiers = ReturnValue.Modifiers | TextModifier::Underlined;
+                ResultParsed = true;
+                ParseOffset += 1;
+            }
         }
         if(OutParseOffset != nullptr)
         {
@@ -312,6 +338,18 @@ namespace MBDoc
                 {
                     break;   
                 }
+                if(std::memcmp(CurrentLine.data()+ParseOffset,"/_",2) == 0)
+                {
+                    break;   
+                }
+                if(std::memcmp(CurrentLine.data()+ParseOffset,"[[",2) == 0)
+                {
+                    break;   
+                }
+                if (std::memcmp(CurrentLine.data() + ParseOffset, "#_", 2) == 0)
+                {
+                    break;
+                }
             }
             TotalParagraphData += CurrentLine+" ";
             Retriever.DiscardLine();
@@ -345,10 +383,39 @@ namespace MBDoc
         ReturnValue.DirectiveName = CurrentLine.substr(NameBegin + 1);
         return(ReturnValue);
     }
-    FormatElement DocumentParsingContext::p_ParseFormatElement(LineRetriever& Retriever)
+    AttributeList DocumentParsingContext::p_ParseAttributeList(LineRetriever& Retriever)
+    {
+        AttributeList ReturnValue;
+        std::string CurrentLine = Retriever.PeekLine();
+        Retriever.DiscardLine();
+        size_t ParseOffset = 0;
+        MBParsing::SkipWhitespace(CurrentLine, 0, &ParseOffset);
+        if(ParseOffset + 4 >= CurrentLine.size())
+        {
+            throw std::runtime_error("Invalid attribute list: must begin with [[ and end with ]]");   
+        }
+        if(std::memcmp(CurrentLine.data()+ParseOffset,"[[",2) != 0)
+        {
+            throw std::runtime_error("Invalid attribute list: must begin with [[ and end with ]]");   
+        }
+        size_t AttributesEnd = CurrentLine.find("]]", ParseOffset + 2);
+        if (AttributesEnd == CurrentLine.npos)
+        {
+            throw std::runtime_error("Invalid attribute list: must begin with [[ and end with ]]");
+        }
+        std::string AttributesData = CurrentLine.substr(ParseOffset+2,AttributesEnd-ParseOffset-2);
+        std::vector<std::string> Flags =MBUtility::Split(AttributesData,",");
+        for(std::string const& Flag : Flags)
+        {
+            ReturnValue.HasAttribute(Flag);   
+        }
+        return(ReturnValue);   
+    }
+    FormatElement DocumentParsingContext::p_ParseFormatElement(LineRetriever& Retriever,AttributeList* OutAttributes)
     {
         FormatElement ReturnValue;
         size_t CurrentElementCount = 0;
+        bool IsTopElement = false;
         //Determine which kind of format element
         while(!Retriever.Finished())
         {
@@ -369,6 +436,11 @@ namespace MBDoc
                 if(CurrentLine[FirstNonEmptyCharacter] == '#' || CurrentLine[FirstNonEmptyCharacter] == '_')
                 {
                     //Is a specified format    
+                    if(FirstNonEmptyCharacter+1 < CurrentLine.size() && CurrentLine[FirstNonEmptyCharacter+1] == '_')
+                    {
+                        IsTopElement = true;
+                        FirstNonEmptyCharacter+=1; 
+                    }
                     if (CurrentLine[FirstNonEmptyCharacter] == '_')
                     {
                         FirstNonEmptyCharacter += 1;
@@ -376,6 +448,16 @@ namespace MBDoc
                     size_t FirstNameCharacter = 0;
                     MBParsing::SkipWhitespace(CurrentLine, FirstNonEmptyCharacter + 1, &FirstNameCharacter);
                     ReturnValue.Name = h_NormalizeName(CurrentLine.substr(FirstNameCharacter));
+                    if(ReturnValue.Name.size() > 0 && ReturnValue.Name[0] == '.')
+                    {
+                        std::string NewName = ReturnValue.Name.substr(1);   
+                        ReturnValue.Name = NewName;
+                        ReturnValue.Attributes.AddAttribute(NewName);
+                    }
+                    if(ReturnValue.Name == "")
+                    {
+                        throw std::runtime_error("Invalid format element name, empty string not allowed");   
+                    }
                     ReturnValue.Type = FormatElementType::Section;
                     Retriever.DiscardLine();
                     break;
@@ -387,6 +469,7 @@ namespace MBDoc
                 }
             }
         }
+        AttributeList CurrentAttributes;
         while(!Retriever.Finished())
         {
             if(Retriever.PeekLine().size() == 0)
@@ -402,9 +485,14 @@ namespace MBDoc
                 Retriever.DiscardLine();
                 continue;     
             }
-            if(CurrentLine[ParseOffset] == '#')
+            bool ParseChildFormat = false;
+            if(CurrentLine[ParseOffset] == '#' && !IsTopElement)
             {
                 break;   
+            }
+            if (CurrentLine[ParseOffset] == '#' && IsTopElement)
+            {
+                ParseChildFormat = true;
             }
             if(ParseOffset + 1 < CurrentLine.size())
             {
@@ -413,31 +501,89 @@ namespace MBDoc
                     Retriever.DiscardLine();
                     break;   
                 }
+                if(std::memcmp(CurrentLine.data()+ParseOffset,"[[",2) == 0)
+                {
+                    CurrentAttributes = p_ParseAttributeList(Retriever);
+                    continue;   
+                }
                 if(std::memcmp(CurrentLine.data()+ParseOffset,"_#",2) == 0)
                 {
-                    //skapa grej 
-                    ReturnValue.NestedFormats.push_back({p_ParseFormatElement(Retriever),CurrentElementCount});
-                    CurrentElementCount++;
-                    continue;
-                }   
+                    ParseChildFormat = true;
+                }
+                if (std::memcmp(CurrentLine.data() + ParseOffset, "#_", 2) == 0)
+                {
+                    if (IsTopElement)
+                    {
+                        ParseChildFormat = true;
+                    }
+                    else 
+                    {
+                        break;
+                    }
+                }
+                if (std::memcmp(CurrentLine.data() + ParseOffset, "/_", 2) == 0)
+                {
+                    if (IsTopElement)
+                    {
+                        Retriever.DiscardLine();
+                    }
+                    break;
+                }
+            }
+            if (ParseChildFormat)
+            {
+                AttributeList NewAttributes;
+                ReturnValue.NestedFormats.push_back({ p_ParseFormatElement(Retriever,&NewAttributes),CurrentElementCount });
+                if (CurrentAttributes.IsEmpty() == false)
+                {
+                    ReturnValue.NestedFormats.back().first.Attributes = CurrentAttributes;
+                    CurrentAttributes.Clear();
+                }
+                if (NewAttributes.IsEmpty() == false)
+                {
+                    CurrentAttributes = NewAttributes;
+                }
+                CurrentElementCount++;
+                continue;
             }
             if (CurrentLine[ParseOffset] == '%')
             {
+                if(CurrentAttributes.IsEmpty() == false)
+                {
+                    throw std::runtime_error("Attribute list not allowed for directives");   
+                }
                 ReturnValue.Directives.push_back({ p_ParseDirective(Retriever),CurrentElementCount });
                 CurrentElementCount += 1;
                 continue;
             }
             ReturnValue.BlockElements.push_back({p_ParseBlockElement(Retriever),CurrentElementCount});
+            if(CurrentAttributes.IsEmpty() == false)
+            {
+                ReturnValue.BlockElements.back().first->Attributes = CurrentAttributes; 
+                CurrentAttributes.Clear();
+            }
             CurrentElementCount += 1; 
         }
+        *OutAttributes = CurrentAttributes;
         return(ReturnValue);   
     }
     std::vector<FormatElement> DocumentParsingContext::p_ParseFormatElements(LineRetriever& Retriever)
     {
         std::vector<FormatElement> ReturnValue;
+        AttributeList CurrentAttributes;
         while(!Retriever.Finished())
         {
-            ReturnValue.push_back(p_ParseFormatElement(Retriever));  
+            AttributeList NewAttributes;
+            ReturnValue.push_back(p_ParseFormatElement(Retriever,&NewAttributes));  
+            if(CurrentAttributes.IsEmpty() == false)
+            {
+                ReturnValue.back().Attributes = CurrentAttributes;
+                CurrentAttributes.Clear();   
+            }
+            if(NewAttributes.IsEmpty() == false)
+            {
+                CurrentAttributes = std::move(NewAttributes);  
+            } 
         } 
         return(ReturnValue);   
     }
@@ -453,6 +599,7 @@ namespace MBDoc
         }  
         catch(std::exception const& e)
         {
+            std::cout << e.what() << std::endl;
             ReturnValue = DocumentSource(); 
         }
         return(ReturnValue);
@@ -506,7 +653,7 @@ namespace MBDoc
         } 
         Paragraph const& ParagraphToCompile = static_cast<Paragraph const&>(*BlockToCompile);
         p_CompileText(ParagraphToCompile.TextElements, ReferenceSolver,OutStream);
-        OutStream.Write("\n",1);
+        OutStream.Write("\n\n",2);
     }
     void MarkdownCompiler::p_CompileDirective(Directive const& DirectiveToCompile, MarkdownReferenceSolver const& ReferenceSolver, MBUtility::MBOctetOutputStream& OutStream)
     {
@@ -530,7 +677,7 @@ namespace MBDoc
             {
                 StringToWrite += "#";  
             } 
-            StringToWrite += " "+FormatToCompile.Name+"\n";
+            StringToWrite += " "+FormatToCompile.Name+"\n\n";
             OutStream.Write(StringToWrite.data(),StringToWrite.size());
         }
         std::vector<std::pair<i_CompileType,size_t>> Types = std::vector<std::pair<i_CompileType,size_t>>(
@@ -592,11 +739,11 @@ namespace MBDoc
     }
     void MarkdownCompiler::Compile(std::vector<DocumentSource> const& Sources)
     {
-        //Printer OutStream;
+        Printer OutStream;
         for(DocumentSource const& Source : Sources)
         {
             MarkdownReferenceSolver Solver = p_CreateReferenceSolver(Source);
-            MBUtility::MBFileOutputStream OutStream = MBUtility::MBFileOutputStream("README.md");
+            //MBUtility::MBFileOutputStream OutStream = MBUtility::MBFileOutputStream("README.md");
             p_CompileSource(Source,Solver,OutStream); 
         }    
     }

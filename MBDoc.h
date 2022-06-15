@@ -109,7 +109,16 @@ namespace MBDoc
         std::unique_ptr<TextElement> Text;
     };
     //Text elements
-
+    class AttributeList
+    {
+    private:
+        std::unordered_set<std::string> m_Attributes;
+    public:
+        bool IsEmpty() const;
+        void Clear();
+        void AddAttribute(std::string const& AttributeName);
+        bool HasAttribute(std::string const& AttributeToCheck) const;
+    };
     //Block elements
     enum class BlockElementType
     {
@@ -121,6 +130,7 @@ namespace MBDoc
     struct BlockElement
     {
         BlockElementType Type = BlockElementType::Null;
+        AttributeList Attributes;
     };
 
     struct Paragraph : BlockElement
@@ -165,12 +175,16 @@ namespace MBDoc
         Default,
         Anchor
     };
+
+    
     struct FormatElement
     {
+        FormatElement() = default;
+        FormatElement(FormatElement &&) = default;
+        FormatElement(FormatElement const&) = delete;
         FormatElementType Type;
         std::string Name;
-        std::vector<std::pair<std::string,std::string>> Parameters;
-
+        AttributeList  Attributes;
         std::vector<std::pair<std::unique_ptr<BlockElement>,size_t>> BlockElements; 
         std::vector<std::pair<Directive, size_t>> Directives;
         std::vector<std::pair<FormatElement,size_t>> NestedFormats;
@@ -220,8 +234,10 @@ namespace MBDoc
         DocReference p_ParseReference(void const* Data,size_t DataSize,size_t ParseOffset,size_t* OutParseOffset);
         std::vector<std::unique_ptr<TextElement>> p_ParseTextElements(void const* Data,size_t DataSize,size_t ParseOffset,size_t* OutParseOffset);
         std::unique_ptr<BlockElement> p_ParseBlockElement(LineRetriever& Retriever);
+        AttributeList p_ParseAttributeList(LineRetriever& Retriever);
         Directive p_ParseDirective(LineRetriever& Retriever);
-        FormatElement p_ParseFormatElement(LineRetriever& Retriever);
+        //Incredibly ugly, but the alternative for the current syntax is to include 2 lines look ahead
+        FormatElement p_ParseFormatElement(LineRetriever& Retriever,AttributeList* OutCurrentList);
         std::vector<FormatElement> p_ParseFormatElements(LineRetriever& Retriever);
     public:
         DocumentSource ParseSource(MBUtility::MBOctetInputStream& InputStream);
