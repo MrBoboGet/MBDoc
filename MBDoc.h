@@ -141,6 +141,15 @@ namespace MBDoc
         };
         std::vector<std::unique_ptr<TextElement>> TextElements;//Can be sentences, text, inline references etc
     };
+    struct CodeBlock : BlockElement 
+    {
+        CodeBlock() 
+        {
+            Type = BlockElementType::CodeBlock;
+        }
+        std::string CodeType;
+        std::string RawText;
+    };
     struct Note : BlockElement
     {
         std::unique_ptr<TextElement> Text; 
@@ -204,9 +213,8 @@ namespace MBDoc
     class DocumentSource
     {
     public:
+        std::string Path;
         std::vector<FormatElement> Contents;
-        //[[SemanticallyAuthoritative]]
-        //
     };
 
     class LineRetriever
@@ -233,6 +241,7 @@ namespace MBDoc
     private:
         DocReference p_ParseReference(void const* Data,size_t DataSize,size_t ParseOffset,size_t* OutParseOffset);
         std::vector<std::unique_ptr<TextElement>> p_ParseTextElements(void const* Data,size_t DataSize,size_t ParseOffset,size_t* OutParseOffset);
+        std::unique_ptr<BlockElement> p_ParseCodeBlock(LineRetriever& Retriever);
         std::unique_ptr<BlockElement> p_ParseBlockElement(LineRetriever& Retriever);
         AttributeList p_ParseAttributeList(LineRetriever& Retriever);
         Directive p_ParseDirective(LineRetriever& Retriever);
@@ -240,12 +249,10 @@ namespace MBDoc
         FormatElement p_ParseFormatElement(LineRetriever& Retriever,AttributeList* OutCurrentList);
         std::vector<FormatElement> p_ParseFormatElements(LineRetriever& Retriever);
     public:
-        DocumentSource ParseSource(MBUtility::MBOctetInputStream& InputStream);
+        DocumentSource ParseSource(MBUtility::MBOctetInputStream& InputStream,std::string FileName);
         DocumentSource ParseSource(std::filesystem::path const& InputFile);
-        DocumentSource ParseSource(const void* Data,size_t DataSize);
+        DocumentSource ParseSource(const void* Data,size_t DataSize,std::string FileName);
     };
-   
-    MBError SemanticVerfification(DocumentSource const& DocumentToAnalyze);
     class DocumentCompiler
     {
     
@@ -287,5 +294,35 @@ namespace MBDoc
         MarkdownReferenceSolver p_CreateReferenceSolver(DocumentSource const& Source);
     public:
         virtual void Compile(std::vector<DocumentSource> const& Sources);
+    };
+    class HTTPReferenceSolver
+    {
+    private:
+    
+    public:
+        std::string GetReferenceString(DocReference const& ReferenceIdentifier);      
+        void Initialize(std::vector<DocumentSource> const& Document);
+        void Initialize(DocumentSource const& Document);
+        //void Initialize(DocumentSource const& Document);
+    };
+
+    class HTTPTocCreator
+    {
+    private:
+
+    public:
+        void Initialize(DocReference const& Document);   
+        void WriteTOC(MBUtility::MBOctetOutputStream& OutStream);
+    };
+    class HTTPCompiler : DocumentCompiler
+    {
+    private:
+        void p_CompileText(std::vector<std::unique_ptr<TextElement>> const& ElementsToCompile,HTTPReferenceSolver const& HTTPReferenceSolverReferenceSolver,MBUtility::MBOctetOutputStream& OutStream);
+        void p_CompileBlock(BlockElement const* BlockToCompile, HTTPReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream);
+        void p_CompileDirective(Directive const& DirectiveToCompile, HTTPReferenceSolver const& ReferenceSolver, MBUtility::MBOctetOutputStream& OutStream);
+        void p_CompileFormat(FormatElement const& SourceToCompile, HTTPReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream,int Depth);
+        void p_CompileSource(DocumentSource const& SourceToCompile, HTTPReferenceSolver const& ReferenceSolver);
+    public:
+        void Compile(std::vector<DocumentSource> const& Source); 
     };
 }

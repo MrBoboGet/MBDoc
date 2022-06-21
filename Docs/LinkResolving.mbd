@@ -1,0 +1,7 @@
+%heading MBDoc
+
+In @[the formats documentation](Formats.mbd) the markup language is specified and the design of the syntax is discussed, and in @[Index](index.mbd) the purpose of the 
+project and the general goals are discussed. This document serves to explain the way references are resolved from a given @ReferenceIdentifier, the design decisions 
+and how this servres the goals outlined. This is breafy touched upon in @Format, but the definite source for the design of the reference identifiers and how they are resolved is here.
+
+One of the main 

@@ -228,80 +228,116 @@ namespace MBDoc
         const char* CharData = (const char*)Data;
         while(ParseOffset > 0)
         {
-            if(CharData[ParseOffset-1] == '\\')
-            {
-                ReturnValue = !ReturnValue;
-            }
-            else
-            {
-                break;  
-            } 
-            ParseOffset--;
+if (CharData[ParseOffset - 1] == '\\')
+{
+    ReturnValue = !ReturnValue;
+}
+else
+{
+    break;
+}
+ParseOffset--;
         }
-        return(ReturnValue);   
+        return(ReturnValue);
     }
-    std::vector<std::unique_ptr<TextElement>> DocumentParsingContext::p_ParseTextElements(void const* Data,size_t DataSize,size_t ParseOffset,size_t* OutParseOffset)
+    std::vector<std::unique_ptr<TextElement>> DocumentParsingContext::p_ParseTextElements(void const* Data, size_t DataSize, size_t ParseOffset, size_t* OutParseOffset)
     {
         std::vector<std::unique_ptr<TextElement>> ReturnValue;
         //ASSUMPTION no # or block delimiter present, guaranteed text element data 
         const char* CharData = (const char*)Data;
         TextColor CurrentTextColor;
-        TextModifier CurrentTextModifier = TextModifier(0); 
-        while(ParseOffset < DataSize)
+        TextModifier CurrentTextModifier = TextModifier(0);
+        while (ParseOffset < DataSize)
         {
             size_t FindTextModifierDelimiterOffset = ParseOffset;
             size_t NextReferenceDeclaration = DataSize;
             size_t NextTextModifier = DataSize;
             size_t NextModifier = DataSize;
-            while(FindTextModifierDelimiterOffset < DataSize)
+            while (FindTextModifierDelimiterOffset < DataSize)
             {
-                NextReferenceDeclaration = std::find(CharData+FindTextModifierDelimiterOffset,CharData+DataSize,'@')-(CharData);
-                NextTextModifier = std::find(CharData+FindTextModifierDelimiterOffset,CharData+DataSize,'*')-(CharData);
-                NextTextModifier =std::min(NextTextModifier,size_t(std::find(CharData+FindTextModifierDelimiterOffset,CharData+DataSize,'_')-(CharData)));
+                NextReferenceDeclaration = std::find(CharData + FindTextModifierDelimiterOffset, CharData + DataSize, '@') - (CharData);
+                NextTextModifier = std::find(CharData + FindTextModifierDelimiterOffset, CharData + DataSize, '*') - (CharData);
+                NextTextModifier = std::min(NextTextModifier, size_t(std::find(CharData + FindTextModifierDelimiterOffset, CharData + DataSize, '_') - (CharData)));
 
-                NextModifier = std::min(NextTextModifier,NextReferenceDeclaration);
-                if(NextModifier == DataSize)
+                NextModifier = std::min(NextTextModifier, NextReferenceDeclaration);
+                if (NextModifier == DataSize)
                 {
-                    break;   
+                    break;
                 }
-                if(h_IsEscaped(Data,DataSize,NextModifier))
+                if (h_IsEscaped(Data, DataSize, NextModifier))
                 {
-                    FindTextModifierDelimiterOffset = NextModifier+1;  
+                    FindTextModifierDelimiterOffset = NextModifier + 1;
                 }
                 else
                 {
-                    break;   
+                    break;
                 }
             }
-                
-            if(ParseOffset < NextModifier)
+
+            if (ParseOffset < NextModifier)
             {
-                RegularText NewText; 
+                RegularText NewText;
                 NewText.Modifiers = CurrentTextModifier;
                 NewText.Color = CurrentTextColor;
-                NewText.Text = std::string(CharData+ParseOffset,NextModifier-ParseOffset);
+                NewText.Text = std::string(CharData + ParseOffset, NextModifier - ParseOffset);
                 ReturnValue.push_back(std::unique_ptr<TextElement>(new RegularText(std::move(NewText))));
                 ParseOffset = NextModifier;
             }
-            if(NextTextModifier >= DataSize && NextReferenceDeclaration  >= DataSize)
+            if (NextTextModifier >= DataSize && NextReferenceDeclaration >= DataSize)
             {
-                break;     
+                break;
             }
-            if(NextReferenceDeclaration < NextTextModifier)
+            if (NextReferenceDeclaration < NextTextModifier)
             {
-                DocReference NewReference = p_ParseReference(Data,DataSize,ParseOffset,&ParseOffset);
+                DocReference NewReference = p_ParseReference(Data, DataSize, ParseOffset, &ParseOffset);
                 NewReference.Color = CurrentTextColor;
                 NewReference.Modifiers = CurrentTextModifier;
                 ReturnValue.push_back(std::unique_ptr<TextElement>(new DocReference(std::move(NewReference))));
             }
-            if(NextTextModifier < NextReferenceDeclaration)
+            if (NextTextModifier < NextReferenceDeclaration)
             {
-                TextState NewState = h_ParseTextState(Data,DataSize,NextTextModifier,&ParseOffset);
+                TextState NewState = h_ParseTextState(Data, DataSize, NextTextModifier, &ParseOffset);
                 CurrentTextColor = NewState.Color;
-                CurrentTextModifier = TextModifier(uint64_t(CurrentTextModifier)^uint64_t(NewState.Modifiers));
+                CurrentTextModifier = TextModifier(uint64_t(CurrentTextModifier) ^ uint64_t(NewState.Modifiers));
             }
         }
-        return(ReturnValue); 
+        return(ReturnValue);
+    }
+    std::unique_ptr<BlockElement> DocumentParsingContext::p_ParseCodeBlock(LineRetriever& Retriever)
+    {
+        std::unique_ptr<BlockElement> ReturnValue = std::make_unique<CodeBlock>();
+        CodeBlock& NewCodeBlock = static_cast<CodeBlock&>(*ReturnValue.get());
+        std::string CodeBlockHeader;
+        Retriever.GetLine(CodeBlockHeader);
+        size_t ParseOffset = 0;
+        MBParsing::SkipWhitespace(CodeBlockHeader, 0, &ParseOffset);
+        if (ParseOffset + 2 >= CodeBlockHeader.size() || std::memcmp(CodeBlockHeader.data()+ParseOffset, "```", 3) != 0)
+        {
+            throw std::runtime_error("Invalid code block header: must start with ```");
+        }
+        if (ParseOffset + 4 < CodeBlockHeader.size())
+        {
+            size_t LastCodeName = CodeBlockHeader.find_last_not_of(" \t");
+            if (LastCodeName != CodeBlockHeader.npos)
+            {
+                NewCodeBlock.CodeType = CodeBlockHeader.substr(ParseOffset + 3, LastCodeName - (ParseOffset + 2));
+            }
+        }
+        while (!Retriever.Finished())
+        {
+            std::string NewLine;
+            Retriever.GetLine(NewLine);
+            MBParsing::SkipWhitespace(NewLine, 0, &ParseOffset);
+            if (ParseOffset + 2 < NewLine.size() && std::memcmp(NewLine.data()+ParseOffset, "```", 3) == 0)
+            {
+                break;
+            }
+            NewCodeBlock.RawText += NewLine;
+            NewCodeBlock.RawText.insert(NewCodeBlock.RawText.end(), '\n');
+        }
+        //there is always 1 extra newline
+        NewCodeBlock.RawText.resize(NewCodeBlock.RawText.size() - 1);
+        return(ReturnValue);
     }
     std::unique_ptr<BlockElement> DocumentParsingContext::p_ParseBlockElement(LineRetriever& Retriever)
     {
@@ -349,6 +385,21 @@ namespace MBDoc
                 if (std::memcmp(CurrentLine.data() + ParseOffset, "#_", 2) == 0)
                 {
                     break;
+                }
+            }
+            if (ParseOffset + 2 < CurrentLine.size())
+            {
+                if (std::memcmp(CurrentLine.data() + ParseOffset, "```", 3) == 0) 
+                {
+                    if (TotalParagraphData.size() > 0) 
+                    {
+                        break;
+                    }
+                    else 
+                    {
+                        ReturnValue = p_ParseCodeBlock(Retriever);
+                        break;
+                    }
                 }
             }
             TotalParagraphData += CurrentLine+" ";
@@ -588,9 +639,10 @@ namespace MBDoc
         return(ReturnValue);   
     }
     
-    DocumentSource DocumentParsingContext::ParseSource(MBUtility::MBOctetInputStream& InputStream)
+    DocumentSource DocumentParsingContext::ParseSource(MBUtility::MBOctetInputStream& InputStream,std::string FileName)
     {
         DocumentSource ReturnValue;
+        ReturnValue.Path = std::move(FileName);
         LineRetriever Retriever(&InputStream);
         //Preprocessing step that is skipped here
         try
@@ -608,12 +660,12 @@ namespace MBDoc
     {
         std::ifstream FileStream(InputFile.c_str());
         MBUtility::MBFileInputStream InputStream(&FileStream);
-        return(ParseSource(InputStream));
+        return(ParseSource(InputStream,MBUnicode::PathToUTF8(InputFile.filename())));
     }
-    DocumentSource DocumentParsingContext::ParseSource(const void* Data,size_t DataSize)
+    DocumentSource DocumentParsingContext::ParseSource(const void* Data,size_t DataSize,std::string FileName)
     {
         MBUtility::MBBufferInputStream BufferStream(Data,DataSize);
-        return(ParseSource(BufferStream));
+        return(ParseSource(BufferStream,std::move(FileName)));
     }
 
     //BEGIN MarkdownCompiler
@@ -840,4 +892,146 @@ namespace MBDoc
         }
     }
     //END MarkdownReferenceSolver
+    //
+    
+    //BEGIN HTTPReferenceSolver
+    std::string HTTPReferenceSolver::GetReferenceString(DocReference const& ReferenceIdentifier)
+    {
+        return("");
+    }
+    void HTTPReferenceSolver::Initialize(std::vector<DocumentSource> const& Document)
+    {
+
+    }
+    void HTTPReferenceSolver::Initialize(DocumentSource const& Document)
+    {
+
+    }
+    //END HTTPReferenceSolver
+
+
+    //BEGIN HTTPCompiler
+
+    void HTTPCompiler::p_CompileText(std::vector<std::unique_ptr<TextElement>> const& ElementsToCompile,HTTPReferenceSolver const& HTTPReferenceSolverReferenceSolver,MBUtility::MBOctetOutputStream& OutStream)
+    {
+        for(std::unique_ptr<TextElement> const& Text : ElementsToCompile)
+        {
+            if(Text->Type == TextElementType::Regular)
+            {
+                TextModifier Modifiers = Text->Modifiers;
+                if((Modifiers & TextModifier::Bold) != TextModifier::Null)
+                {
+                    OutStream.Write("<b>",3);   
+                }
+                if((Modifiers & TextModifier::Italic) != TextModifier::Null)
+                {
+                    OutStream.Write("<i>",3); 
+                }
+                RegularText const& TextToWrite = static_cast<RegularText const&>(*Text);
+                OutStream.Write(TextToWrite.Text.data(),TextToWrite.Text.size());
+                if((Modifiers & TextModifier::Bold) != TextModifier::Null)
+                {
+                    OutStream.Write("</b>",4);   
+                }
+                if((Modifiers & TextModifier::Italic) != TextModifier::Null)
+                {
+                    OutStream.Write("</i>",4); 
+                }
+            }   
+        }
+    }
+    void HTTPCompiler::p_CompileBlock(BlockElement const* BlockToCompile, HTTPReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream)
+    {
+        if(BlockToCompile->Type == BlockElementType::Paragraph)
+        {
+            Paragraph const& ParagraphToWrite = static_cast<Paragraph const&>(*BlockToCompile);    
+            p_CompileText(ParagraphToWrite.TextElements,ReferenceSolver,OutStream); 
+            OutStream.Write("<br><br>\n\n", 10);
+        }
+        else if(BlockToCompile->Type == BlockElementType::CodeBlock)
+        {
+            OutStream.Write("<pre>", 5);
+            CodeBlock const& BlockToWrite = static_cast<CodeBlock const&>(*BlockToCompile);
+            OutStream.Write(BlockToWrite.RawText.data(), BlockToWrite.RawText.size());
+            OutStream.Write("</pre>", 6);
+        } 
+    }
+    void HTTPCompiler::p_CompileDirective(Directive const& DirectiveToCompile, HTTPReferenceSolver const& ReferenceSolver, MBUtility::MBOctetOutputStream& OutStream)
+    {
+         
+    }
+    void HTTPCompiler::p_CompileFormat(FormatElement const& FormatToCompile, HTTPReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream,int Depth)
+    {
+        std::string HeadingTag = "h"+std::to_string(Depth+2);
+        if(FormatToCompile.Type != FormatElementType::Default)
+        {
+            std::string StringToWrite = "<"+HeadingTag+" id=\"" +FormatToCompile.Name+"\" style=\"text-align: center;\">"+FormatToCompile.Name+"</"+HeadingTag+"><br>\n";
+            OutStream.Write(StringToWrite.data(),StringToWrite.size());
+        }
+        std::vector<std::pair<i_CompileType,size_t>> Types = std::vector<std::pair<i_CompileType,size_t>>(
+                FormatToCompile.BlockElements.size()+FormatToCompile.Directives.size()+FormatToCompile.NestedFormats.size());
+        for (size_t i = 0; i < FormatToCompile.BlockElements.size(); i++)
+        {
+            Types[FormatToCompile.BlockElements[i].second].first = i_CompileType::Block;
+            Types[FormatToCompile.BlockElements[i].second].second = i;
+        }
+        for (size_t i = 0; i < FormatToCompile.Directives.size(); i++)
+        {
+            Types[FormatToCompile.Directives[i].second].first = i_CompileType::Directive;
+            Types[FormatToCompile.Directives[i].second].second = i;
+        }
+        for (size_t i = 0; i < FormatToCompile.NestedFormats.size(); i++)
+        {
+            Types[FormatToCompile.NestedFormats[i].second].first = i_CompileType::Format;
+            Types[FormatToCompile.NestedFormats[i].second].second = i;
+        }
+        for (auto const& CompileTarget : Types)
+        {
+            if (CompileTarget.first == i_CompileType::Block)
+            {
+                p_CompileBlock(FormatToCompile.BlockElements[CompileTarget.second].first.get(), ReferenceSolver, OutStream);
+            }
+            if (CompileTarget.first == i_CompileType::Directive)
+            {
+                p_CompileDirective(FormatToCompile.Directives[CompileTarget.second].first, ReferenceSolver, OutStream);
+            }
+            if (CompileTarget.first == i_CompileType::Format)
+            {
+                p_CompileFormat(FormatToCompile.NestedFormats[CompileTarget.second].first, ReferenceSolver, OutStream,Depth+1);
+            }
+        }
+    }
+    void HTTPCompiler::p_CompileSource(DocumentSource const& SourceToCompile, HTTPReferenceSolver const& ReferenceSolver)
+    {
+        std::string OutFile = SourceToCompile.Path;
+        size_t FirstDot = OutFile.find_last_of('.');
+        if (FirstDot == OutFile.npos)
+        {
+            OutFile += ".html";
+        }
+        else
+        {
+            OutFile.replace(FirstDot, 5, ".html");
+        }
+        std::ofstream OutStream = std::ofstream(OutFile);
+        MBUtility::MBFileOutputStream FileStream(&OutStream);
+        std::string TopInfo = "<!DOCTYPE html><html><head><style>body{background-color: black; color: #00FF00;}</style></head><body><div style=\"width: 50%;margin: auto\">";
+        OutStream.write(TopInfo.data(), TopInfo.size());
+        for (FormatElement const& Format : SourceToCompile.Contents)
+        {
+            p_CompileFormat(Format, ReferenceSolver, FileStream, 0);
+        }
+        OutStream.write("</div></body></html>", 7);
+    }
+    void HTTPCompiler::Compile(std::vector<DocumentSource> const& Sources)
+    {
+        HTTPReferenceSolver ReferenceSolver;
+        ReferenceSolver.Initialize(Sources);
+        for (auto const& Source : Sources) 
+        {
+            p_CompileSource(Source, ReferenceSolver);
+        }
+    }
+
+    //END HTTPCompiler
 }

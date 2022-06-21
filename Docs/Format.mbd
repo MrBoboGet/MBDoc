@@ -1,0 +1,226 @@
+# MBDoc
+
+The purpose of this document is to describe the target goals for the MBDoc format and it's design, as well as giving a complete description of all it's current components. 
+This document is needed in order to understand the semantics and purpose for all the different elements of a MBDoc, but to undestand how this is then
+represented programatically, go @[here](Datastructures.mbd).
+
+#_ The goals for the format
+
+The main goals of the project and consequently the markup language is described in @[here](index.mbd), and is the definitve document for the motivation
+behind all of the design. However, how these goals and the markup language interact is described in this part. The goals here are the goals
+the format need to support in order to fulfill the requiremnts outlined. 
+
+
+    # Unobtrusive syntax
+        When writing documentation, the main goal is that it is easy to get the desired content without needing to constantly read the documentation
+        for the documentation writing program itself.
+    # Easy to create references
+        Writing documentation is like lots of things, easy when the scale is small. However, once a lot of documents are created and the file structure
+        starts getting complicated, copy pasting absolute URL's starts to get unfeasibly, stuff breaks and gets renamed and so on. There must a 
+        easy way to create references to other documents, that doesn't require a complete understanding if the whole project structure, that is 
+        preferably resistant to restructuring, that can reference documents from other completely separate projects, and that is intuitive to write in.
+    # Extensability
+        No finite amount of elements can support all of the potential functionality and features there is, so the format has to be able to include extensions
+        in some way.
+    # Easy to create compilers for
+        In order to efficiently target multiple output formats, creating a compiler should not be require to much work. If the formats is to complicated,
+        many bugs may be introdced from the conversion to different formats, and if not all functionality is supported for all targets writing documentation
+        becomes difficult if one needs to constantly reason about incompatabilites. 
+/_
+
+
+#_ The Elements
+    The following is a description of all the components of all the elements that constitues a document and their purpose, that is supposed to 
+    describe their functioanlity. The design behind these components are seperate from how they are in turn represented in syntax, which can be found 
+    @[here](#The Syntax).
+    
+    # The Format Element
+        All but the simplest text files have some sort of structure. This can be as easy as dividing it up into paragraphs, or having some simple headings.
+        When writing a book, there might be different chapters that have different names, and when writing a tutorial there might be different
+        distinct steps. The "Format element" is a @[simple](#Easy to create compilers for) and @[concise](#Unobtrusive syntax) abstraction for all 
+        of the different ways a document can be formatted.
+
+        The format element has the following properties: It has a name that can be @[reffered to](#References), it can contain @[Block elements](#The Block Element),
+        and it can contain other formats elements.
+
+        The properties of the format elements is intentionally very limited. The purpose is to both be as general as possible, and to defer as much actual formatting
+        as possible to the semantic. The assumption here, is that often times the way the described format is represented visually often times something that
+        is difficult to describe exactly, how much indent should the header have, should it use a different font etc, and something that can be automatically genereted
+        to look right. Take the book example. A book typically consists of chapters, that have names and contain text. This is something that can be perfectly described
+        with this system.
+    
+    # The Block Element
+
+        A format element is in and of itself not very intresting, and needs to contain something. The block element is all elements that describes any sort of content to be displayed,
+        and that can be put arbitrarily in a document without changings it's semantics. The following block elements are currently defined.
+
+        _# Paragraph
+            A paragraph is a list of @[text elements](#The Text Element).
+        /#
+        _# CodeBlock
+            A Codeblock is raw text that is already formatted, and should be included in the output as is, with the possible inclusion of syntax highlighting.
+        /#
+        _# Media Reference
+            A media reference is the inclusion of a media file, typically an image or video. 
+        /#
+
+    # The Text element
+        The text element is in many ways the fundemantal unit of content, the majority of text are displayed through text elements. A block element can contain text elements,
+        but a text element can't have any sub components and has to be atomic. The main property of the text element is it's ability to be displayed next to other text
+        elements, and should always be displayed as some sort of text. As all text elements are displayed as text, they also share these common modifiers:
+        Bold,Italic, asdasd. The currently defined text element are as follows:
+        
+        _# RawText
+            Raw text is just text that is meant to be displayed, and most likely constitues the larget part of any document.
+        /# 
+        _# The Reference
+            This is next to the format element and RawText, the most important element for the functionality of MBDoc. This is what creats a reference, hyperlink,
+            a way to go to other documents. It has 1 mandatory component, the reference identifier, and optionally a part that describes what text should be displayed.
+        /#
+
+    # The Directive
+        The direcitive is a catch all category of markup that doesn't fall under any other category, or requires information that doesn't follow a recursive tree structure.
+        The archetypically example of a directive is the "toc" diretive, which inserts a table of contents for the currents document. In order to create this table information
+        about every other format in the document is needed.  They are also allowed to have rules defining where they can be put that doesn't mimic that of other element types,
+        such as not being allowed inside a format element.
+        
+        This also means that directives have no guarantees of the type inserted, and are often times inherently dependant on the compiler to make more compliated calculations,
+        and support functionality that means that compilation aren't neccisarilly implementable as a simple recursive algorithm. This means that directives, unlike the previous
+        elements are allowed to conditionally supported. However, there are also a set of directives that MUST be supported by all compilers, which are listed here.
+
+        A directive is uniquely identified by a name, and can also have a list of strings given as arguments.
+
+        _# toc
+            The toc directives inserts a table of contents describing the file, that is to say the format elements. The contents must link to the appropriate format element if able.
+
+            This diretive takes no arguments, and can be included wherever.
+        /# 
+        _# header 
+            A common pattern when making files, is to have a top level header or name of the document that isn't meant to be included as format element. Creating a table of content
+            can then be confusing of the name is given a format element, as this most likely links to empty content. Headings describing the file might also be somthing that is uniquely
+            supported by the given semantic or target, which can then be exposed through this directive.
+
+            This directive MUST have 1 argument, giving the name of the header, and cannot be a part of a format element.
+        /# 
+/_
+
+#_ The syntax
+    The syntax for the format is heavily inspired by other "lightweight markup languages", and mainly markdown. The advantage of using a syntax similar to another existing format
+    is that it's easier to remember and getting started. The syntax has therefore strived to be very similar to markdown, but by no means so is the format striving to be an 
+    extension to markdown or a superset of the syntax.
+
+    The syntax description is devided into 2 parts, one formal part with a bnf-like description, and one part describing it in prose, and discussing the design decisions.
+    
+    _# BNF
+    ```
+WhiteSpace = "[[:space:]]+"
+StartLine = "^|\\n";
+EndLine = "$|\\n";
+
+RawText = "[[:alpha:][:whitespace:]]";
+Reference = '@'('[' RawText ']' '(' RawText ')' | "[[:alpnum:]_]");
+UnmodifiedText = RawText | Reference;
+TextElement = UnmodifiedText | '*' UnmodifiedText '*' |  '**' UnmodifiedText '**' |  '***' UnmodifiedText '***';
+
+CodeBlock = [WhiteSpace] '```' RawText* [WhiteSpace] '```';
+MediaReference = '![' Path ']';
+
+BlockElement = CodeBlock | MediaReference | Paragraph;
+
+SubFormat = '_#' ( BlockElement | Directive | SubFormat)* '/#';
+TopFormat = '#_' ( BlockElement | Directive | FormatElement)* '/_';
+RegulatFormat = '#' ( BlockElement | Directive|SubFormat)*;
+FormatElement = SubFormat | TopFormat | RegularFormat;
+Document = FormatElement*;
+    ```
+    /#
+    _# Prose/Semantics
+        As described previously, a document consists of a number of formats, either the default or explicitly named ones. A large majority of documents, for example
+        github README's are written only using headings seperating the different parts of a document, that contain either images or text. A goal of the synttax is 
+        to be able to write these kind of documents conveniently, and it therefore requires that it's easy specifing consecutive formats beloning to the same top format.
+        
+        This leads to the most prominent design decision of the syntax, the way formats are specified. A format that starts with "# etc" belongs to the nearest "TopFormat", or
+        the top level of the document of no "TopFormats" are specified above it. It also serves as a delimiter for others formats, which means that writing consecutive "# etc" lines
+        automatically separates into consecutive formats, and there is no need to keep track of the "end of the format" as it would be with an XML-like syntax. However, with this
+        syntax alone it would be impossible to specify nested formats. To solve this, the "SubFormat" and "TopFormat" is needed.
+
+        The "SubFormat", which begins with "_#" and ends with "/#", becomes a child of the current format. This means, that if we have a file looking like 
+        ```
+Paragraph belonging to the top, "Default" format.
+
+# NewFormat
+
+NewFormat paragraph
+
+_# SubNewFormat
+SubNewFormatContetn
+/#
+        ```
+
+        the format named "SubNewFormat" is a part of the format element named "NewFormat". This makes it easy to individual child elements of the current format. SubFormats can in turn contain subformats,
+        which means that if we have a file on the form 
+
+        ```
+Paragraph belonging to the top, "Default" format.
+
+# NewFormat
+
+NewFormat paragraph
+
+_# SubNewFormat
+SubNewFormatContetn
+    _# SubSubFormat
+        SubSubContent
+    /#
+/#
+        ```
+        The format named SubSubContent is a child of SubNewFormat. These 2 structres are in theory all that is needed to describe arbirary nesting of formats, but many times this is inconvenient. A typical situation
+        is that there exist 1 large heading, constisting of multiple smaller headings, that in turn consist of a list of 3-5 sub headings. When writing a list of formats, we ideally want to skip neading to specify
+        end delimiters, as it easier to write in and improves the readability. This brings us to the "TopFormat".
+
+        The "TopFormat" begins with "#_" and is delimited with "/_", and *can include* "RegularFormats", as well as "SubFormats" and nested "TopFormats". The main point here is, that "RegularFormat" written within
+        a "TopFormat" becomes a child of it, instead of the top of the document. This means writing them as "SubFormats" is uneccesary, but still valid. For example, take a document structured like this:
+        ```
+Paragraph belonging to the top, "Default" format.
+
+# NewFormat
+
+NewFormat paragraph
+
+_# SubNewFormat
+SubNewFormatContetn
+    _# SubSubFormat
+        SubSubContent
+    /#
+/#
+
+#_ TopFormat
+    TopFormat Content
+    # SubTopFormat1
+        SubTopFormat1 Content
+    # SubTopFormat2 
+        SubTopFormat2 Content
+    _# SubTopFormat3
+        SubForamt with uneccsary syntax content
+    /#
+    #_ NewTopFormat
+        NewTopFormatContent
+        # SubNewTopFormat
+            SubNewTopFormat content 
+
+    /_
+/_
+
+        ```
+        Here, "SubTopFormat1-3" is a child of "TopFormat", and "NewTopFormat" aswell. "SubNewTopFormat" is a child of "NewTopFormat" however.
+        
+        Note about the examples, the indent is not necessary for correct parsing, and is completely ignored, but included for better readbility.
+
+        Important to remember, is there are no semantic differences between these type of format elements. All format elements are the same, 
+        the only difference in the syntax comes from how to describe the parent-child structure, and aside of from that the content they can contain
+        is exactly the same.
+
+                
+ 
+    /#
+/_

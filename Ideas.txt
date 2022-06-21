@@ -1,0 +1,5 @@
+Generate "referenced in" info for all referable tags
+
+Allow for the creation of empty formats. This might enable the style of example in https://html.spec.whatwg.org/multipage/semantics.html#the-html-element 
+
+I really like the design of https://html.spec.whatwg.org/, and ideally would want to support the features present there, minus the more graphic design oriented ones.
