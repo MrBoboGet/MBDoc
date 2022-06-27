@@ -1,6 +1,7 @@
 #include "MBDoc.h"
 #include "MBUtility/MBInterfaces.h"
 #include <cstring>
+#include <exception>
 #include <memory>
 #include <MBParsing/MBParsing.h>
 #include <stdexcept>
@@ -584,12 +585,13 @@ ParseOffset--;
             if (ParseChildFormat)
             {
                 AttributeList NewAttributes;
-                ReturnValue.NestedFormats.push_back({ p_ParseFormatElement(Retriever,&NewAttributes),CurrentElementCount });
+                FormatElement NewFormat = p_ParseFormatElement(Retriever,&NewAttributes);
                 if (CurrentAttributes.IsEmpty() == false)
                 {
-                    ReturnValue.NestedFormats.back().first.Attributes = CurrentAttributes;
+                    NewFormat.Attributes = CurrentAttributes;
                     CurrentAttributes.Clear();
                 }
+                ReturnValue.Contents.push_back(std::move(NewFormat));
                 if (NewAttributes.IsEmpty() == false)
                 {
                     CurrentAttributes = NewAttributes;
@@ -603,16 +605,17 @@ ParseOffset--;
                 {
                     throw std::runtime_error("Attribute list not allowed for directives");   
                 }
-                ReturnValue.Directives.push_back({ p_ParseDirective(Retriever),CurrentElementCount });
+                ReturnValue.Contents.push_back(FormatElementComponent(p_ParseDirective(Retriever)));
                 CurrentElementCount += 1;
                 continue;
             }
-            ReturnValue.BlockElements.push_back({p_ParseBlockElement(Retriever),CurrentElementCount});
+            std::unique_ptr<BlockElement> NewBlockElement;
             if(CurrentAttributes.IsEmpty() == false)
             {
-                ReturnValue.BlockElements.back().first->Attributes = CurrentAttributes; 
+                NewBlockElement->Attributes = CurrentAttributes; 
                 CurrentAttributes.Clear();
             }
+            ReturnValue.Contents.push_back(FormatElementComponent(std::move(NewBlockElement)));
             CurrentElementCount += 1; 
         }
         *OutAttributes = CurrentAttributes;
@@ -638,35 +641,642 @@ ParseOffset--;
         } 
         return(ReturnValue);   
     }
-    
-    DocumentSource DocumentParsingContext::ParseSource(MBUtility::MBOctetInputStream& InputStream,std::string FileName)
+    void h_UpdateReferences(DocumentSource& SourceToModify,BlockElement const& BlockComponent)
+    {
+        if(BlockComponent.Type == BlockElementType::Paragraph)
+        {
+            Paragraph const& ParagraphComponent = static_cast<Paragraph const&>(BlockComponent);  
+            for(std::unique_ptr<TextElement> const& Text : ParagraphComponent.TextElements)
+            {
+                if(Text->Type == TextElementType::Reference)
+                {
+                    DocReference const& Reference = static_cast<DocReference const&>(*Text);
+                    SourceToModify.References.insert(Reference.Identifier);
+                }   
+            }
+        } 
+    }
+    void h_UpdateReferences(DocumentSource& SourceToModify,FormatElement const& FormatComponent)
+    {
+        SourceToModify.ReferenceTargets.insert(FormatComponent.Name);
+        for(FormatElementComponent const& Element : FormatComponent.Contents)
+        {
+            if(Element.GetType() == FormatComponentType::Format)
+            {
+                h_UpdateReferences(SourceToModify,Element.GetFormatData());            
+            }
+            else if(Element.GetType() == FormatComponentType::Block)
+            {
+                h_UpdateReferences(SourceToModify,Element.GetBlockData());
+            } 
+        }
+    }
+    void DocumentParsingContext::p_UpdateReferences(DocumentSource& SourceToModify)
+    {
+        for(FormatElement const& Format : SourceToModify.Contents)
+        {
+            for(FormatElementComponent const& Element : Format.Contents)
+            {
+                if(Element.GetType() == FormatComponentType::Format)
+                {
+                    h_UpdateReferences(SourceToModify,Element.GetFormatData());            
+                }
+                else if(Element.GetType() == FormatComponentType::Block)
+                {
+                    h_UpdateReferences(SourceToModify,Element.GetBlockData());
+                } 
+            }
+        } 
+    }
+    DocumentSource DocumentParsingContext::ParseSource(MBUtility::MBOctetInputStream& InputStream,std::string FileName,MBError& OutError)
     {
         DocumentSource ReturnValue;
-        ReturnValue.Path = std::move(FileName);
+        ReturnValue.Name = std::move(FileName);
         LineRetriever Retriever(&InputStream);
         //Preprocessing step that is skipped here
         try
         {
             ReturnValue.Contents = p_ParseFormatElements(Retriever); 
+            p_UpdateReferences(ReturnValue);
         }  
         catch(std::exception const& e)
         {
-            std::cout << e.what() << std::endl;
             ReturnValue = DocumentSource(); 
+            OutError = false;
+            OutError.ErrorMessage = "Error parsing document: "+std::string(e.what());
         }
         return(ReturnValue);
     }
-    DocumentSource DocumentParsingContext::ParseSource(std::filesystem::path const& InputFile)
+    DocumentSource DocumentParsingContext::ParseSource(std::filesystem::path const& InputFile,MBError& OutError)
     {
         std::ifstream FileStream(InputFile.c_str());
         MBUtility::MBFileInputStream InputStream(&FileStream);
-        return(ParseSource(InputStream,MBUnicode::PathToUTF8(InputFile.filename())));
+        return(ParseSource(InputStream,MBUnicode::PathToUTF8(InputFile.filename()),OutError));
     }
-    DocumentSource DocumentParsingContext::ParseSource(const void* Data,size_t DataSize,std::string FileName)
+    DocumentSource DocumentParsingContext::ParseSource(const void* Data,size_t DataSize,std::string FileName,MBError& OutError)
     {
         MBUtility::MBBufferInputStream BufferStream(Data,DataSize);
-        return(ParseSource(BufferStream,std::move(FileName)));
+        return(ParseSource(BufferStream,std::move(FileName),OutError));
     }
+    //END DocumentSource
+
+    //BEGIN DocumentBuild
+    DocumentBuild DocumentBuild::ParseDocumentBuild(MBUtility::MBOctetInputStream& InputStream,std::filesystem::path const& BuildDirectory,MBError& OutError)
+    {
+        DocumentBuild ReturnValue;
+        std::string TotalFileData;
+        while(true)
+        {
+            constexpr size_t ReadChunkSize = 4096;
+            uint8_t ReadBuffer[ReadChunkSize];
+            size_t ReadBytes = InputStream.Read(ReadBuffer,ReadChunkSize);
+            TotalFileData.insert(TotalFileData.end(),ReadBuffer,ReadBuffer+ReadBytes);
+            if(ReadBytes < ReadChunkSize)
+            {
+                break;
+            }
+        }
+        MBParsing::JSONObject JSONData = MBParsing::ParseJSONObject(TotalFileData,0,nullptr,&OutError);
+        if(!OutError)
+        {
+            return(ReturnValue);   
+        }
+        try
+        {
+            ReturnValue.BuildRootDirectory = BuildDirectory; 
+            for(MBParsing::JSONObject const& Object : JSONData["Sources"].GetArrayData())
+            {
+                ReturnValue.BuildFiles.push_back(Object.GetStringData());   
+            }
+            for(auto const& SubBuildSpecifier : JSONData["SubBuilds"].GetMapData())
+            {
+                DocumentBuild NewSubBuild = ParseDocumentBuild(MBUnicode::PathToUTF8(BuildDirectory)+"/"+SubBuildSpecifier.second.GetStringData(),OutError);
+                if(!OutError)
+                {
+                    return(ReturnValue);   
+                }
+                ReturnValue.SubBuilds.push_back(std::pair<std::string,DocumentBuild>(SubBuildSpecifier.first,std::move(NewSubBuild)));
+            }
+        }
+        catch(std::exception const& e)
+        {
+            OutError = false;
+            OutError.ErrorMessage = "Error parsing MBDocBuild: "+std::string(e.what());
+        }
+        return(ReturnValue); 
+    }
+
+    DocumentBuild DocumentBuild::ParseDocumentBuild(std::filesystem::path const& FilePath,MBError& OutError)
+    {
+        MBError Result = true;
+        DocumentBuild ReturnValue;
+        if(!std::filesystem::exists(FilePath) || std::filesystem::is_regular_file(FilePath))
+        {
+            Result = false;
+            Result.ErrorMessage = "Filepath doesn't exist or isn't a file";
+        }
+        else
+        {
+            MBUtility::MBFileInputStream FileInput(std::ifstream(FilePath.c_str()));
+            ReturnValue = ParseDocumentBuild(FileInput,FilePath.parent_path(),OutError);
+        }
+        return(ReturnValue);
+    }
+    //END DocumentBuild
+    
+    //BEGIN DocumentPath
+    DocumentPath DocumentPath::GetRelativePath(DocumentPath const& Base,DocumentPath const& PathToSimplify)
+    {
+        DocumentPath ReturnValue;
+
+        return(ReturnValue);        
+    }
+    bool DocumentPath::IsSubPath(DocumentPath const& PathToCompare) const
+    {
+        bool ReturnValue = true;
+
+        return(ReturnValue); 
+    }
+    std::string DocumentPath::GetString() const
+    {
+        std::string ReturnValue;
+
+        return(ReturnValue); 
+    }
+    void DocumentPath::AddDirectory(std::string StringToAdd)
+    {
+           
+    }
+    void DocumentPath::PopDirectory()
+    {
+           
+    }
+    //END DocumentPath
+
+    //BEGIN DocumentReference
+    DocumentReference DocumentReference::ParseReference(std::string StringToParse,MBError& OutError)
+    {
+        DocumentReference ReturnValue;
+        size_t LastSlash = StringToParse.find_last_of('/');
+        size_t LastBracket = std::min(StringToParse.find_last_of('{'),StringToParse.find_last_of('}'));
+        size_t LastHashtag = StringToParse.find_last_of('#');
+        if(LastHashtag != StringToParse.npos)
+        {
+            if(LastSlash < LastHashtag || LastBracket < LastHashtag)
+            {
+                OutError = false;
+                OutError.ErrorMessage = "Path specifier is not allowed after the part specifier"; 
+                return(ReturnValue);
+            } 
+            ReturnValue.PartSpecifier = StringToParse.substr(LastHashtag+1);
+            StringToParse.resize(LastHashtag);
+        }
+        size_t ParseOffset = 0;
+        MBParsing::SkipWhitespace(StringToParse,ParseOffset,&ParseOffset);
+        if(ParseOffset > StringToParse.size() && StringToParse[0] == '/')
+        {
+            PathSpecifier NewSpecifier;
+            NewSpecifier.PathNames.push_back("/");
+            ReturnValue.PathSpecifiers.push_back(NewSpecifier);
+            ParseOffset += 1;
+        }
+        PathSpecifier CurrentSpecifier;
+        while(ParseOffset < StringToParse.size())
+        {
+            size_t NextDelimiter = std::min(StringToParse.find('/',ParseOffset),StringToParse.find('{',ParseOffset));
+            std::string FSName = StringToParse.substr(ParseOffset,NextDelimiter-ParseOffset);
+
+            //PathSpecifier NewSpecifier;
+            if(FSName != "")
+            {
+                CurrentSpecifier.PathNames.push_back(StringToParse.substr(ParseOffset,NextDelimiter-ParseOffset));
+            }
+            if(NextDelimiter == StringToParse.npos)
+            {
+                break;   
+            }
+            ParseOffset = NextDelimiter;
+            if(StringToParse[ParseOffset] == '/')
+            {
+                ParseOffset+=1;   
+            }
+            else
+            {
+                if(CurrentSpecifier.PathNames.size() > 0)
+                {
+                    if(ReturnValue.PathSpecifiers.size() > 0)
+                    {
+                        OutError = false;
+                        OutError = "There can only be 1 absolute path specifier";   
+                        return(ReturnValue);
+                    }
+                    ReturnValue.PathSpecifiers.push_back(std::move(CurrentSpecifier));     
+                    CurrentSpecifier = PathSpecifier();
+                }
+                size_t AnyRootDelimiter = StringToParse.find('}',ParseOffset);     
+                if(AnyRootDelimiter == StringToParse.npos)
+                {
+                    OutError = false;
+                    OutError.ErrorMessage = "No delimiting } found when parsing path specifier";   
+                    return(ReturnValue);
+                }
+                std::string SpecifierData = StringToParse.substr(ParseOffset,AnyRootDelimiter-ParseOffset);  
+                if(SpecifierData.find('{') != SpecifierData.npos || SpecifierData.find('}') != SpecifierData.npos)
+                {
+                    OutError = false;
+                    OutError.ErrorMessage = "Nested AnyRoot specifiers not allowed";   
+                    return(ReturnValue);
+                }
+                PathSpecifier AnyRootSpecifier;
+                AnyRootSpecifier.AnyRoot = true;  
+                std::vector<std::string> PathNames = MBUtility::Split(SpecifierData,"/");
+                for(std::string& Path : PathNames)
+                {
+                    if(Path == "")
+                    {
+                        continue;   
+                    }
+                    AnyRootSpecifier.PathNames.push_back(std::move(Path));
+                }
+                if(AnyRootSpecifier.PathNames.size() == 0)
+                {
+                    OutError = true;
+                    OutError.ErrorMessage = "Can't specify empty AnyRoot specifier";   
+                    return(ReturnValue);
+                }
+                ReturnValue.PathSpecifiers.push_back(std::move(AnyRootSpecifier));
+                ParseOffset = AnyRootDelimiter+1;
+            }
+        }
+        return(ReturnValue); 
+    }
+    //END DocumentReference
+
+    //BEGIN DocumentFilesystemIterator
+    DocumentFilesystemIterator::DocumentFilesystemIterator(size_t DirectoryRoot)
+    {
+        m_CurrentDirectoryIndex = DirectoryRoot; 
+        m_OptionalDirectoryRoot = DirectoryRoot;
+    }
+    size_t DocumentFilesystemIterator::GetCurrentDirectoryIndex() const
+    {
+        return(m_CurrentDirectoryIndex);   
+    }
+    size_t DocumentFilesystemIterator::GetCurrentFileIndex() const
+    {
+        return(m_DirectoryFilePosition); 
+    }
+    void DocumentFilesystemIterator::Increment()
+    {
+        DocumentDirectoryInfo const& CurrentInfo = m_AssociatedFilesystem->m_DirectoryInfos[m_CurrentDirectoryIndex];
+        m_DirectoryFilePosition += 1;
+        assert(m_DirectoryFilePosition <= CurrentInfo.FileIndexEnd-CurrentInfo.FileIndexBegin);
+        if(m_DirectoryFilePosition == (CurrentInfo.FileIndexEnd - CurrentInfo.FileIndexBegin))
+        {
+            m_DirectoryFilePosition = -1;
+            if(CurrentInfo.DirectoryIndexEnd - CurrentInfo.DirectoryIndexBegin != 0)
+            {
+                m_CurrentDirectoryIndex = CurrentInfo.DirectoryIndexBegin;
+            }
+            else
+            {
+                size_t CurrentDirectoryIndex = m_CurrentDirectoryIndex;
+                m_CurrentDirectoryIndex = -1;
+                //Being -1 implies that the end is reached
+                //ASSUMPTION the root node MUST have -1 as parent
+                while(true)
+                {
+                    if(CurrentDirectoryIndex == m_OptionalDirectoryRoot)
+                    {
+                        break;   
+                    }
+                    size_t PreviousIndex = CurrentDirectoryIndex;
+                    CurrentDirectoryIndex = m_AssociatedFilesystem->m_DirectoryInfos[PreviousIndex].ParentDirectoryIndex; 
+                    if(CurrentDirectoryIndex == -1)
+                    {
+                        break;
+                    }
+                    DocumentDirectoryInfo const& CurrentParentInfo = m_AssociatedFilesystem->m_DirectoryInfos[CurrentDirectoryIndex];
+                    if(PreviousIndex + 1 < CurrentParentInfo.DirectoryIndexEnd)
+                    {
+                        m_CurrentDirectoryIndex = PreviousIndex+1;   
+                        break;
+                    }
+                }    
+            }
+        }
+    }
+    void DocumentFilesystemIterator::NextDirectory()
+    {
+        DocumentDirectoryInfo const& DirectoryInfo = m_AssociatedFilesystem->m_DirectoryInfos[m_CurrentDirectoryIndex];
+        m_DirectoryFilePosition = (DirectoryInfo.DirectoryIndexEnd-DirectoryInfo.DirectoryIndexBegin)-1;
+        Increment();
+    }
+    void DocumentFilesystemIterator::NextFile()
+    {
+        while(!HasEnded() && EntryIsDirectory())
+        {
+            Increment();  
+        } 
+    }
+    bool DocumentFilesystemIterator::EntryIsDirectory() const
+    {
+        return(m_DirectoryFilePosition == -1);       
+    }
+    std::string DocumentFilesystemIterator::GetEntryName() const
+    {
+        if(EntryIsDirectory())
+        {
+            return(m_AssociatedFilesystem->m_DirectoryInfos[m_CurrentDirectoryIndex].Name);  
+        } 
+        return(m_AssociatedFilesystem->m_TotalSources[m_AssociatedFilesystem->m_DirectoryInfos[m_CurrentDirectoryIndex].DirectoryIndexBegin+m_DirectoryFilePosition].Name);
+    }
+    bool DocumentFilesystemIterator::HasEnded() const
+    {
+        return(m_DirectoryFilePosition == -1 && m_CurrentDirectoryIndex == -1);       
+    }
+    DocumentSource const& DocumentFilesystemIterator::GetDocumentInfo() const
+    {
+        if(EntryIsDirectory())
+        {
+            throw std::runtime_error("Can't access document info for directory");
+        }       
+        if(HasEnded())
+        {
+            throw std::runtime_error("Iterator has ended");
+        }
+        return(m_AssociatedFilesystem->m_TotalSources[m_AssociatedFilesystem->m_DirectoryInfos[m_CurrentDirectoryIndex].FileIndexBegin+m_DirectoryFilePosition]); 
+    }
+
+    DocumentPath DocumentFilesystemIterator::GetCurrentPath() const
+    {
+        size_t CurrentDirectoryIndex = m_CurrentDirectoryIndex;
+        //Naive solution
+        std::vector<std::string> Directories;
+        if(m_DirectoryFilePosition != -1)
+        {
+            Directories.push_back(m_AssociatedFilesystem->m_TotalSources[m_AssociatedFilesystem->m_DirectoryInfos[CurrentDirectoryIndex].FileIndexBegin+m_DirectoryFilePosition].Name);
+        }
+        while(CurrentDirectoryIndex != -1)
+        {
+            Directories.push_back(m_AssociatedFilesystem->m_DirectoryInfos[CurrentDirectoryIndex].Name);
+            CurrentDirectoryIndex = m_AssociatedFilesystem->m_DirectoryInfos[m_CurrentDirectoryIndex].ParentDirectoryIndex;
+        }
+        std::reverse(Directories.begin(),Directories.end());
+        DocumentPath ReturnValue;
+        for(std::string& Path : Directories)
+        {
+            ReturnValue.AddDirectory(std::move(Path));
+        }
+        return(ReturnValue);
+    }
+
+    //void DocumentFilesystemIterator::SkipDirectoryFiles()
+    //{
+    //    m_DirectoryFilePosition = m_AssociatedFilesystem->m_DirectoryInfos[m_CurrentDirectoryIndex].FileIndexEnd-1;         
+    //    Increment();
+    //}
+    //void DocumentFilesystemIterator::ExitDirectory()
+    //{
+    //     
+    //}
+    //void DocumentFilesystemIterator::SkipDirectory()
+    //{
+    //       
+    //}
+    DocumentFilesystemIterator& DocumentFilesystemIterator::operator++()
+    {
+        Increment(); 
+        return(*this);
+    }
+    DocumentFilesystemIterator& DocumentFilesystemIterator::operator++(int)
+    {
+        Increment(); 
+        return(*this);
+    }
+    //END DocumentFilesystemIterator
+
+    //BEGIN DocumentFilesystem
+    DocumentFilesystem::FSSearchResult DocumentFilesystem::p_ResolveDirectorySpecifier(size_t RootDirectoryIndex,DocumentReference const& ReferenceToResolve,size_t SpecifierOffset) const
+    {
+        FSSearchResult ReturnValue;        
+        DocumentFilesystemIterator Iterator(RootDirectoryIndex); 
+        Iterator.m_AssociatedFilesystem = this;
+        while(!Iterator.HasEnded())
+        {
+            FSSearchResult CurrentResult = p_ResolveAbsoluteDirectory(Iterator.GetCurrentDirectoryIndex(),ReferenceToResolve.PathSpecifiers[SpecifierOffset]);
+            if(CurrentResult.Type != DocumentFSType::Null)
+            {
+                if(SpecifierOffset == ReferenceToResolve.PathSpecifiers.size()-1)
+                {
+                    ReturnValue = CurrentResult;
+                    break;  
+                } 
+                if(CurrentResult.Type == DocumentFSType::Directory)
+                {
+                    CurrentResult = p_ResolveDirectorySpecifier(CurrentResult.Index,ReferenceToResolve,SpecifierOffset+1);
+                    if(CurrentResult.Type != DocumentFSType::Null)
+                    {
+                        ReturnValue = CurrentResult;   
+                        break;
+                    }
+                }
+            }
+            Iterator.NextDirectory();
+        }
+        return(ReturnValue);
+    }
+    size_t DocumentFilesystem::p_DirectorySubdirectoryIndex(size_t DirectoryIndex,std::string const& SubdirectoryName) const
+    {
+        size_t ReturnValue = 0; 
+        DocumentDirectoryInfo const& DirectoryInfo = m_DirectoryInfos[DirectoryIndex];
+        if(DirectoryInfo.DirectoryIndexEnd - DirectoryInfo.DirectoryIndexBegin== 0)
+        {
+            return(-1);   
+        }
+        size_t Index = std::lower_bound(m_DirectoryInfos.begin()+DirectoryInfo.DirectoryIndexBegin,m_DirectoryInfos.begin()+DirectoryInfo.DirectoryIndexEnd,SubdirectoryName)-m_DirectoryInfos.begin();
+        if(Index == DirectoryInfo.DirectoryIndexEnd)
+        {
+            ReturnValue = -1;  
+        } 
+        else
+        {
+            ReturnValue = Index;
+        }
+        return(ReturnValue); return(ReturnValue);
+    }
+    size_t DocumentFilesystem::p_DirectoryFileIndex(size_t DirectoryIndex,std::string const& FileName) const
+    {
+        size_t ReturnValue = 0; 
+        DocumentDirectoryInfo const& DirectoryInfo = m_DirectoryInfos[DirectoryIndex];
+        if(DirectoryInfo.FileIndexEnd - DirectoryInfo.FileIndexBegin == 0)
+        {
+            return(-1);   
+        }
+        size_t Index = std::lower_bound(m_TotalSources.begin()+DirectoryInfo.FileIndexBegin,m_TotalSources.begin()+DirectoryInfo.FileIndexEnd,FileName)-m_TotalSources.begin();
+        if(Index == DirectoryInfo.FileIndexEnd)
+        {
+            ReturnValue = -1;  
+        } 
+        else
+        {
+            ReturnValue = Index;
+        }
+        return(ReturnValue);
+    }
+    DocumentFilesystem::FSSearchResult DocumentFilesystem::p_ResolveAbsoluteDirectory(size_t RootDirectoryIndex,PathSpecifier const& Path) const
+    {
+        FSSearchResult ReturnValue;        
+        size_t LastDirectoryIndex = RootDirectoryIndex;
+        for(int i = 0; i < int(Path.PathNames.size())-1;i++)
+        {
+            size_t SubdirectoryIndex = p_DirectorySubdirectoryIndex(LastDirectoryIndex,Path.PathNames[i]);
+            if(SubdirectoryIndex == -1)
+            {
+                ReturnValue.Type = DocumentFSType::Null;  
+                return(ReturnValue);
+            } 
+            LastDirectoryIndex = SubdirectoryIndex;
+        }
+        size_t FileIndex = p_DirectoryFileIndex(LastDirectoryIndex,Path.PathNames.back());
+        if(FileIndex != -1)
+        {
+            ReturnValue.Type = DocumentFSType::File;   
+            ReturnValue.Index = FileIndex;
+        }
+        else
+        {
+            size_t DirectoryIndex = p_DirectorySubdirectoryIndex(LastDirectoryIndex,Path.PathNames.back());    
+            if(DirectoryIndex != -1)
+            {
+                ReturnValue.Type = DocumentFSType::Directory;   
+                ReturnValue.Index = DirectoryIndex;
+            }
+        }
+        return(ReturnValue);
+           
+    }
+    DocumentFilesystem::FSSearchResult DocumentFilesystem::p_ResolvePartSpecifier(FSSearchResult CurrentResult,std::string const& PartSpecifier) const
+    {
+        FSSearchResult ReturnValue;        
+        assert(CurrentResult.Type == DocumentFSType::File || CurrentResult.Type == DocumentFSType::Directory);
+        if(CurrentResult.Type == DocumentFSType::File)
+        {
+            if(m_TotalSources[CurrentResult.Index].ReferenceTargets.find(PartSpecifier) != m_TotalSources[CurrentResult.Index].ReferenceTargets.end())
+            {
+                ReturnValue = CurrentResult;     
+            }   
+        }
+        if(CurrentResult.Type == DocumentFSType::Directory)
+        {
+            DocumentFilesystemIterator Iterator(CurrentResult.Index);
+            Iterator.NextFile();
+            while(!Iterator.HasEnded())
+            {
+                if(Iterator.GetDocumentInfo().ReferenceTargets.find(PartSpecifier) != Iterator.GetDocumentInfo().ReferenceTargets.end())
+                {
+                    ReturnValue.Type = DocumentFSType::File;
+                    ReturnValue.Index = Iterator.GetCurrentFileIndex();
+                    break;
+                }
+            }
+        }
+        return(ReturnValue);
+    }
+    DocumentPath DocumentFilesystem::p_GetFileIndexPath(size_t FileIndex) const
+    {
+        DocumentPath ReturnValue;
+
+        return(ReturnValue);
+    }
+    size_t DocumentFilesystem::p_GetFileDirectoryIndex(DocumentPath const& PathToSearch) const
+    {
+        size_t ReturnValue = -1; 
+
+        return(ReturnValue);
+    }
+     
+    DocumentPath DocumentFilesystem::p_ResolveReference(DocumentPath const& FilePath,DocumentReference const& ReferenceIdentifier,bool* OutResult) const
+    {
+        bool Result = true;
+        DocumentPath ReturnValue;
+        FSSearchResult SearchRoot;
+        SearchRoot.Type = DocumentFSType::Directory;
+        SearchRoot.Index = 0;//Root directory
+        size_t SpecifierOffset = 0;
+        if(ReferenceIdentifier.PathSpecifiers[0].AnyRoot == false)
+        {
+            SpecifierOffset = 1;
+            if(ReferenceIdentifier.PathSpecifiers[0].PathNames.front() != "/")
+            {
+                //The current directory needs to be resolved 
+                SearchRoot.Index = p_GetFileDirectoryIndex(FilePath);
+                if(SearchRoot.Index == -1)
+                {
+                    *OutResult = false;   
+                    return(ReturnValue);
+                }
+            }
+            SearchRoot = p_ResolveAbsoluteDirectory(SearchRoot.Index,ReferenceIdentifier.PathSpecifiers[0]);
+            if(SearchRoot.Type == DocumentFSType::Null)
+            {
+                *OutResult = false;
+                return(ReturnValue);   
+            }
+        }
+        if(SpecifierOffset == 0 || ReferenceIdentifier.PathSpecifiers.size() > 1)
+        {
+            if(SearchRoot.Type == DocumentFSType::File)
+            {
+                *OutResult = false;
+                return(ReturnValue);   
+            }
+            SearchRoot = p_ResolveDirectorySpecifier(SearchRoot.Index,ReferenceIdentifier,SpecifierOffset);
+        }
+        if(ReferenceIdentifier.PartSpecifier != "")
+        {
+            SearchRoot = p_ResolvePartSpecifier(SearchRoot,ReferenceIdentifier.PartSpecifier);
+        }
+        if(SearchRoot.Type == DocumentFSType::Null || SearchRoot.Type == DocumentFSType::Directory)
+        {
+            *OutResult = false;   
+            return(ReturnValue);
+        }
+        ReturnValue = p_GetFileIndexPath(SearchRoot.Index); 
+        assert(ReturnValue.ComponentCount() > 0);
+        *OutResult = Result;
+        return(ReturnValue);
+    }
+    DocumentPath DocumentFilesystem::ResolveReference(DocumentPath const& Path,std::string const& PathIdentifier,MBError& OutResult) const
+    {
+        //TEMP
+        MBError ParseReferenceError = true;
+        DocumentPath ReturnValue;
+        DocumentReference ReferenceToUse = DocumentReference::ParseReference(PathIdentifier,ParseReferenceError);
+        if(!ParseReferenceError)
+        {
+            OutResult = ParseReferenceError;
+            return(ReturnValue);
+        }
+        bool Result = true;
+        ReturnValue = p_ResolveReference(Path,ReferenceToUse,&Result);
+        return(ReturnValue);
+    }
+    MBError DocumentFilesystem::CreateDocumentFilesystem(DocumentBuild const& BuildToParse,DocumentFilesystem* OutFilesystem)
+    {
+        MBError ReturnValue = true;
+        DocumentFilesystem Result;
+
+        if(ReturnValue)
+        {
+            *OutFilesystem = std::move(Result);   
+        }
+        return(ReturnValue);  
+    }
+    //END DocumentFilesystem
+
+
+
 
     //BEGIN MarkdownCompiler
     void MarkdownCompiler::p_CompileText(std::vector<std::unique_ptr<TextElement>> const& ElementsToCompile, MarkdownReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream)
@@ -732,36 +1342,19 @@ ParseOffset--;
             StringToWrite += " "+FormatToCompile.Name+"\n\n";
             OutStream.Write(StringToWrite.data(),StringToWrite.size());
         }
-        std::vector<std::pair<i_CompileType,size_t>> Types = std::vector<std::pair<i_CompileType,size_t>>(
-            FormatToCompile.BlockElements.size()+FormatToCompile.Directives.size()+FormatToCompile.NestedFormats.size());
-        for (size_t i = 0; i < FormatToCompile.BlockElements.size(); i++)
+        for(FormatElementComponent const& Component : FormatToCompile.Contents)
         {
-            Types[FormatToCompile.BlockElements[i].second].first = i_CompileType::Block;
-            Types[FormatToCompile.BlockElements[i].second].second = i;
-        }
-        for (size_t i = 0; i < FormatToCompile.Directives.size(); i++)
-        {
-            Types[FormatToCompile.Directives[i].second].first = i_CompileType::Directive;
-            Types[FormatToCompile.Directives[i].second].second = i;
-        }
-        for (size_t i = 0; i < FormatToCompile.NestedFormats.size(); i++)
-        {
-            Types[FormatToCompile.NestedFormats[i].second].first = i_CompileType::Format;
-            Types[FormatToCompile.NestedFormats[i].second].second = i;
-        }
-        for (auto const& CompileTarget : Types)
-        {
-            if (CompileTarget.first == i_CompileType::Block)
+            if(Component.GetType() == FormatComponentType::Directive)
             {
-                p_CompileBlock(FormatToCompile.BlockElements[CompileTarget.second].first.get(), ReferenceSolver, OutStream);
+                p_CompileDirective(Component.GetDirectiveData(),ReferenceSolver,OutStream); 
+            }  
+            else if(Component.GetType() == FormatComponentType::Block)
+            {
+                p_CompileBlock(&Component.GetBlockData(),ReferenceSolver,OutStream);
             }
-            if (CompileTarget.first == i_CompileType::Directive)
+            else if(Component.GetType() == FormatComponentType::Format)
             {
-                p_CompileDirective(FormatToCompile.Directives[CompileTarget.second].first, ReferenceSolver, OutStream);
-            }
-            if (CompileTarget.first == i_CompileType::Format)
-            {
-                p_CompileFormat(FormatToCompile.NestedFormats[CompileTarget.second].first, ReferenceSolver, OutStream,Depth+1);
+                p_CompileFormat(Component.GetFormatData(),ReferenceSolver,OutStream,Depth+1);
             }
         }
     }
@@ -872,11 +1465,15 @@ ParseOffset--;
         Heading ReturnValue;
         ReturnValue.Name = Format.Name;
         m_HeadingNames.insert(ReturnValue.Name);
-        for (auto const& Element : Format.NestedFormats)
+        for (auto const& Element : Format.Contents)
         {
-            if (Element.first.Type != FormatElementType::Default)
+            if(Element.GetType() != FormatComponentType::Format)
             {
-                ReturnValue.SubHeaders.push_back(p_CreateHeading(Element.first));
+                continue;   
+            }
+            if (Element.GetFormatData().Type != FormatElementType::Default)
+            {
+                ReturnValue.SubHeaders.push_back(p_CreateHeading(Element.GetFormatData()));
             }
         }
         return(ReturnValue);
@@ -968,42 +1565,25 @@ ParseOffset--;
             std::string StringToWrite = "<"+HeadingTag+" id=\"" +FormatToCompile.Name+"\" style=\"text-align: center;\">"+FormatToCompile.Name+"</"+HeadingTag+"><br>\n";
             OutStream.Write(StringToWrite.data(),StringToWrite.size());
         }
-        std::vector<std::pair<i_CompileType,size_t>> Types = std::vector<std::pair<i_CompileType,size_t>>(
-                FormatToCompile.BlockElements.size()+FormatToCompile.Directives.size()+FormatToCompile.NestedFormats.size());
-        for (size_t i = 0; i < FormatToCompile.BlockElements.size(); i++)
+        for(FormatElementComponent const& Component : FormatToCompile.Contents)
         {
-            Types[FormatToCompile.BlockElements[i].second].first = i_CompileType::Block;
-            Types[FormatToCompile.BlockElements[i].second].second = i;
-        }
-        for (size_t i = 0; i < FormatToCompile.Directives.size(); i++)
-        {
-            Types[FormatToCompile.Directives[i].second].first = i_CompileType::Directive;
-            Types[FormatToCompile.Directives[i].second].second = i;
-        }
-        for (size_t i = 0; i < FormatToCompile.NestedFormats.size(); i++)
-        {
-            Types[FormatToCompile.NestedFormats[i].second].first = i_CompileType::Format;
-            Types[FormatToCompile.NestedFormats[i].second].second = i;
-        }
-        for (auto const& CompileTarget : Types)
-        {
-            if (CompileTarget.first == i_CompileType::Block)
+            if(Component.GetType() == FormatComponentType::Directive)
             {
-                p_CompileBlock(FormatToCompile.BlockElements[CompileTarget.second].first.get(), ReferenceSolver, OutStream);
-            }
-            if (CompileTarget.first == i_CompileType::Directive)
+                p_CompileDirective(Component.GetDirectiveData(),ReferenceSolver,OutStream); 
+            }  
+            else if(Component.GetType() == FormatComponentType::Block)
             {
-                p_CompileDirective(FormatToCompile.Directives[CompileTarget.second].first, ReferenceSolver, OutStream);
+                p_CompileBlock(&Component.GetBlockData(),ReferenceSolver,OutStream);
             }
-            if (CompileTarget.first == i_CompileType::Format)
+            else if(Component.GetType() == FormatComponentType::Format)
             {
-                p_CompileFormat(FormatToCompile.NestedFormats[CompileTarget.second].first, ReferenceSolver, OutStream,Depth+1);
+                p_CompileFormat(Component.GetFormatData(),ReferenceSolver,OutStream,Depth+1);
             }
-        }
+        } 
     }
     void HTTPCompiler::p_CompileSource(DocumentSource const& SourceToCompile, HTTPReferenceSolver const& ReferenceSolver)
     {
-        std::string OutFile = SourceToCompile.Path;
+        std::string OutFile = SourceToCompile.Name;
         size_t FirstDot = OutFile.find_last_of('.');
         if (FirstDot == OutFile.npos)
         {

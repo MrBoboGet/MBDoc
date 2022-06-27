@@ -4,4 +4,89 @@ In @[the formats documentation](Formats.mbd) the markup language is specified an
 project and the general goals are discussed. This document serves to explain the way references are resolved from a given @ReferenceIdentifier, the design decisions 
 and how this servres the goals outlined. This is breafy touched upon in @Format, but the definite source for the design of the reference identifiers and how they are resolved is here.
 
-One of the main 
+When writing documentation, being able to refer to other doucments, preivous concpets, definitions etc is one of the most important features. When the scope of the project is small,
+or the target output structure is very rigid and already decided, hardcoding links to other resources is very much viable. However, this is only really true if one is working with a specific
+output format. However, @[one of the main goals](index.mbd) of this project is to be able to compile to many other formats. This means that the reference syntax first of all has to be uniform
+and format agnostic. 
+
+Furthermore, only being able to include references to "local files" or files that the current @[documentation build(Building.mbd) knows about means that it's very difficult to include references
+to external projects. Either A, all documentation sources has to be a part of one gigantic predetermined structure that you know about, which has the obvious disadvantage that it's very unmodular
+and every reference has to be "absolute", or B, documentation simply doesn't reference other documentation, which is obviously not an option. Along with the fact that the @[output has to be statically
+linked](Format.mbd) leads to the following solution.
+
+The rest of this document is split up in 3 parts, one describing the problems that needs to be solved/goals that need to be fulfilled, and the second part describes the algorithm for reference 
+resolving and how it's design relates to the goals setup.
+
+#_ The goals
+    # Uniform syntax
+        When writing refernces to other documents, the way refernces are resolved can't depend on the individual target format or semantic.
+    # External linkage
+        This means that references has to be able to  efficiently combine with other sources supporting modular design for documentation, and 
+        not needing everything to be a port of the same build.
+    # Resiliant to restructuring
+        When creating websites, a common problem is dead links, links which leads to an invalid page. This is something that is very apparent if one creates
+        the websites with absolute path, changing the prefix of the resource makes everything invalid. If the only way to encode a reference is through an
+        absolute path, the system is not very resiliant towards changes in the file structure and contents.
+    # No dynamic resolving
+        In order to create output that is easily incorporatable with other tools, and needs the lowest amount of dependancys on how they where generated,
+        resolving references dynamcially is not an option.
+/_
+
+# Reference Resolving
+    The design of how references are resolved is not based on the most performant approach, and on the contrary allow alot of computations to be performed
+    for the sake of easier referencing. The assumption here is compiling the project is something that is done few times and used many times, and the eventual
+    computational cost and complexity is therefor small in the grand scheme of things.
+
+    The central abstraction that is the basis for link resolving and for the way @[builds are structured](Building.mbd) is the "absolute document path". 
+
+    _# Absolute document path
+        An "Absolute document path" is string that uniquely identifies a document and optionally a part of a document. 
+
+        _# Syntax
+        ```
+FSName = "[^/#\\]+";
+PartSpecifier = '#' FSName;
+AbsolutePath = '/' (FSName '/')* [FSName] [PartSpecifier]
+        ```
+        /#
+        _# Semantics
+            A absolute document path consist of identifiers seperated with / and optionally ending in a PartSpecifier. The identifiers either refer to a directory, or a docuemntm, and mostly has the same
+            semantics of that of a POSIX filepath, identifiers to the left represent parent directories to those to the right. And like a POSIX filepath so can the path be syntactically correct, but
+            not refer to a existing object in the document build. Such a path is refered to as an *invalid* path. A path is also invalid if the PartSpecifier doesn't refer to an existing format element
+            in the document, or if the format specificer is applied to a directory.
+        /#
+    /#
+    
+    The way a reference is resolved, is by converting the ReferenceIdentifier to an absolute document path, or leaving it as is if the ReferenceIdentifier is an URL. 
+    But in order to fully understand how the "document filesystem" is created, it might be beneficial to look at @Building. However, to understand the algorithm it is enough
+    to know that  during a build a "virtual document filesystem" is created, with a root and directories and documents as the leafs. They represent all of the docuemtns for a given build,
+    and all can be refered to through a @[absolute document path](The absolute document path). Furthermore, when resolving a reference in a given document, the documents  @[absolute document path](The absolute document path)
+    is known. 
+
+    _# Reference Identifier
+        Now we can explain the syntax of the reference identifier 
+        ```
+PathSpecifier = "/|.[/]" (FSName '/')* [FSName];
+ReferenceIdentifier = PathSpecifier [PartSpecifier];
+        ``` 
+        The syntax is almost completely identic to that of the absolute document path, with som important differences however. The path first of all doesn't have to start with a /, and can also start with a ".".
+        Furthermore, the path can also have multiple part specificers at the end. However, the main difference between these 2 paths are their semantics, which is how a refrence identifier is resolved to a 
+        absolut document path
+    /#
+    
+    _# The resolution algorithm
+        In order to resolve a ReferenceIdentifier to a absolute packet path, a couple of things are needed. First of all, the virtual document filesystem. Second of all, the absolute packet path for the document
+        where reference is in, and lastly the format tree structure for each document.
+
+        The algorithm consist of 2 parts, finding which files satisfies the condition of the path requirements, and which of these files satisfies the requirements, if any, of the PartSpecifiers.
+
+        _# Path resolution
+            This part of the algorithm retrieves all the possible documents that are applicable.
+        /#
+        _# Part resolution
+            This step is only made given that there exist PartSpecifier. If not part specifier is present, the first file returned from the path resulution is returned. If no files are found, the reference is invalid.
+            
+            For each file retrieved during the previous step, their format tree structure is searched in order to find a format with the same name as the FSName in the Partspeicfier. If the file has a format with the same name,
+            the absolute path for that document is returned and the algorithm terminates.
+        /#
+    #

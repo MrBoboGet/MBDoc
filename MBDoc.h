@@ -1,12 +1,15 @@
 #pragma once
+#include "MBDoc.h"
 #include <algorithm>
 #include <filesystem>
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include <memory>
 #include <MBUtility/MBInterfaces.h>
 #include <MBUtility/MBErrorHandling.h>
 #include <unordered_set>
+#include <variant>
 namespace MBDoc
 {
 
@@ -185,7 +188,36 @@ namespace MBDoc
         Anchor
     };
 
+    enum class FormatComponentType
+    {
+        Null,
+        Format,
+        Directive,
+        Block,
+    };
     
+    class FormatElement;
+    class FormatElementComponent
+    {
+    private:
+        FormatElementType Type = FormatElementType::Null;
+    public:
+        FormatElementComponent() = default;
+        FormatElementComponent(FormatElementComponent &&) = default;
+        FormatElementComponent(FormatElementComponent const&) = delete;
+        
+        FormatElementComponent(std::unique_ptr<BlockElement> BlockData);
+        FormatElementComponent(Directive DirectiveData);
+        FormatElementComponent(FormatElement DirectieData);
+        
+        FormatComponentType GetType() const;
+        BlockElement& GetBlockData();
+        BlockElement& GetBlockData() const;
+        Directive& GetDirectiveData();
+        Directive& GetDirectiveData() const;
+        FormatElement& GetFormatData();
+        FormatElement& GetFormatData() const;
+    };
     struct FormatElement
     {
         FormatElement() = default;
@@ -194,9 +226,7 @@ namespace MBDoc
         FormatElementType Type;
         std::string Name;
         AttributeList  Attributes;
-        std::vector<std::pair<std::unique_ptr<BlockElement>,size_t>> BlockElements; 
-        std::vector<std::pair<Directive, size_t>> Directives;
-        std::vector<std::pair<FormatElement,size_t>> NestedFormats;
+        std::vector<FormatElementComponent> Contents;    
     };
     //Preprocessors, starts with $
     enum class PreProcessorType
@@ -213,7 +243,9 @@ namespace MBDoc
     class DocumentSource
     {
     public:
-        std::string Path;
+        std::string Name;
+        std::unordered_set<std::string> ReferenceTargets;
+        std::unordered_set<std::string> References;
         std::vector<FormatElement> Contents;
     };
 
@@ -248,16 +280,142 @@ namespace MBDoc
         //Incredibly ugly, but the alternative for the current syntax is to include 2 lines look ahead
         FormatElement p_ParseFormatElement(LineRetriever& Retriever,AttributeList* OutCurrentList);
         std::vector<FormatElement> p_ParseFormatElements(LineRetriever& Retriever);
+        
+        static void p_UpdateReferences(DocumentSource& SourceToModify);
     public:
-        DocumentSource ParseSource(MBUtility::MBOctetInputStream& InputStream,std::string FileName);
-        DocumentSource ParseSource(std::filesystem::path const& InputFile);
-        DocumentSource ParseSource(const void* Data,size_t DataSize,std::string FileName);
+        DocumentSource ParseSource(MBUtility::MBOctetInputStream& InputStream,std::string FileName,MBError& OutError);
+        DocumentSource ParseSource(std::filesystem::path const& InputFile,MBError& OutError);
+        DocumentSource ParseSource(const void* Data,size_t DataSize,std::string FileName,MBError& OutError);
     };
+    
+    class DocumentBuild
+    {
+    public:
+        std::filesystem::path BuildRootDirectory;
+        std::vector<std::string> BuildFiles = {};
+        //The first part is the "MountPoint", the directory prefix. Currently only supports a single directory name
+        std::vector<std::pair<std::string,DocumentBuild>> SubBuilds;
+        
+        //The relative directory is a part of the identity
+        //[[SemanticallyAuthoritative]]
+        static DocumentBuild ParseDocumentBuild(MBUtility::MBOctetInputStream& InputStream,std::filesystem::path const& BuildDirectory,MBError& OutError);
+        static DocumentBuild ParseDocumentBuild(std::filesystem::path const& FilePath,MBError& OutError);
+    };
+    
+    class DocumentPath
+    {
+    private:
+        bool m_IsAbsolute = false;
+        std::vector<std::string> m_PathComponents;
+        std::string m_PartIdentifier;
+    public:     
+        static DocumentPath GetRelativePath(DocumentPath const& Base,DocumentPath const& PathToSimplify);
+        bool IsSubPath(DocumentPath const& PathToCompare) const;
+        std::string GetString() const;
+        size_t ComponentCount() const;
+        
+        void AddDirectory(std::string StringToAdd);
+        void PopDirectory();
+    };
+    struct PathSpecifier
+    {
+        bool AnyRoot = false;
+        std::vector<std::string> PathNames;
+    };
+    struct DocumentReference
+    {
+        std::vector<PathSpecifier> PathSpecifiers;
+        std::string PartSpecifier; 
+        static DocumentReference ParseReference(std::string StringToParse,MBError& OutError);
+    };
+    //Usage assumptions: never modified, only created and read from. Optimize for access and assume no modification 
+    //
+    //In particular, makes so that the iterator only goes through a contigous array of elements
+    struct DocumentDirectoryInfo
+    {
+        std::string Name;       
+        size_t ParentDirectoryIndex = 0;
+        size_t FileIndexBegin = 0;
+        size_t FileIndexEnd = 0;
+        size_t DirectoryIndexBegin = 0;
+        size_t DirectoryIndexEnd = 0;
+    };
+    class DocumentFilesystem;
+    class DocumentFilesystemIterator
+    {
+        friend class DocumentFilesystem;
+    private:
+        size_t m_OptionalDirectoryRoot = -1;
+        size_t m_DirectoryFilePosition = -1;
+        size_t m_CurrentDirectoryIndex = -1;
+        DocumentFilesystem const* m_AssociatedFilesystem = nullptr;
+    protected:
+        DocumentFilesystemIterator(size_t DirectoryRoot);
+        size_t GetCurrentDirectoryIndex() const;
+        size_t GetCurrentFileIndex() const;
+    public:
+        //Accessors
+        DocumentPath GetCurrentPath() const;
+        bool EntryIsDirectory() const;
+        std::string GetEntryName() const;
+        DocumentSource const& GetDocumentInfo() const;
+        bool HasEnded() const;
+        //Modifiers
+        void Increment();
+        void NextDirectory();
+        void NextFile();
+        //void ExitDirectory();
+        //void SkipDirectory();
+        //void SkipDirectoryFiles();
+        DocumentFilesystemIterator& operator++();
+        DocumentFilesystemIterator& operator++(int);
+
+    };
+    enum class DocumentFSType
+    {
+        File,
+        Directory,
+        Null
+    };
+    class DocumentFilesystem
+    {
+    private:
+        friend class DocumentFilesystemIterator;
+        std::unordered_map<std::string,DocumentPath> m_CachedPathsConversions;
+        std::vector<DocumentDirectoryInfo> m_DirectoryInfos;   
+        std::vector<DocumentSource> m_TotalSources;
+        struct FSSearchResult
+        {
+            DocumentFSType Type = DocumentFSType::Null; 
+            size_t Index = -1;
+        };
+        
+        
+        
+        size_t p_DirectorySubdirectoryIndex(size_t DirectoryIndex,std::string const& SubdirectoryName) const;
+        size_t p_DirectoryFileIndex(size_t DirectoryIndex,std::string const& FileName) const;
+        //Resolving
+        FSSearchResult p_ResolveDirectorySpecifier(size_t RootDirectoryIndex,DocumentReference const& ReferenceToResolve,size_t SpecifierOffset) const;
+        FSSearchResult p_ResolveAbsoluteDirectory(size_t RootDirectoryIndex,PathSpecifier const& Path) const;
+        FSSearchResult p_ResolvePartSpecifier(FSSearchResult CurrentResult,std::string const& PartSpecifier) const;
+        
+        DocumentPath p_GetFileIndexPath(size_t FileIndex) const;
+        size_t p_GetFileDirectoryIndex(DocumentPath const& PathToSearch) const;
+         
+        DocumentPath p_ResolveReference(DocumentPath const& CurrentPath,DocumentReference const& ReferenceIdentifier,bool* OutResult) const;
+    public: 
+        DocumentFilesystemIterator begin() const;
+        DocumentPath ResolveReference(DocumentPath const& DocumentPath,std::string const& PathIdentifier,MBError& OutResult) const;
+        static MBError CreateDocumentFilesystem(DocumentBuild const& BuildToParse,DocumentFilesystem* OutBuild);
+    };
+
+
     class DocumentCompiler
     {
     
     public:
         virtual void Compile(std::vector<DocumentSource> const& Sources) = 0;
+        virtual void Compile(DocumentFilesystem const& FilesystemToCompile) = 0;
     };
 
     class MarkdownReferenceSolver 
