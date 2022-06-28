@@ -1,0 +1,4 @@
+{
+    "Sources": [ "CodeIndex.mbd", "Format.mbd", "index.mbd", "LinkResolving.mbd" ],
+    "SubBuilds": {}
+}

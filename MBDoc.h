@@ -200,11 +200,14 @@ namespace MBDoc
     class FormatElementComponent
     {
     private:
-        FormatElementType Type = FormatElementType::Null;
+        FormatComponentType m_Type = FormatComponentType::Null;
+        void* m_Data = nullptr;
     public:
-        FormatElementComponent() = default;
-        FormatElementComponent(FormatElementComponent &&) = default;
+        FormatElementComponent() {};
+
+        FormatElementComponent(FormatElementComponent&& ElementToSteal) noexcept;
         FormatElementComponent(FormatElementComponent const&) = delete;
+        FormatElementComponent& operator=(FormatElementComponent const&) = delete;
         
         FormatElementComponent(std::unique_ptr<BlockElement> BlockData);
         FormatElementComponent(Directive DirectiveData);
@@ -212,17 +215,18 @@ namespace MBDoc
         
         FormatComponentType GetType() const;
         BlockElement& GetBlockData();
-        BlockElement& GetBlockData() const;
+        BlockElement const& GetBlockData() const;
         Directive& GetDirectiveData();
-        Directive& GetDirectiveData() const;
+        Directive const& GetDirectiveData() const;
         FormatElement& GetFormatData();
-        FormatElement& GetFormatData() const;
+        FormatElement const& GetFormatData() const;
+        ~FormatElementComponent();
     };
     struct FormatElement
     {
-        FormatElement() = default;
         FormatElement(FormatElement &&) = default;
         FormatElement(FormatElement const&) = delete;
+        FormatElement() {};
         FormatElementType Type;
         std::string Name;
         AttributeList  Attributes;
@@ -243,6 +247,18 @@ namespace MBDoc
     class DocumentSource
     {
     public:
+        DocumentSource(DocumentSource const&) = delete;
+        DocumentSource(DocumentSource&&) = default;
+        DocumentSource& operator=(DocumentSource OtherSource)
+        {
+            std::swap(Name, OtherSource.Name);
+            std::swap(References, OtherSource.References);
+            std::swap(ReferenceTargets, OtherSource.ReferenceTargets);
+            std::swap(Contents, OtherSource.Contents);
+            return(*this);
+        }
+        DocumentSource() {};
+
         std::string Name;
         std::unordered_set<std::string> ReferenceTargets;
         std::unordered_set<std::string> References;
@@ -294,10 +310,14 @@ namespace MBDoc
         std::filesystem::path BuildRootDirectory;
         std::vector<std::string> BuildFiles = {};
         //The first part is the "MountPoint", the directory prefix. Currently only supports a single directory name
+
+        //Guranteeed sorting
         std::vector<std::pair<std::string,DocumentBuild>> SubBuilds;
         
         //The relative directory is a part of the identity
         //[[SemanticallyAuthoritative]]
+        
+
         static DocumentBuild ParseDocumentBuild(MBUtility::MBOctetInputStream& InputStream,std::filesystem::path const& BuildDirectory,MBError& OutError);
         static DocumentBuild ParseDocumentBuild(std::filesystem::path const& FilePath,MBError& OutError);
     };
@@ -313,6 +333,11 @@ namespace MBDoc
         bool IsSubPath(DocumentPath const& PathToCompare) const;
         std::string GetString() const;
         size_t ComponentCount() const;
+       
+        std::string operator[](size_t ComponentIndex) const; 
+        bool operator<(DocumentPath const& OtherPath) const;
+        
+        static DocumentPath ParsePath(std::string const& PathToParse,MBError& OutError);
         
         void AddDirectory(std::string StringToAdd);
         void PopDirectory();
@@ -334,11 +359,11 @@ namespace MBDoc
     struct DocumentDirectoryInfo
     {
         std::string Name;       
-        size_t ParentDirectoryIndex = 0;
-        size_t FileIndexBegin = 0;
-        size_t FileIndexEnd = 0;
-        size_t DirectoryIndexBegin = 0;
-        size_t DirectoryIndexEnd = 0;
+        size_t ParentDirectoryIndex = -1;
+        size_t FileIndexBegin = -1;
+        size_t FileIndexEnd = -1;
+        size_t DirectoryIndexBegin = -1;
+        size_t DirectoryIndexEnd = -1;
     };
     class DocumentFilesystem;
     class DocumentFilesystemIterator
@@ -377,6 +402,31 @@ namespace MBDoc
         Directory,
         Null
     };
+
+
+    class DocumentPathFileIterator
+    {
+    private:
+        std::vector<DocumentPath> const* m_Data = nullptr;
+        int m_Depth = 0;
+        size_t m_DataOffset = 0;
+        size_t m_DataEnd = 0;
+        
+        size_t m_FileOffset = 0;
+        size_t m_DirectoryOffset = -1;
+        std::vector<size_t> m_DirectoryBegins;
+    public:
+        DocumentPathFileIterator(std::vector<DocumentPath> const& Data,int Depth,size_t Offset,size_t End);
+
+        size_t DirectoryCount() const;
+        std::string GetDirectoryName() const; 
+        DocumentPath const& CurrentFilePath() const;
+        size_t GetCurrentOffset() const;//return 
+        size_t GetDirectoryEnd() const;
+        bool HasEnded() const;
+        void NextDirectory(); 
+    };
+
     class DocumentFilesystem
     {
     private:
@@ -403,6 +453,9 @@ namespace MBDoc
         size_t p_GetFileDirectoryIndex(DocumentPath const& PathToSearch) const;
          
         DocumentPath p_ResolveReference(DocumentPath const& CurrentPath,DocumentReference const& ReferenceIdentifier,bool* OutResult) const;
+
+        DocumentDirectoryInfo p_UpdateFilesystemOverFiles(DocumentBuild const& CurrentBuild,std::vector<DocumentPath> const& Files,size_t DirectoryIndex,int Depth,size_t DirectoryBegin,size_t DirectoryEnd);
+        DocumentDirectoryInfo p_UpdateFilesystemOverBuild(DocumentBuild const& BuildToAppend,size_t DirectoryIndex,std::string DirectoryName,MBError& OutError);
     public: 
         DocumentFilesystemIterator begin() const;
         DocumentPath ResolveReference(DocumentPath const& DocumentPath,std::string const& PathIdentifier,MBError& OutResult) const;

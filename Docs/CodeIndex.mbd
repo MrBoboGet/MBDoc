@@ -46,7 +46,7 @@ _# Invalid references
     Another design consideration, is at which point unresolved references create an error. In traditional C/C++, unresolved refernces are only found at the end of the compilation process, when all the output is already created.
     This is however generally something that is suboptimal, if your document is invalid it is something that you want to find out quickly. In order to find early errors, all of the references are extracted and stored separately,
     and checked for validity. This does however require and extra pass through all the documents and an extra lookup, which might be a bit wasteful. 
-/_# 
+/#
 
 # Compiling
 
