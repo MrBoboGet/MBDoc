@@ -451,6 +451,7 @@ namespace MBDoc
         
         DocumentPath p_GetFileIndexPath(size_t FileIndex) const;
         size_t p_GetFileDirectoryIndex(DocumentPath const& PathToSearch) const;
+        size_t p_GetFileIndex(DocumentPath const& PathToSearch) const;
          
         DocumentPath p_ResolveReference(DocumentPath const& CurrentPath,DocumentReference const& ReferenceIdentifier,bool* OutResult) const;
 

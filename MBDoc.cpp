@@ -918,6 +918,14 @@ ParseOffset--;
     {
         bool ReturnValue = false;
         bool IsEqual = true;
+        if (m_PathComponents.size() == 1 && OtherPath.ComponentCount() > 1) 
+        {
+            return(true);
+        }
+        if (m_PathComponents.size() > 1 && OtherPath.ComponentCount() == 1) 
+        {
+            return(false);
+        }
         //all components are equal only in the case where the s
         for(size_t i = 0; i < std::min(m_PathComponents.size(),OtherPath.m_PathComponents.size());i++)
         {
@@ -934,9 +942,9 @@ ParseOffset--;
                 break;  
             } 
         }
-        if(IsEqual)
+        if (IsEqual)
         {
-            ReturnValue = m_PathComponents.size() <OtherPath.m_PathComponents.size();   
+            return(ComponentCount() < OtherPath.ComponentCount());
         }
         return(ReturnValue);
     }
@@ -1179,7 +1187,7 @@ ParseOffset--;
         while(CurrentDirectoryIndex != -1)
         {
             Directories.push_back(m_AssociatedFilesystem->m_DirectoryInfos[CurrentDirectoryIndex].Name);
-            CurrentDirectoryIndex = m_AssociatedFilesystem->m_DirectoryInfos[m_CurrentDirectoryIndex].ParentDirectoryIndex;
+            CurrentDirectoryIndex = m_AssociatedFilesystem->m_DirectoryInfos[CurrentDirectoryIndex].ParentDirectoryIndex;
         }
         std::reverse(Directories.begin(),Directories.end());
         DocumentPath ReturnValue;
@@ -1254,7 +1262,7 @@ ParseOffset--;
     }
     size_t DocumentPathFileIterator::GetDirectoryEnd() const
     {
-        if(m_DirectoryOffset == m_DirectoryBegins.size())
+        if(m_DirectoryOffset == m_DirectoryBegins.size()-1)
         {
             return(m_DataEnd); 
         }
@@ -1455,6 +1463,30 @@ ParseOffset--;
         }
         return(ReturnValue);
     }
+    size_t DocumentFilesystem::p_GetFileIndex(DocumentPath const& PathToSearch) const
+    {
+        size_t ReturnValue = 0;
+        for (size_t i = 0; i < PathToSearch.ComponentCount(); i++)
+        {
+            if (PathToSearch[i] == "/")
+            {
+                continue;
+            }
+            if (i + 1 < PathToSearch.ComponentCount())
+            {
+                ReturnValue = p_DirectorySubdirectoryIndex(ReturnValue, PathToSearch[i]);
+                if (ReturnValue == -1)
+                {
+                    break;
+                }
+            }
+            else 
+            {
+                ReturnValue = p_DirectoryFileIndex(ReturnValue, PathToSearch[i]);
+            }
+        }
+        return(ReturnValue);
+    }
      
     DocumentPath DocumentFilesystem::p_ResolveReference(DocumentPath const& FilePath,DocumentReference const& ReferenceIdentifier,bool* OutResult) const
     {
@@ -1464,34 +1496,56 @@ ParseOffset--;
         SearchRoot.Type = DocumentFSType::Directory;
         SearchRoot.Index = 0;//Root directory
         size_t SpecifierOffset = 0;
-        if(ReferenceIdentifier.PathSpecifiers[0].AnyRoot == false)
+        if (ReferenceIdentifier.PathSpecifiers.size() > 0)
         {
-            SpecifierOffset = 1;
-            if(ReferenceIdentifier.PathSpecifiers[0].PathNames.front() != "/")
+            if (ReferenceIdentifier.PathSpecifiers[0].AnyRoot == false)
             {
-                //The current directory needs to be resolved 
-                SearchRoot.Index = p_GetFileDirectoryIndex(FilePath);
-                if(SearchRoot.Index == -1)
+                SpecifierOffset = 1;
+                if (ReferenceIdentifier.PathSpecifiers[0].PathNames.front() != "/")
                 {
-                    *OutResult = false;   
+                    //The current directory needs to be resolved 
+                    SearchRoot.Index = p_GetFileDirectoryIndex(FilePath);
+                    if (SearchRoot.Index == -1)
+                    {
+                        *OutResult = false;
+                        return(ReturnValue);
+                    }
+                }
+                SearchRoot = p_ResolveAbsoluteDirectory(SearchRoot.Index, ReferenceIdentifier.PathSpecifiers[0]);
+                if (SearchRoot.Type == DocumentFSType::Null)
+                {
+                    *OutResult = false;
                     return(ReturnValue);
                 }
             }
-            SearchRoot = p_ResolveAbsoluteDirectory(SearchRoot.Index,ReferenceIdentifier.PathSpecifiers[0]);
-            if(SearchRoot.Type == DocumentFSType::Null)
+            else
             {
-                *OutResult = false;
-                return(ReturnValue);   
+                SearchRoot.Index = p_GetFileDirectoryIndex(FilePath);
+                if (SearchRoot.Index == -1)
+                {
+                    *OutResult = false;
+                    return(ReturnValue);
+                }
+            }
+            if (SpecifierOffset == 0 || ReferenceIdentifier.PathSpecifiers.size() > 1)
+            {
+                if (SearchRoot.Type == DocumentFSType::File)
+                {
+                    *OutResult = false;
+                    return(ReturnValue);
+                }
+                SearchRoot = p_ResolveDirectorySpecifier(SearchRoot.Index, ReferenceIdentifier, SpecifierOffset);
             }
         }
-        if(SpecifierOffset == 0 || ReferenceIdentifier.PathSpecifiers.size() > 1)
+        else
         {
-            if(SearchRoot.Type == DocumentFSType::File)
+            SearchRoot.Type = DocumentFSType::File;
+            SearchRoot.Index = p_GetFileIndex(FilePath);
+            if (SearchRoot.Index == -1)
             {
                 *OutResult = false;
-                return(ReturnValue);   
+                return(ReturnValue);
             }
-            SearchRoot = p_ResolveDirectorySpecifier(SearchRoot.Index,ReferenceIdentifier,SpecifierOffset);
         }
         if(ReferenceIdentifier.PartSpecifier != "")
         {
@@ -1507,6 +1561,12 @@ ParseOffset--;
         *OutResult = Result;
         return(ReturnValue);
     }
+    DocumentFilesystemIterator DocumentFilesystem::begin() const
+    {
+        DocumentFilesystemIterator ReturnValue(0);
+        ReturnValue.m_AssociatedFilesystem = this;
+        return(ReturnValue);
+    }
     DocumentPath DocumentFilesystem::ResolveReference(DocumentPath const& Path,std::string const& PathIdentifier,MBError& OutResult) const
     {
         //TEMP
@@ -1520,6 +1580,11 @@ ParseOffset--;
         }
         bool Result = true;
         ReturnValue = p_ResolveReference(Path,ReferenceToUse,&Result);
+        if (!Result)
+        {
+            OutResult = false;
+            OutResult.ErrorMessage = "Failed to resolve reference";
+        }
         return(ReturnValue);
     }
     DocumentDirectoryInfo DocumentFilesystem::p_UpdateFilesystemOverFiles(DocumentBuild const& CurrentBuild,std::vector<DocumentPath> const& Files,size_t DirectoryIndex,int Depth,size_t DirectoryBegin,size_t DirectoryEnd)
@@ -1531,7 +1596,7 @@ ParseOffset--;
         ReturnValue.FileIndexBegin = m_TotalSources.size();
         ReturnValue.FileIndexEnd = m_TotalSources.size()+FileIterator.GetCurrentOffset();
         ReturnValue.DirectoryIndexBegin = m_DirectoryInfos.size();
-        ReturnValue.DirectoryIndexBegin = m_DirectoryInfos.size()+FileIterator.GetCurrentOffset();
+        ReturnValue.DirectoryIndexEnd = m_DirectoryInfos.size()+FileIterator.DirectoryCount();
         for(size_t i = 0; i < FileIterator.GetCurrentOffset();i++)
         {
             DocumentParsingContext Parser;
@@ -1603,6 +1668,7 @@ ParseOffset--;
                 DocumentDirectoryInfo NewDirectoryInfo = p_UpdateFilesystemOverFiles(BuildToAppend,BuildFiles,FirstDirectoryIndex+CurrentDirectoryIndex,0,FilesIterator.GetCurrentOffset(),FilesIterator.GetDirectoryEnd()); 
                 NewDirectoryInfo.ParentDirectoryIndex = DirectoryIndex;
                 m_DirectoryInfos[FirstDirectoryIndex+CurrentDirectoryIndex] = std::move(NewDirectoryInfo);
+                FilesIterator.NextDirectory();
             }
             else if(FilesIterator.GetDirectoryName() > SubBuildIterator->first)
             {
@@ -1619,7 +1685,23 @@ ParseOffset--;
             }
             CurrentDirectoryIndex++;
         }
-
+        while (!FilesIterator.HasEnded())
+        {
+            DocumentDirectoryInfo NewDirectoryInfo = p_UpdateFilesystemOverFiles(BuildToAppend, BuildFiles, FirstDirectoryIndex + CurrentDirectoryIndex, 1, FilesIterator.GetCurrentOffset(), FilesIterator.GetDirectoryEnd());
+            NewDirectoryInfo.ParentDirectoryIndex = DirectoryIndex;
+            NewDirectoryInfo.Name = FilesIterator.GetDirectoryName();
+            m_DirectoryInfos[FirstDirectoryIndex + CurrentDirectoryIndex] = std::move(NewDirectoryInfo);
+            CurrentDirectoryIndex++;
+            FilesIterator.NextDirectory();
+        }
+        while (SubBuildIterator != SubBuildEnd)
+        {
+            DocumentDirectoryInfo NewDirectoryInfo = p_UpdateFilesystemOverBuild(SubBuildIterator->second, FirstDirectoryIndex + CurrentDirectoryIndex, SubBuildIterator->first, OutError);
+            NewDirectoryInfo.ParentDirectoryIndex = DirectoryIndex;
+            m_DirectoryInfos[FirstDirectoryIndex + CurrentDirectoryIndex] = std::move(NewDirectoryInfo);
+            SubBuildIterator++;
+            CurrentDirectoryIndex++;
+        }
         OutError = Result;
         return(NewInfo);
     }

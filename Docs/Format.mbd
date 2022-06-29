@@ -64,7 +64,7 @@ the format need to support in order to fulfill the requiremnts outlined.
             A media reference is the inclusion of a media file, typically an image or video. 
         /#
 
-    # The Text element
+    # The Text Element
         The text element is in many ways the fundemantal unit of content, the majority of text are displayed through text elements. A block element can contain text elements,
         but a text element can't have any sub components and has to be atomic. The main property of the text element is it's ability to be displayed next to other text
         elements, and should always be displayed as some sort of text. As all text elements are displayed as text, they also share these common modifiers:
