@@ -31,7 +31,14 @@ int main()
     std::cout << Result.GetString() << std::endl;
     Result = Filesystem.ResolveReference(MBDoc::DocumentPath::ParsePath("/MBDoc/CodeIndex.mbd", ParseError), "{Format.mbd}", ParseError);
     std::cout << Result.GetString() << std::endl;
-
+    Result = Filesystem.ResolveReference(MBDoc::DocumentPath::ParsePath("/MBDoc/CodeIndex.mbd", ParseError), "/{MBBuild}", ParseError);
+    std::cout << Result.GetString() << std::endl;
+    Result = Filesystem.ResolveReference(MBDoc::DocumentPath::ParsePath("/MBDoc/Format.mbd", ParseError), "index.mbd", ParseError);
+    std::cout << Result.GetString() << std::endl;
+    Result = Filesystem.ResolveReference(MBDoc::DocumentPath::ParsePath("/MBDoc/CodeIndex.mbd", ParseError), "index.mbd", ParseError);
+    std::cout << Result.GetString() << std::endl;
+    Result = Filesystem.ResolveReference(MBDoc::DocumentPath::ParsePath("/MBDoc/CodeIndex.mbd", ParseError), "/#Absolute document path", ParseError);
+    std::cout << Result.GetString() << std::endl;
     //prints the whole filesystem
     std::cout << "Filesystem list test:" << std::endl;
     MBDoc::DocumentFilesystemIterator Iterator = Filesystem.begin();
@@ -57,10 +64,12 @@ int main()
                 Filesystem.ResolveReference(CurrentPath, Reference, ReferenceResult);
                 if (!ReferenceResult)
                 {
-                    std::cout << "Error resolving reference " + Reference + " in file " + CurrentPath.GetString() << std::endl;
+                    std::cout << "Error resolving reference " + Reference + " in file " + CurrentPath.GetString()<< std::endl;
                 }
             }
         }
         Iterator++;
     }
+    MBDoc::HTTPCompiler HTTPCompiler;
+    HTTPCompiler.Compile(Filesystem);
 }

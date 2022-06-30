@@ -329,7 +329,8 @@ namespace MBDoc
         std::vector<std::string> m_PathComponents;
         std::string m_PartIdentifier;
     public:     
-        static DocumentPath GetRelativePath(DocumentPath const& Base,DocumentPath const& PathToSimplify);
+        //Requires that both files are relative
+        static DocumentPath GetRelativePath(DocumentPath const& TargetObject,DocumentPath const& CurrentObject);
         bool IsSubPath(DocumentPath const& PathToCompare) const;
         std::string GetString() const;
         size_t ComponentCount() const;
@@ -341,6 +342,8 @@ namespace MBDoc
         
         void AddDirectory(std::string StringToAdd);
         void PopDirectory();
+        void SetPartIdentifier(std::string PartSpecifier);
+        std::string const& GetPartIdentifier() const;
     };
     struct PathSpecifier
     {
@@ -468,7 +471,6 @@ namespace MBDoc
     {
     
     public:
-        virtual void Compile(std::vector<DocumentSource> const& Sources) = 0;
         virtual void Compile(DocumentFilesystem const& FilesystemToCompile) = 0;
     };
 
@@ -510,12 +512,14 @@ namespace MBDoc
     class HTTPReferenceSolver
     {
     private:
-    
+        DocumentFilesystem const* m_AssociatedBuild = nullptr;
+        DocumentPath m_CurrentPath;
     public:
-        std::string GetReferenceString(DocReference const& ReferenceIdentifier);      
-        void Initialize(std::vector<DocumentSource> const& Document);
-        void Initialize(DocumentSource const& Document);
-        //void Initialize(DocumentSource const& Document);
+        std::string GetReferenceString(DocReference const& ReferenceIdentifier) const;      
+        //Holds a reference to the build for the duration
+        void SetCurrentPath(DocumentPath CurrentPath);
+        void Initialize(DocumentFilesystem const* Build);
+
     };
 
     class HTTPTocCreator
@@ -533,8 +537,8 @@ namespace MBDoc
         void p_CompileBlock(BlockElement const* BlockToCompile, HTTPReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream);
         void p_CompileDirective(Directive const& DirectiveToCompile, HTTPReferenceSolver const& ReferenceSolver, MBUtility::MBOctetOutputStream& OutStream);
         void p_CompileFormat(FormatElement const& SourceToCompile, HTTPReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream,int Depth);
-        void p_CompileSource(DocumentSource const& SourceToCompile, HTTPReferenceSolver const& ReferenceSolver);
+        void p_CompileSource(std::string const& OutPath,DocumentSource const& SourceToCompile, HTTPReferenceSolver const&  ReferenceSolver);
     public:
-        void Compile(std::vector<DocumentSource> const& Source); 
+        void Compile(DocumentFilesystem const& BuildToCompile); 
     };
 }

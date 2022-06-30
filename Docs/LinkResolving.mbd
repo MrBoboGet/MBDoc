@@ -60,7 +60,7 @@ AbsolutePath = '/' (FSName '/')* [FSName] [PartSpecifier]
     The way a reference is resolved, is by converting the ReferenceIdentifier to an absolute document path, or leaving it as is if the ReferenceIdentifier is an URL. 
     But in order to fully understand how the "document filesystem" is created, it might be beneficial to look at @Building. However, to understand the algorithm it is enough
     to know that  during a build a "virtual document filesystem" is created, with a root and directories and documents as the leafs. They represent all of the docuemtns for a given build,
-    and all can be refered to through a @[absolute document path](The absolute document path). Furthermore, when resolving a reference in a given document, the documents  @[absolute document path](The absolute document path)
+    and all can be refered to through a @[absolute document path](#Absolute document path). Furthermore, when resolving a reference in a given document, the documents  @[absolute document path](#Absolute document path)
     is known. 
 
     _# Reference Identifier

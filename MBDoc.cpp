@@ -251,9 +251,22 @@ namespace MBDoc
         }
         else
         {
-            size_t DelimiterPosition = MBParsing::GetNextDelimiterPosition({'\t',' ','\n'},Data,DataSize,ParseOffset,nullptr);
-            ReturnValue.Identifier = std::string(CharData+ParseOffset+1,CharData+DelimiterPosition); 
-            ParseOffset = DelimiterPosition;
+            if (CharData[ParseOffset + 1] != '(') 
+            {
+                size_t DelimiterPosition = MBParsing::GetNextDelimiterPosition({ '\t',' ','\n',',','.' }, Data, DataSize, ParseOffset, nullptr);
+                ReturnValue.Identifier = std::string(CharData + ParseOffset + 1, CharData + DelimiterPosition);
+                ParseOffset = DelimiterPosition;
+            }
+            else 
+            {
+                size_t IdentifierEnd = std::find(CharData + ParseOffset + 2, CharData + DataSize,')') - CharData;
+                if (IdentifierEnd == DataSize)
+                {
+                    throw std::runtime_error("Unexpected end of reference identifier, missing )");
+                }
+                ReturnValue.Identifier = std::string(CharData + ParseOffset + 2, CharData + IdentifierEnd);
+                ParseOffset = IdentifierEnd + 1;
+            }
         }
         *OutParseOffset = ParseOffset;
         return(ReturnValue);    
@@ -876,10 +889,35 @@ ParseOffset--;
     //END DocumentBuild
     
     //BEGIN DocumentPath
-    DocumentPath DocumentPath::GetRelativePath(DocumentPath const& Base,DocumentPath const& PathToSimplify)
+    DocumentPath DocumentPath::GetRelativePath(DocumentPath const& TargetPath,DocumentPath const& CurrentPath)
     {
         DocumentPath ReturnValue;
+        if (TargetPath[0] != "/" || CurrentPath[0] != "/")
+        {
 
+        }
+        size_t CommonDirectoryPrefix = 0;
+        for (size_t i = 0; i < std::min(TargetPath.ComponentCount(), CurrentPath.ComponentCount());i++)
+        {
+            if (TargetPath[i] == CurrentPath[i])
+            {
+                CommonDirectoryPrefix += 1;
+            }
+            else
+            {
+                break;
+            }
+        }
+        //Assumes that the last part if CurrentPath is a file name
+        for (int i = 0; i < int(CurrentPath.ComponentCount()) - 1 - int(CommonDirectoryPrefix); i++)
+        {
+            ReturnValue.AddDirectory("..");
+        }
+        for (int i = CommonDirectoryPrefix; i < TargetPath.ComponentCount(); i++)
+        {
+            ReturnValue.AddDirectory(TargetPath[i]);
+        }
+        ReturnValue.SetPartIdentifier(TargetPath.GetPartIdentifier());
         return(ReturnValue);        
     }
     bool DocumentPath::IsSubPath(DocumentPath const& PathToCompare) const
@@ -952,6 +990,11 @@ ParseOffset--;
     {
         DocumentPath ReturnValue;
         std::vector<std::string> Components = MBUtility::Split(PathToParse,"/");
+        //a bit hacky, but initial / gets cut of from previous split
+        if (PathToParse.size() > 0 && PathToParse[0] == '/') 
+        {
+            Components.insert(Components.begin(), "/");
+        }
         for(std::string& Component : Components)
         {
             if(Component == "")
@@ -973,6 +1016,14 @@ ParseOffset--;
             m_PathComponents.resize(m_PathComponents.size()-1);   
         }
     }
+    void DocumentPath::SetPartIdentifier(std::string PartSpecifier)
+    {
+        m_PartIdentifier = std::move(PartSpecifier);
+    }
+    std::string const& DocumentPath::GetPartIdentifier() const
+    {
+        return(m_PartIdentifier);
+    }
     //END DocumentPath
 
     //BEGIN DocumentReference
@@ -984,7 +1035,7 @@ ParseOffset--;
         size_t LastHashtag = StringToParse.find_last_of('#');
         if(LastHashtag != StringToParse.npos)
         {
-            if(LastSlash < LastHashtag || LastBracket < LastHashtag)
+            if((LastHashtag < LastSlash && LastSlash != StringToParse.npos) || (LastHashtag < LastBracket && LastBracket != StringToParse.npos))
             {
                 OutError = false;
                 OutError.ErrorMessage = "Path specifier is not allowed after the part specifier"; 
@@ -995,7 +1046,7 @@ ParseOffset--;
         }
         size_t ParseOffset = 0;
         MBParsing::SkipWhitespace(StringToParse,ParseOffset,&ParseOffset);
-        if(ParseOffset > StringToParse.size() && StringToParse[0] == '/')
+        if(ParseOffset < StringToParse.size() && StringToParse[ParseOffset] == '/')
         {
             PathSpecifier NewSpecifier;
             NewSpecifier.PathNames.push_back("/");
@@ -1338,7 +1389,14 @@ ParseOffset--;
         } 
         else
         {
-            ReturnValue = Index;
+            if (m_DirectoryInfos[Index].Name != SubdirectoryName)
+            {
+                ReturnValue = -1;
+            }
+            else
+            {
+                ReturnValue = Index;
+            }
         }
         return(ReturnValue); return(ReturnValue);
     }
@@ -1357,15 +1415,29 @@ ParseOffset--;
         } 
         else
         {
-            ReturnValue = Index;
+            if (m_TotalSources[Index].Name != FileName)
+            {
+                ReturnValue = -1;
+            }
+            else
+            {
+                ReturnValue = Index;
+            }
         }
         return(ReturnValue);
     }
     DocumentFilesystem::FSSearchResult DocumentFilesystem::p_ResolveAbsoluteDirectory(size_t RootDirectoryIndex,PathSpecifier const& Path) const
     {
+        //All special cases stems from the fact that the special / directory isnt the child of any other directory
         FSSearchResult ReturnValue;        
         size_t LastDirectoryIndex = RootDirectoryIndex;
-        for(int i = 0; i < int(Path.PathNames.size())-1;i++)
+        int Offset = 0;
+        if (Path.PathNames.front() == "/")
+        {
+            Offset = 1;
+            LastDirectoryIndex = 0;
+        }
+        for(int i = Offset; i < int(Path.PathNames.size())-1;i++)
         {
             size_t SubdirectoryIndex = p_DirectorySubdirectoryIndex(LastDirectoryIndex,Path.PathNames[i]);
             if(SubdirectoryIndex == -1)
@@ -1374,6 +1446,12 @@ ParseOffset--;
                 return(ReturnValue);
             } 
             LastDirectoryIndex = SubdirectoryIndex;
+        }
+        if (Offset >= int(Path.PathNames.size()))
+        {
+            ReturnValue.Index = LastDirectoryIndex;
+            ReturnValue.Type = DocumentFSType::Directory;
+            return(ReturnValue);
         }
         size_t FileIndex = p_DirectoryFileIndex(LastDirectoryIndex,Path.PathNames.back());
         if(FileIndex != -1)
@@ -1407,25 +1485,42 @@ ParseOffset--;
         if(CurrentResult.Type == DocumentFSType::Directory)
         {
             DocumentFilesystemIterator Iterator(CurrentResult.Index);
-            Iterator.NextFile();
+            Iterator.m_AssociatedFilesystem = this;
             while(!Iterator.HasEnded())
             {
-                if(Iterator.GetDocumentInfo().ReferenceTargets.find(PartSpecifier) != Iterator.GetDocumentInfo().ReferenceTargets.end())
+                if (!Iterator.EntryIsDirectory())
                 {
-                    ReturnValue.Type = DocumentFSType::File;
-                    ReturnValue.Index = Iterator.GetCurrentFileIndex();
-                    break;
+                    if (Iterator.GetDocumentInfo().ReferenceTargets.find(PartSpecifier) != Iterator.GetDocumentInfo().ReferenceTargets.end())
+                    {
+                        ReturnValue.Type = DocumentFSType::File;
+                        ReturnValue.Index = Iterator.GetCurrentFileIndex();
+                        break;
+                    }
                 }
+                Iterator.Increment();
             }
         }
         return(ReturnValue);
     }
     bool h_ContainFileComp(DocumentDirectoryInfo const& DirectoryToCheck, size_t FileToContain)
-    {
-        if (DirectoryToCheck.FileIndexEnd < FileToContain)
+    { 
+        if (DirectoryToCheck.FileIndexBegin == DirectoryToCheck.FileIndexEnd)
+        {
+            return(DirectoryToCheck.FileIndexBegin <= FileToContain);
+        }
+        if(DirectoryToCheck.FileIndexEnd <= FileToContain)
         {
             return(true);
         }
+        if (DirectoryToCheck.FileIndexBegin > FileToContain)
+        {
+            return(false);
+        }
+        //We want the first element *not less* than value
+        //if (DirectoryToCheck.FileIndexBegin <= FileToContain &&  FileToContain < DirectoryToCheck.FileIndexEnd)
+        //{
+        //    return(false);
+        //}
         return(false);
     }
     DocumentPath DocumentFilesystem::p_GetFileIndexPath(size_t FileIndex) const
@@ -1453,7 +1548,12 @@ ParseOffset--;
     size_t DocumentFilesystem::p_GetFileDirectoryIndex(DocumentPath const& PathToSearch) const
     {
         size_t ReturnValue = 0;
-        for (int i = 0; i < int(PathToSearch.ComponentCount()) - 1; i++)
+        int Offset = 0;
+        if (PathToSearch[0] == "/")
+        {
+            Offset = 1;
+        }
+        for (int i = Offset; i < int(PathToSearch.ComponentCount()) - 1; i++)
         {
             ReturnValue = p_DirectorySubdirectoryIndex(ReturnValue, PathToSearch[i]);
             if (ReturnValue == -1)
@@ -1551,12 +1651,30 @@ ParseOffset--;
         {
             SearchRoot = p_ResolvePartSpecifier(SearchRoot,ReferenceIdentifier.PartSpecifier);
         }
-        if(SearchRoot.Type == DocumentFSType::Null || SearchRoot.Type == DocumentFSType::Directory)
+        if(SearchRoot.Type == DocumentFSType::Null)
         {
             *OutResult = false;   
             return(ReturnValue);
         }
+        if (SearchRoot.Type == DocumentFSType::Directory)
+        {
+            size_t FileIndex = p_DirectoryFileIndex(SearchRoot.Index, "index.mbd");
+            if (FileIndex != -1)
+            {
+                SearchRoot.Index = FileIndex;
+                SearchRoot.Type = DocumentFSType::File;
+            }
+            else
+            {
+                *OutResult = false;
+                return(ReturnValue);
+            }
+        }
         ReturnValue = p_GetFileIndexPath(SearchRoot.Index); 
+        if (ReferenceIdentifier.PartSpecifier != "")
+        {
+            ReturnValue.SetPartIdentifier(ReferenceIdentifier.PartSpecifier);
+        }
         assert(ReturnValue.ComponentCount() > 0);
         *OutResult = Result;
         return(ReturnValue);
@@ -1937,17 +2055,39 @@ ParseOffset--;
     //
     
     //BEGIN HTTPReferenceSolver
-    std::string HTTPReferenceSolver::GetReferenceString(DocReference const& ReferenceIdentifier)
+    void HTTPReferenceSolver::SetCurrentPath(DocumentPath CurrentPath)
     {
-        return("");
+        m_CurrentPath = std::move(CurrentPath);
     }
-    void HTTPReferenceSolver::Initialize(std::vector<DocumentSource> const& Document)
+    std::string HTTPReferenceSolver::GetReferenceString(DocReference const& ReferenceIdentifier) const
     {
-
+        std::string ReturnValue = "<a href=\"";
+        MBError OutResult = true; 
+        DocumentPath ReferencePath = m_AssociatedBuild->ResolveReference(m_CurrentPath, ReferenceIdentifier.Identifier, OutResult);
+        if (OutResult)
+        {
+            std::string Path = DocumentPath::GetRelativePath(ReferencePath, m_CurrentPath).GetString();
+            ReturnValue += MBUtility::ReplaceAll(Path,".mbd",".html");
+            ReturnValue += "\">";
+            if (ReferenceIdentifier.VisibleText == "")
+            {
+                ReturnValue += ReferencePath.GetString();
+            }
+            else
+            {
+                ReturnValue += ReferenceIdentifier.VisibleText;
+            }
+        }
+        else
+        {
+            ReturnValue += "#\" style=\"color: red;\">"+ReferenceIdentifier.VisibleText;
+        }
+        ReturnValue += "</a>";
+        return(ReturnValue);
     }
-    void HTTPReferenceSolver::Initialize(DocumentSource const& Document)
+    void HTTPReferenceSolver::Initialize(DocumentFilesystem const* Build)
     {
-
+        m_AssociatedBuild = Build;
     }
     //END HTTPReferenceSolver
 
@@ -1958,28 +2098,34 @@ ParseOffset--;
     {
         for(std::unique_ptr<TextElement> const& Text : ElementsToCompile)
         {
+            TextModifier Modifiers = Text->Modifiers;
+            if ((Modifiers & TextModifier::Bold) != TextModifier::Null)
+            {
+                OutStream.Write("<b>", 3);
+            }
+            if ((Modifiers & TextModifier::Italic) != TextModifier::Null)
+            {
+                OutStream.Write("<i>", 3);
+            }
             if(Text->Type == TextElementType::Regular)
             {
-                TextModifier Modifiers = Text->Modifiers;
-                if((Modifiers & TextModifier::Bold) != TextModifier::Null)
-                {
-                    OutStream.Write("<b>",3);   
-                }
-                if((Modifiers & TextModifier::Italic) != TextModifier::Null)
-                {
-                    OutStream.Write("<i>",3); 
-                }
                 RegularText const& TextToWrite = static_cast<RegularText const&>(*Text);
                 OutStream.Write(TextToWrite.Text.data(),TextToWrite.Text.size());
-                if((Modifiers & TextModifier::Bold) != TextModifier::Null)
-                {
-                    OutStream.Write("</b>",4);   
-                }
-                if((Modifiers & TextModifier::Italic) != TextModifier::Null)
-                {
-                    OutStream.Write("</i>",4); 
-                }
-            }   
+            }
+            if (Text->Type == TextElementType::Reference)
+            {
+                DocReference const& ReferenceToWrite = static_cast<DocReference const&>(*Text);
+                std::string StringToWrite = HTTPReferenceSolverReferenceSolver.GetReferenceString(ReferenceToWrite);
+                OutStream.Write(StringToWrite.data(), StringToWrite.size());
+            }
+            if ((Modifiers & TextModifier::Bold) != TextModifier::Null)
+            {
+                OutStream.Write("</b>", 4);
+            }
+            if ((Modifiers & TextModifier::Italic) != TextModifier::Null)
+            {
+                OutStream.Write("</i>", 4);
+            }
         }
     }
     void HTTPCompiler::p_CompileBlock(BlockElement const* BlockToCompile, HTTPReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream)
@@ -2026,9 +2172,9 @@ ParseOffset--;
             }
         } 
     }
-    void HTTPCompiler::p_CompileSource(DocumentSource const& SourceToCompile, HTTPReferenceSolver const& ReferenceSolver)
+    void HTTPCompiler::p_CompileSource(std::string const& OutPath, DocumentSource const& SourceToCompile, HTTPReferenceSolver const& ReferenceSolver)
     {
-        std::string OutFile = SourceToCompile.Name;
+        std::string OutFile = OutPath;
         size_t FirstDot = OutFile.find_last_of('.');
         if (FirstDot == OutFile.npos)
         {
@@ -2038,7 +2184,16 @@ ParseOffset--;
         {
             OutFile.replace(FirstDot, 5, ".html");
         }
+        std::filesystem::path FilePath = OutPath;
+        if (!std::filesystem::exists(FilePath.parent_path()))
+        {
+            std::filesystem::create_directories(FilePath.parent_path());
+        }
         std::ofstream OutStream = std::ofstream(OutFile);
+        if (!OutStream.is_open())
+        {
+            throw std::runtime_error("File not open");
+        }
         MBUtility::MBFileOutputStream FileStream(&OutStream);
         std::string TopInfo = "<!DOCTYPE html><html><head><style>body{background-color: black; color: #00FF00;}</style></head><body><div style=\"width: 50%;margin: auto\">";
         OutStream.write(TopInfo.data(), TopInfo.size());
@@ -2048,13 +2203,21 @@ ParseOffset--;
         }
         OutStream.write("</div></body></html>", 7);
     }
-    void HTTPCompiler::Compile(std::vector<DocumentSource> const& Sources)
+    void HTTPCompiler::Compile(DocumentFilesystem const& BuildToCompile)
     {
         HTTPReferenceSolver ReferenceSolver;
-        ReferenceSolver.Initialize(Sources);
-        for (auto const& Source : Sources) 
+        ReferenceSolver.Initialize(&BuildToCompile);
+        DocumentFilesystemIterator FileIterator = BuildToCompile.begin();
+        while (!FileIterator.HasEnded())
         {
-            p_CompileSource(Source, ReferenceSolver);
+            if (!FileIterator.EntryIsDirectory())
+            {
+                DocumentPath CurrentPath = FileIterator.GetCurrentPath();
+                DocumentSource const& SourceToCompile = FileIterator.GetDocumentInfo();
+                ReferenceSolver.SetCurrentPath(CurrentPath);
+                p_CompileSource("./OutHTTPTemp" + CurrentPath.GetString(), SourceToCompile, ReferenceSolver);
+            }
+            FileIterator++;
         }
     }
 
