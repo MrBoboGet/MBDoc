@@ -1,13 +1,19 @@
-# MBDoc
+%title "Code Index"
 
-The purpose of this document is to server as an introduction and overview of the codebase for MBDoc, and describe the main abstractions for the project. For more detalied descriptions see the 
-documentation for the individual classes, go here @[here](Code/index.mbd).
+The purpose of this document is to server as an introduction and overview of
+the codebase for MBDoc, and describe the main abstractions for the project. For
+more detalied descriptions see the documentation for the individual classes, go
+here @[here](Code/index.mbd).
 
 
 #_ Directory structure
 
-This project follows the @MBPDS . This means that all of the source files can be found at the top part of the project directory, and that they use only relative includes, which means that all of the sources
-can be moved to another directory and compiled without problem. The folder Doc is where the documentation for the project is located, and MUST have no affect on compiling the library and executable. 
+    This project follows the @MBPDS . This means that all of the source files
+    can be found at the top part of the project directory, and that they use
+    only relative includes, which means that all of the sources can be moved to
+    another directory and compiled without problem. The folder Doc is where the
+    documentation for the project is located, and MUST have no affect on
+    compiling the library and executable. 
 
 
 /_
@@ -16,60 +22,111 @@ can be moved to another directory and compiled without problem. The folder Doc i
 
 #_ The pipeline
 
-In order to create documents from MBDoc files there are 4 distinct steps. Preprocessing, parsing, reference solver generation(bättre namn?), and outputting to the target format. 
+In order to create documents from MBDoc files there are 4 distinct steps.
+Preprocessing, parsing, Document filesystem generation, and outputting to the
+target format. 
 
-# Preprocessing and parsing
+    # Preprocessing and parsing
 
-Preprocessing and parsing is currently done together by @MBDoc::ParsingContext. The main reason for this is because a lot of infrastructure in preprocessing and parsing is the same, and because it ensures that
-eventual intermediaries can be skipped. The class has many functions, but most are convenience. The @SemanticallyAuthorative function requires only an input stream and a path to assign the document, which
-is needed as document paths are used for reference creation. Most function are provided to make it easier to create relative paths, as that's often needed when creating a project with multiple 
-(vet inte vad jag ska kalla det) MBDocBuild files. 
+        Preprocessing and parsing is currently done together by
+        @MBDoc::ParsingContext.  The main reason for this is because a lot of
+        infrastructure in preprocessing and parsing is the same, and because it
+        ensures that eventual intermediaries can be skipped. The class has many
+        functions, but most are convenience. The @SemanticallyAuthorative
+        function requires only an input stream and a path to assign the
+        document, which is needed as document paths are used for reference
+        creation. Most function are provided to make it easier to create
+        relative paths, as that's often needed when creating a project with
+        multiple (vet inte vad jag ska kalla det) MBDocBuild files. 
 
-# Reference Solver 
+    # Reference Solver 
 
-This is the step that have the most design considerations to get right, and is in some sense the heart of the functionality. For a more thourough description for how references are resolved 
-go @[here](References.mbd). However, the problem facing here isn't really what references should be resolvable, but how to make this generall to all different targets and configurations, without needing to reimplement the algorithm 
-each time. 
+        This is the step that have the most design considerations to get right,
+        and is in some sense the heart of the functionality. For a more
+        thourough description for how references are resolved go
+        @[here](References.mbd). However, the problem facing here isn't really
+        what references should be resolvable, but how to make this generall to
+        all different targets and configurations, without needing to
+        reimplement the algorithm each time. 
 
-The first insight one has to make is the following: Creating a reference is intrinsically coupled with the outputted format. Different formats create links different ways, but all formats resolve links to MBDocs the same way. 
-Another imporant property of the way documents are generated, is that they are static. They don't require any dynamic lookup of what the links refer to, and are in some sense absolute. This leads to the abstraction 
-used for creating references, that are also tied to they way $[builds are structured](Building.mbd), the absolute document path.
+        The first insight one has to make is the following: Creating a
+        reference is intrinsically coupled with the outputted format. Different
+        formats create links different ways, but all formats resolve links to
+        MBDocs the same way.  Another imporant property of the way documents
+        are generated, is that they are static.  They don't require any dynamic
+        lookup of what the links refer to, and are in some sense absolute. This
+        leads to the abstraction used for creating references, that are also
+        tied to they way $[builds are structured](Building.mbd), the absolute
+        document path.
 
-The absolute document path is a string uniquely identifing a document and optionally a part of that document. The core idea is, that document/format able to link to other documents, has to be able to support this kind of reference either way. 
-As this kind of path has to be able to be supported, the easiest way to resolve references is to normalize all resolved references to the absolute packet path. This means that the implementation only has to be able to serialize one kind of 
-reference. This does however also mean, that compiling a packet require that each document know's it's "directory". See @Compiling .
+        The absolute document path is a string uniquely identifing a document
+        and optionally a part of that document. The core idea is, that
+        document/format able to link to other documents, has to be able to
+        support this kind of reference either way.  As this kind of path has to
+        be able to be supported, the easiest way to resolve references is to
+        normalize all resolved references to the absolute packet path. This
+        means that the implementation only has to be able to serialize one kind
+        of reference. This does however also mean, that compiling a packet
+        require that each document know's it's "directory". See @Compiling .
 
-The class responsible for this relatively complex task is the ReferenceSolver. It can create references for a given document, and composes with outher ReferenceSolvers in order to be able to describe the structre achieved when combining
-multiple documentation builds.  
+        The class responsible for this relatively complex task is the
+        ReferenceSolver.  It can create references for a given document, and
+        composes with outher ReferenceSolvers in order to be able to describe
+        the structre achieved when combining multiple documentation builds.  
 
-_# Invalid references
-    Another design consideration, is at which point unresolved references create an error. In traditional C/C++, unresolved refernces are only found at the end of the compilation process, when all the output is already created.
-    This is however generally something that is suboptimal, if your document is invalid it is something that you want to find out quickly. In order to find early errors, all of the references are extracted and stored separately,
-    and checked for validity. This does however require and extra pass through all the documents and an extra lookup, which might be a bit wasteful. 
-/#
+    _# Invalid references
 
-# Compiling
+        Another design consideration, is at which point unresolved references
+        create an error. In traditional C/C++, unresolved refernces are only
+        found at the end of the compilation process, when all the output is
+        already created.  This is however generally something that is
+        suboptimal, if your document is invalid it is something that you want
+        to find out quickly. In order to find early errors, all of the
+        references are extracted and stored separately, and checked for
+        validity. This does however require and extra pass through all the
+        documents and an extra lookup, which might be a bit wasteful.  /#
 
-This is the part where the implementation for the individual output formats and semantics are. In the @[philosophy of the project](index.mbd) it is described how output formats are always linkable. The way this is achieved
-is naturally dependant on the format, but more importantly, is the same for all semantics. But in order to facilitate easy creation of new target format and semantics, a generic abstract class is provided that 
-specifices the needed interface to compile a MBDoc build, *with the same semantics*. The reason why a mixed semantic build is still not as easily implementable, is that they don't guarantee a uniform output structure. One
-semantic might bundle up all files in a large document, which means that the way @[absolute packets paths](asdasd) are compiled is not trivial, and not necceserially genericly solvable. Some formats like HTTP might 
-solve this by just having a map from absolute packet path to relative url as a string. But as other formats might not encode references in a easily insertable string, this interace might not work. This is 
-currently a work in progress on the compilation part 
+    # Compiling
 
-# MBDocCLI 
+        This is the part where the implementation for the individual output
+        formats and semantics are. In the @[philosophy of the
+        project](index.mbd) it is described how output formats are always
+        linkable. The way this is achieved is naturally dependant on the
+        format, but more importantly, is the same for all semantics. But in
+        order to facilitate easy creation of new target format and semantics, a
+        generic abstract class is provided that specifices the needed interface
+        to compile a MBDoc build, *with the same semantics*. The reason why a
+        mixed semantic build is still not as easily implementable, is that they
+        don't guarantee a uniform output structure. One semantic might bundle
+        up all files in a large document, which means that the way @[absolute
+        packets paths](asdasd) are compiled is not trivial, and not
+        necceserially genericly solvable. Some formats like HTTP might solve
+        this by just having a map from absolute packet path to relative url as
+        a string. But as other formats might not encode references in a easily
+        insertable string, this interace might not work. This is currently a
+        work in progress on the compilation part 
 
-This is the class "closest to main", which is responsible for handling all of the user input, for documentation of what options are supported and what they do go @[here](CLI.mbd). The class is however only ment 
-to work as a glue combining all of the individual parts of the project together into a convenient user interfac, and MUST NOT implement functionality that requires understanding of the internals of the 
-other classes, and can only use the public functions exposed by the other classes. Preferably, it should be feasible to implement one's own CLI with the library part of the project, instead of acting as a 
-map for different command line options.
+    # MBDocCLI 
 
-_# Adding an option
-    In order to add an option to the exectuable, jada jada jada. 
-/#
+        This is the class "closest to main", which is responsible for handling
+        all of the user input, for documentation of what options are supported
+        and what they do go @[here](CLI.mbd). The class is however only ment to
+        work as a glue combining all of the individual parts of the project
+        together into a convenient user interfac, and MUST NOT implement
+        functionality that requires understanding of the internals of the other
+        classes, and can only use the public functions exposed by the other
+        classes. Preferably, it should be feasible to implement one's own CLI
+        with the library part of the project, instead of acting as a map for
+        different command line options.
+
+        _# Adding an option
+            In order to add an option to the exectuable, jada jada jada. 
+        /#
 
 
-/_
+    /_
 
-This is the most important functionality oriented classes, but this project also has a lot of data structures that are passed around, mainly related to how the parsed document is represented
-programatically. For further reading of the different elements that constitue a document, go @[here](Elements.mdb).
+This is the most important functionality oriented classes, but this project
+also has a lot of data structures that are passed around, mainly related to how
+the parsed document is represented programatically. For further reading of the
+different elements that constitue a document, go @[here](Elements.mdb).

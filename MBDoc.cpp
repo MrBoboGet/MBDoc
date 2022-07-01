@@ -33,6 +33,35 @@ namespace MBDoc
         return(m_Attributes.find(AttributeToCheck) != m_Attributes.end());        
     }
     //END AttributeList
+    
+    //BEGIN ArgumentList
+    std::string const& ArgumentList::operator[](size_t Index) const
+    {
+        return(m_PositionalArguments[Index]);
+    }
+    std::string const& ArgumentList::operator[](std::string const& AttributeName) const
+    {
+        return(m_NamedArguments.at(AttributeName));
+    }
+    bool ArgumentList::HasArgument(std::string const& AttributeName) const
+    {
+        return(m_NamedArguments.find(AttributeName) != m_NamedArguments.end());
+    }
+    size_t ArgumentList::PositionalArgumentsCount() const
+    {
+        return(m_PositionalArguments.size());
+    }
+    void ArgumentList::AddArgument(std::pair<std::string, std::string> NewAttribute)
+    {
+        m_NamedArguments[NewAttribute.first] = std::move(NewAttribute.second);
+    }
+    void ArgumentList::AddArgument(std::string ArgumentToAdd)
+    {
+        m_PositionalArguments.push_back(std::move(ArgumentToAdd));
+    }
+    //END ArgumentList
+
+
     //BEGIN LineRetriever
     LineRetriever::LineRetriever(MBUtility::MBOctetInputStream* InputStream)
     {
@@ -527,13 +556,71 @@ ParseOffset--;
         ReturnValue = NameToNormalize.substr(Start, 1+End - Start);
         return(ReturnValue);
     }
+    ArgumentList DocumentParsingContext::p_ParseArgumentList(void const* Data, size_t DataSize,size_t InOffset)
+    {
+        ArgumentList ReturnValue;
+        size_t ParseOffset = InOffset;
+        char const* CharData = (char const*)Data;
+        MBError ParseResult = true;
+        MBParsing::SkipWhitespace(Data, DataSize, ParseOffset, &ParseOffset);
+        while (ParseOffset < DataSize)
+        {
+            if (CharData[ParseOffset] == '\"')
+            {
+                ReturnValue.AddArgument(MBParsing::ParseQuotedString(Data, DataSize, ParseOffset, &ParseOffset,&ParseResult));
+                if (!ParseResult)
+                {
+                    throw std::runtime_error("invalid quoted string in directive argument list: " + ParseResult.ErrorMessage);
+                }
+            }
+            else 
+            {
+                size_t NamedEnd = MBParsing::GetNextDelimiterPosition({ ' ','\t' }, Data, DataSize,ParseOffset);
+                std::string Name = std::string(CharData + ParseOffset, CharData + NamedEnd);
+                MBParsing::SkipWhitespace(Data,DataSize, NamedEnd, &ParseOffset);
+                if (ParseOffset < DataSize && CharData[ParseOffset] == '=')
+                {
+                    std::string Value;
+                    MBParsing::SkipWhitespace(Data, DataSize, ParseOffset+1, &ParseOffset);
+                    if (ParseOffset >= DataSize)
+                    {
+                        throw std::runtime_error("Invalid named argument in argument list: no argument value provided");
+                    }
+                    if (CharData[ParseOffset] == '"')
+                    {
+                        Value = MBParsing::ParseQuotedString(Data,DataSize, ParseOffset, &ParseOffset,&ParseResult);
+                        if (!ParseResult) 
+                        {
+                            throw std::runtime_error("Invalid string in named argument value: " + ParseResult.ErrorMessage);
+                        }
+                    }
+                    else
+                    {
+                        size_t ValueEnd = MBParsing::GetNextDelimiterPosition({ ' ','\t' }, Data,DataSize, ParseOffset);
+                        Value = std::string(CharData + ParseOffset, ValueEnd - ParseOffset);
+                        ParseOffset = ValueEnd;
+                    }
+                    ReturnValue.AddArgument({ std::move(Name),std::move(Value) });
+                }
+                else
+                {
+                    ReturnValue.AddArgument(std::move(Name));
+                }
+            }
+            MBParsing::SkipWhitespace(Data, DataSize, ParseOffset, &ParseOffset);
+        }
+
+        return(ReturnValue);
+    }
     Directive DocumentParsingContext::p_ParseDirective(LineRetriever& Retriever)
     {
         Directive ReturnValue;
         std::string CurrentLine;
         Retriever.GetLine(CurrentLine);
         size_t NameBegin = CurrentLine.find('%');
-        ReturnValue.DirectiveName = CurrentLine.substr(NameBegin + 1);
+        size_t NameEnd = MBParsing::GetNextDelimiterPosition({ ' ','\t' },CurrentLine,NameBegin+1);
+        ReturnValue.DirectiveName = CurrentLine.substr(NameBegin + 1,NameEnd-NameBegin-1);
+        ReturnValue.Arguments = p_ParseArgumentList(CurrentLine.data(), CurrentLine.size(), NameEnd);
         return(ReturnValue);
     }
     AttributeList DocumentParsingContext::p_ParseAttributeList(LineRetriever& Retriever)
@@ -2146,16 +2233,33 @@ ParseOffset--;
     }
     void HTTPCompiler::p_CompileDirective(Directive const& DirectiveToCompile, HTTPReferenceSolver const& ReferenceSolver, MBUtility::MBOctetOutputStream& OutStream)
     {
-         
+        if (DirectiveToCompile.DirectiveName == "title")
+        {
+            if (DirectiveToCompile.Arguments.PositionalArgumentsCount() > 0)
+            {
+                std::string StringToWrite = "<h1 style=\"text-align: center;\">" + DirectiveToCompile.Arguments[0] + "</h1>\n";
+                OutStream.Write(StringToWrite.data(), StringToWrite.size());
+            }
+        }
     }
-    void HTTPCompiler::p_CompileFormat(FormatElement const& FormatToCompile, HTTPReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream,int Depth)
+    void HTTPCompiler::p_CompileFormat(FormatElement const& FormatToCompile, HTTPReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream,int Depth,
+        std::string const& NamePrefix)
     {
         std::string HeadingTag = "h"+std::to_string(Depth+2);
         if(FormatToCompile.Type != FormatElementType::Default)
         {
-            std::string StringToWrite = "<"+HeadingTag+" id=\"" +FormatToCompile.Name+"\" style=\"text-align: center;\">"+FormatToCompile.Name+"</"+HeadingTag+"><br>\n";
+            std::string StringToWrite = "<" + HeadingTag + " id=\"" + FormatToCompile.Name+"\" ";
+            if (Depth == 0)
+            {
+                StringToWrite += "style = \"text-align: center;\"";
+            }
+            StringToWrite += ">";
+            
+            StringToWrite += NamePrefix +" "+ FormatToCompile.Name + "</" + HeadingTag + "><br>\n";
+            
             OutStream.Write(StringToWrite.data(),StringToWrite.size());
         }
+        size_t FormatOffset = 1;
         for(FormatElementComponent const& Component : FormatToCompile.Contents)
         {
             if(Component.GetType() == FormatComponentType::Directive)
@@ -2168,7 +2272,8 @@ ParseOffset--;
             }
             else if(Component.GetType() == FormatComponentType::Format)
             {
-                p_CompileFormat(Component.GetFormatData(),ReferenceSolver,OutStream,Depth+1);
+                p_CompileFormat(Component.GetFormatData(),ReferenceSolver,OutStream,Depth+1,NamePrefix+"."+std::to_string(FormatOffset));
+                FormatOffset++;
             }
         } 
     }
@@ -2197,9 +2302,11 @@ ParseOffset--;
         MBUtility::MBFileOutputStream FileStream(&OutStream);
         std::string TopInfo = "<!DOCTYPE html><html><head><style>body{background-color: black; color: #00FF00;}</style></head><body><div style=\"width: 50%;margin: auto\">";
         OutStream.write(TopInfo.data(), TopInfo.size());
+        size_t ElementIndex = 1;
         for (FormatElement const& Format : SourceToCompile.Contents)
         {
-            p_CompileFormat(Format, ReferenceSolver, FileStream, 0);
+            p_CompileFormat(Format, ReferenceSolver, FileStream, 0, std::to_string(ElementIndex));
+            ElementIndex++;
         }
         OutStream.write("</div></body></html>", 7);
     }

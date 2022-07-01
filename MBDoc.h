@@ -171,9 +171,24 @@ namespace MBDoc
     //Block elements
    
     //Directives
+    class ArgumentList
+    {
+    private:
+        std::vector<std::string> m_PositionalArguments;
+        std::unordered_map<std::string, std::string> m_NamedArguments;
+    public:
+        std::string const& operator[](size_t Index) const;
+        std::string const& operator[](std::string const& AttributeName) const;
+        bool HasArgument(std::string const& AttributeName) const;
+        size_t PositionalArgumentsCount() const;
+
+        void AddArgument(std::pair<std::string, std::string> NewAttribute);
+        void AddArgument(std::string ArgumentToAdd);
+    };
     struct Directive
     {
         std::string DirectiveName;
+        ArgumentList Arguments;
     };
     //
 
@@ -292,6 +307,8 @@ namespace MBDoc
         std::unique_ptr<BlockElement> p_ParseCodeBlock(LineRetriever& Retriever);
         std::unique_ptr<BlockElement> p_ParseBlockElement(LineRetriever& Retriever);
         AttributeList p_ParseAttributeList(LineRetriever& Retriever);
+
+        ArgumentList p_ParseArgumentList(void const* Data,size_t DataSize,size_t InOffset);
         Directive p_ParseDirective(LineRetriever& Retriever);
         //Incredibly ugly, but the alternative for the current syntax is to include 2 lines look ahead
         FormatElement p_ParseFormatElement(LineRetriever& Retriever,AttributeList* OutCurrentList);
@@ -536,7 +553,8 @@ namespace MBDoc
         void p_CompileText(std::vector<std::unique_ptr<TextElement>> const& ElementsToCompile,HTTPReferenceSolver const& HTTPReferenceSolverReferenceSolver,MBUtility::MBOctetOutputStream& OutStream);
         void p_CompileBlock(BlockElement const* BlockToCompile, HTTPReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream);
         void p_CompileDirective(Directive const& DirectiveToCompile, HTTPReferenceSolver const& ReferenceSolver, MBUtility::MBOctetOutputStream& OutStream);
-        void p_CompileFormat(FormatElement const& SourceToCompile, HTTPReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream,int Depth);
+        void p_CompileFormat(FormatElement const& SourceToCompile, HTTPReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream,int Depth
+            ,std::string const& NamePrefix);
         void p_CompileSource(std::string const& OutPath,DocumentSource const& SourceToCompile, HTTPReferenceSolver const&  ReferenceSolver);
     public:
         void Compile(DocumentFilesystem const& BuildToCompile); 
