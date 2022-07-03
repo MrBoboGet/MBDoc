@@ -2,4 +2,8 @@ Excludes:
 /.vs/
 /.cache/
 /MBPM_BuildFiles/
+/Test.mbd
+/OutHTTPTemp
+/HTMLOut
+/out
 Includes:

@@ -1,4 +1,5 @@
 #include "MBDoc.h"
+#include "MBUtility/MBErrorHandling.h"
 #include "MBUtility/MBInterfaces.h"
 #include <cstring>
 #include <exception>
@@ -11,6 +12,7 @@
 #include <iostream>
 #include <MBUtility/MBStrings.h>
 #include <MBUnicode/MBUnicode.h>
+#include <MBCLI/MBCLI.h>
 namespace MBDoc
 {
 
@@ -1925,8 +1927,97 @@ ParseOffset--;
     }
     //END DocumentFilesystem
 
+    
+    int DocCLI::Run(const char** argv,int argc)
+    {
+        MBCLI::MBTerminal AssociatedTerminal;
+        MBCLI::ArgumentListCLIInput CLIInput(argc,argv);
+        CommonCompilationOptions OptionsToUse;
+        auto OutputOption = CLIInput.CommandArgumentOptions.find("o");
+        if(OutputOption == CLIInput.CommandArgumentOptions.end())
+        {
+            AssociatedTerminal.PrintLine("Compilation requires a output directory"); 
+            return(1);
+        }
+        if(OutputOption->second.size() > 1)
+        {
+            AssociatedTerminal.PrintLine("Can only specify one output directory"); 
+            return(1);
+        }
+        OptionsToUse.OutputDirectory = OutputOption->second[0];
+        
+        auto FormatOption = CLIInput.CommandArgumentOptions.find("f");
+        if(FormatOption == CLIInput.CommandArgumentOptions.end())
+        {
+            AssociatedTerminal.PrintLine("Compilation requires a target format");   
+            return(1);
+        }
+        if(FormatOption->second.size() > 1)
+        {
+            AssociatedTerminal.PrintLine("Can only specify one output format"); 
+        }
+        std::string const& FormatString = FormatOption->second[0];
 
-
+        //TODO semantics
+        std::string BuildName = ""; 
+        std::vector<std::string> BuildFiles;
+        for(std::string const& Argument : CLIInput.CommandArguments)
+        {
+            size_t DotPosition = Argument.find_last_of('.');   
+            if(DotPosition == Argument.npos)
+            {
+                BuildFiles.push_back(Argument); 
+                continue;
+            }
+            if(DotPosition+4 < Argument.size() && std::memcmp(Argument.data()+DotPosition+1,"json",4) == 0)
+            {
+                if(BuildFiles.size() > 0 || BuildName != "")
+                {
+                    AssociatedTerminal.PrintLine("Can only specify either 1 build json file or multiple mbd sources");   
+                    return(1);
+                }
+                BuildName = Argument;
+                continue;
+            }
+            BuildFiles.push_back(Argument); 
+        }
+        DocumentBuild BuildToCompile;
+        MBError ParseResult = true;
+        if(BuildName != "")
+        {
+            BuildToCompile = DocumentBuild::ParseDocumentBuild(BuildName,ParseResult);
+            if(!ParseResult)
+            {
+                AssociatedTerminal.PrintLine("Error parsing json build specification: "+ParseResult.ErrorMessage);   
+                return(1);
+            }
+        }
+        else if(BuildFiles.size() > 0)
+        {
+            for(std::string& Source : BuildFiles)
+            {
+                BuildToCompile.BuildFiles.push_back(std::move(Source));
+            }
+        }
+        DocumentFilesystem BuildFilesystem; 
+        ParseResult = DocumentFilesystem::CreateDocumentFilesystem(BuildToCompile,&BuildFilesystem);
+        if(!ParseResult)
+        {
+            AssociatedTerminal.PrintLine("Error creating build document filesystem: "+ParseResult.ErrorMessage);   
+            return(1);
+        }
+        if(FormatString == "html")
+        {
+            HTTPCompiler Compiler;    
+            Compiler.Compile(BuildFilesystem,OptionsToUse);
+        }
+        else if(FormatString == "md")
+        {
+           AssociatedTerminal.PrintLine("Not implemented yet B)");        
+           return(1);
+        }
+        return(0);
+    }
 
     //BEGIN MarkdownCompiler
     void MarkdownCompiler::p_CompileText(std::vector<std::unique_ptr<TextElement>> const& ElementsToCompile, MarkdownReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream)
@@ -2310,7 +2401,7 @@ ParseOffset--;
         }
         OutStream.write("</div></body></html>", 7);
     }
-    void HTTPCompiler::Compile(DocumentFilesystem const& BuildToCompile)
+    void HTTPCompiler::Compile(DocumentFilesystem const& BuildToCompile,CommonCompilationOptions const& Options)
     {
         HTTPReferenceSolver ReferenceSolver;
         ReferenceSolver.Initialize(&BuildToCompile);
@@ -2322,7 +2413,7 @@ ParseOffset--;
                 DocumentPath CurrentPath = FileIterator.GetCurrentPath();
                 DocumentSource const& SourceToCompile = FileIterator.GetDocumentInfo();
                 ReferenceSolver.SetCurrentPath(CurrentPath);
-                p_CompileSource("./OutHTTPTemp" + CurrentPath.GetString(), SourceToCompile, ReferenceSolver);
+                p_CompileSource(Options.OutputDirectory+"/" + CurrentPath.GetString(), SourceToCompile, ReferenceSolver);
             }
             FileIterator++;
         }

@@ -1,7 +1,8 @@
 #include <iostream>
 #include "MBDoc.h"
 #include <iostream>
-int main()
+
+int Test()
 {
     std::filesystem::current_path(std::filesystem::current_path().parent_path().parent_path());
     std::cout << std::filesystem::current_path() << std::endl;
@@ -27,7 +28,7 @@ int main()
         std::cout << "Error creating filesystem: " + ParseError.ErrorMessage;
         return(-1);
     }
-    MBDoc::DocumentPath Result = Filesystem.ResolveReference(MBDoc::DocumentPath::ParsePath("/MBDoc/CodeIndex.mbd",ParseError),"Format.mbd", ParseError);
+    MBDoc::DocumentPath Result = Filesystem.ResolveReference(MBDoc::DocumentPath::ParsePath("/MBDoc/CodeIndex.mbd", ParseError), "Format.mbd", ParseError);
     std::cout << Result.GetString() << std::endl;
     Result = Filesystem.ResolveReference(MBDoc::DocumentPath::ParsePath("/MBDoc/CodeIndex.mbd", ParseError), "{Format.mbd}", ParseError);
     std::cout << Result.GetString() << std::endl;
@@ -64,12 +65,24 @@ int main()
                 Filesystem.ResolveReference(CurrentPath, Reference, ReferenceResult);
                 if (!ReferenceResult)
                 {
-                    std::cout << "Error resolving reference " + Reference + " in file " + CurrentPath.GetString()<< std::endl;
+                    std::cout << "Error resolving reference " + Reference + " in file " + CurrentPath.GetString() << std::endl;
                 }
             }
         }
         Iterator++;
     }
     MBDoc::HTTPCompiler HTTPCompiler;
-    HTTPCompiler.Compile(Filesystem);
+    MBDoc::CommonCompilationOptions Options;
+    HTTPCompiler.Compile(Filesystem,Options);
+}
+
+int main(int argc,const char** argv)
+{
+    std::filesystem::current_path(std::filesystem::current_path().parent_path().parent_path());
+    const char* NewArgv[] = { "mbdoc","../MBDocBuild.json","-o:HTMLOut","-f:html"};
+    argv = NewArgv;
+    argc = sizeof(NewArgv) / sizeof(const char*);
+
+    MBDoc::DocCLI CLI;
+    CLI.Run(argv, argc);
 }

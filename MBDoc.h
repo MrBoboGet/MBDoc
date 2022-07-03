@@ -483,12 +483,24 @@ namespace MBDoc
         static MBError CreateDocumentFilesystem(DocumentBuild const& BuildToParse,DocumentFilesystem* OutBuild);
     };
 
+    struct CommonCompilationOptions
+    {
+        std::string OutputDirectory;   
+    };
 
     class DocumentCompiler
     {
     
     public:
-        virtual void Compile(DocumentFilesystem const& FilesystemToCompile) = 0;
+        virtual void Compile(DocumentFilesystem const& FilesystemToCompile,CommonCompilationOptions const& Options) = 0;
+    };
+
+    class DocCLI
+    {
+    private:
+        
+    public:
+        int Run(const char** argv,int argc);
     };
 
     class MarkdownReferenceSolver 
@@ -557,6 +569,6 @@ namespace MBDoc
             ,std::string const& NamePrefix);
         void p_CompileSource(std::string const& OutPath,DocumentSource const& SourceToCompile, HTTPReferenceSolver const&  ReferenceSolver);
     public:
-        void Compile(DocumentFilesystem const& BuildToCompile); 
+        void Compile(DocumentFilesystem const& BuildToCompile,CommonCompilationOptions const& Options) override; 
     };
 }

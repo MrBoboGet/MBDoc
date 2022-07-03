@@ -5,6 +5,7 @@ set(MBPM_DEPENDENCIES
 	"MBUnicode"
 	"MBParsing"
 	"MBUtility"
+	"MBCLI"
 )
 set(MBPM_SystemLibraries
 Ws2_32.lib
