@@ -320,12 +320,35 @@ namespace MBDoc
         DocumentSource ParseSource(std::filesystem::path const& InputFile,MBError& OutError);
         DocumentSource ParseSource(const void* Data,size_t DataSize,std::string FileName,MBError& OutError);
     };
-    
+    class DocumentPath
+    {
+    private:
+        bool m_IsAbsolute = false;
+        std::vector<std::string> m_PathComponents;
+        std::string m_PartIdentifier;
+    public:
+        //Requires that both files are relative
+        static DocumentPath GetRelativePath(DocumentPath const& TargetObject, DocumentPath const& CurrentObject);
+        bool IsSubPath(DocumentPath const& PathToCompare) const;
+        std::string GetString() const;
+        size_t ComponentCount() const;
+
+        std::string operator[](size_t ComponentIndex) const;
+        bool operator<(DocumentPath const& OtherPath) const;
+
+        static DocumentPath ParsePath(std::string const& PathToParse, MBError& OutError);
+
+        void AddDirectory(std::string StringToAdd);
+        void PopDirectory();
+        void SetPartIdentifier(std::string PartSpecifier);
+        std::string const& GetPartIdentifier() const;
+    };
+
     class DocumentBuild
     {
     public:
         std::filesystem::path BuildRootDirectory;
-        std::vector<std::string> BuildFiles = {};
+        std::vector<DocumentPath> BuildFiles = {};
         //The first part is the "MountPoint", the directory prefix. Currently only supports a single directory name
 
         //Guranteeed sorting
@@ -339,29 +362,6 @@ namespace MBDoc
         static DocumentBuild ParseDocumentBuild(std::filesystem::path const& FilePath,MBError& OutError);
     };
     
-    class DocumentPath
-    {
-    private:
-        bool m_IsAbsolute = false;
-        std::vector<std::string> m_PathComponents;
-        std::string m_PartIdentifier;
-    public:     
-        //Requires that both files are relative
-        static DocumentPath GetRelativePath(DocumentPath const& TargetObject,DocumentPath const& CurrentObject);
-        bool IsSubPath(DocumentPath const& PathToCompare) const;
-        std::string GetString() const;
-        size_t ComponentCount() const;
-       
-        std::string operator[](size_t ComponentIndex) const; 
-        bool operator<(DocumentPath const& OtherPath) const;
-        
-        static DocumentPath ParsePath(std::string const& PathToParse,MBError& OutError);
-        
-        void AddDirectory(std::string StringToAdd);
-        void PopDirectory();
-        void SetPartIdentifier(std::string PartSpecifier);
-        std::string const& GetPartIdentifier() const;
-    };
     struct PathSpecifier
     {
         bool AnyRoot = false;
@@ -443,6 +443,8 @@ namespace MBDoc
         DocumentPath const& CurrentFilePath() const;
         size_t GetCurrentOffset() const;//return 
         size_t GetDirectoryEnd() const;
+        size_t GetDirectoryEnd(size_t DirectoryIndex) const;
+        size_t GetDirectoryBegin(size_t DirectoryIndex) const;
         bool HasEnded() const;
         void NextDirectory(); 
     };
@@ -475,8 +477,8 @@ namespace MBDoc
          
         DocumentPath p_ResolveReference(DocumentPath const& CurrentPath,DocumentReference const& ReferenceIdentifier,bool* OutResult) const;
 
-        DocumentDirectoryInfo p_UpdateFilesystemOverFiles(DocumentBuild const& CurrentBuild,std::vector<DocumentPath> const& Files,size_t DirectoryIndex,int Depth,size_t DirectoryBegin,size_t DirectoryEnd);
-        DocumentDirectoryInfo p_UpdateFilesystemOverBuild(DocumentBuild const& BuildToAppend,size_t DirectoryIndex,std::string DirectoryName,MBError& OutError);
+        DocumentDirectoryInfo p_UpdateFilesystemOverFiles(DocumentBuild const& CurrentBuild,size_t FileIndexBegin,std::vector<DocumentPath> const& Files,size_t DirectoryIndex,int Depth,size_t DirectoryBegin,size_t DirectoryEnd);
+        DocumentDirectoryInfo p_UpdateFilesystemOverBuild(DocumentBuild const& BuildToAppend,size_t FileIndexBegin,size_t DirectoryIndex,std::string DirectoryName,MBError& OutError);
     public: 
         DocumentFilesystemIterator begin() const;
         DocumentPath ResolveReference(DocumentPath const& DocumentPath,std::string const& PathIdentifier,MBError& OutResult) const;

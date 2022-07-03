@@ -73,16 +73,20 @@ int Test()
     }
     MBDoc::HTTPCompiler HTTPCompiler;
     MBDoc::CommonCompilationOptions Options;
+    Options.OutputDirectory = "OutHTTPTemp";
     HTTPCompiler.Compile(Filesystem,Options);
 }
 
 int main(int argc,const char** argv)
 {
-    std::filesystem::current_path(std::filesystem::current_path().parent_path().parent_path());
-    const char* NewArgv[] = { "mbdoc","../MBDocBuild.json","-o:HTMLOut","-f:html"};
-    argv = NewArgv;
-    argc = sizeof(NewArgv) / sizeof(const char*);
+    //std::filesystem::current_path(std::filesystem::current_path().parent_path().parent_path());
+    //mbdoc C:\Users\emanu\Desktop\Program\C++\MBPM_INSTALL_DIRECTORY\MBTotalDoc\MBDocBuild.json -f:html -o:temp
+    //const char* NewArgv[] = { "mbdoc","C:\\Users\\emanu\\Desktop\\Program\\C++\\MBPM_INSTALL_DIRECTORY\\MBTotalDoc\\MBDocBuild.json","-o:temp","-f:html"};
+    //argv = NewArgv;
+    //argc = sizeof(NewArgv) / sizeof(const char*);
+    //
+    //MBDoc::DocCLI CLI;
+    //CLI.Run(argv, argc);
 
-    MBDoc::DocCLI CLI;
-    CLI.Run(argv, argc);
+    return(Test());
 }

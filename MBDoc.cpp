@@ -940,7 +940,11 @@ ParseOffset--;
             ReturnValue.BuildRootDirectory = BuildDirectory; 
             for(MBParsing::JSONObject const& Object : JSONData["Sources"].GetArrayData())
             {
-                ReturnValue.BuildFiles.push_back(Object.GetStringData());   
+                ReturnValue.BuildFiles.push_back(DocumentPath::ParsePath(Object.GetStringData(),OutError));   
+                if (!OutError)
+                {
+                    return(ReturnValue);
+                }
             }
             for(auto const& SubBuildSpecifier : JSONData["SubBuilds"].GetMapData())
             {
@@ -957,6 +961,7 @@ ParseOffset--;
             OutError = false;
             OutError.ErrorMessage = "Error parsing MBDocBuild: "+std::string(e.what());
         }
+        std::sort(ReturnValue.BuildFiles.begin(), ReturnValue.BuildFiles.end());
         return(ReturnValue); 
     }
 
@@ -1408,6 +1413,18 @@ ParseOffset--;
         }
         return(m_DirectoryBegins[m_DirectoryOffset+1]);
     }
+    size_t DocumentPathFileIterator::GetDirectoryBegin(size_t DirectoryIndex) const
+    {
+        return(m_DirectoryBegins[DirectoryIndex]);
+    }
+    size_t DocumentPathFileIterator::GetDirectoryEnd(size_t DirectoryIndex) const
+    {
+        if (DirectoryIndex == m_DirectoryBegins.size() - 1)
+        {
+            return(m_DataEnd);
+        }
+        return(m_DirectoryBegins[DirectoryIndex + 1]);
+    }
     bool DocumentPathFileIterator::HasEnded() const
     {
         return(m_FileOffset == m_DataEnd); 
@@ -1794,14 +1811,14 @@ ParseOffset--;
         }
         return(ReturnValue);
     }
-    DocumentDirectoryInfo DocumentFilesystem::p_UpdateFilesystemOverFiles(DocumentBuild const& CurrentBuild,std::vector<DocumentPath> const& Files,size_t DirectoryIndex,int Depth,size_t DirectoryBegin,size_t DirectoryEnd)
+    DocumentDirectoryInfo DocumentFilesystem::p_UpdateFilesystemOverFiles(DocumentBuild const& CurrentBuild,size_t FileIndexBegin,std::vector<DocumentPath> const& Files,size_t DirectoryIndex,int Depth,size_t DirectoryBegin,size_t DirectoryEnd)
     {
         DocumentDirectoryInfo ReturnValue; 
         DocumentPathFileIterator FileIterator(Files,Depth,DirectoryBegin,DirectoryEnd);
         FileIterator.NextDirectory();
 
-        ReturnValue.FileIndexBegin = m_TotalSources.size();
-        ReturnValue.FileIndexEnd = m_TotalSources.size()+FileIterator.GetCurrentOffset();
+        ReturnValue.FileIndexBegin = FileIndexBegin;
+        ReturnValue.FileIndexEnd = FileIndexBegin +FileIterator.GetCurrentOffset();
         ReturnValue.DirectoryIndexBegin = m_DirectoryInfos.size();
         ReturnValue.DirectoryIndexEnd = m_DirectoryInfos.size()+FileIterator.DirectoryCount();
         for(size_t i = 0; i < FileIterator.GetCurrentOffset();i++)
@@ -1813,33 +1830,51 @@ ParseOffset--;
             {
                 throw new std::runtime_error("Error parsing file: "+ParseError.ErrorMessage);
             }
-            m_TotalSources.push_back(std::move(NewSource));
+            m_TotalSources[FileIndexBegin + i] = std::move(NewSource);
         }
         m_DirectoryInfos.resize(m_DirectoryInfos.size() + FileIterator.DirectoryCount());
+        size_t TotalFiles = 0;
+        size_t SubDirectoriesFileBegin = m_TotalSources.size();
+
         size_t CurrentDirectoryOffset = 0;
+        size_t CurrentFileOffset = 0;
         while(FileIterator.HasEnded() == false)
         {
-            DocumentDirectoryInfo NewDirectoryInfo = p_UpdateFilesystemOverFiles(CurrentBuild,Files,ReturnValue.DirectoryIndexBegin+CurrentDirectoryOffset,Depth+1,DirectoryBegin+FileIterator.GetCurrentOffset(),DirectoryBegin+FileIterator.GetDirectoryEnd());   
+            DocumentDirectoryInfo NewDirectoryInfo = p_UpdateFilesystemOverFiles(CurrentBuild, SubDirectoriesFileBegin+CurrentFileOffset,Files,ReturnValue.DirectoryIndexBegin+CurrentDirectoryOffset,Depth+1,DirectoryBegin+FileIterator.GetCurrentOffset(),DirectoryBegin+FileIterator.GetDirectoryEnd());
+
+            DocumentPathFileIterator TempIterator = DocumentPathFileIterator(Files, Depth + 1, DirectoryBegin + FileIterator.GetCurrentOffset(), DirectoryBegin + FileIterator.GetDirectoryEnd());
+            TempIterator.NextDirectory();
+            CurrentFileOffset += TempIterator.GetCurrentOffset();
+
             NewDirectoryInfo.ParentDirectoryIndex = DirectoryIndex;
             m_DirectoryInfos[ReturnValue.DirectoryIndexBegin+CurrentDirectoryOffset] = std::move(NewDirectoryInfo);
             FileIterator.NextDirectory();
         }
         return(ReturnValue);
     }
-    DocumentDirectoryInfo DocumentFilesystem::p_UpdateFilesystemOverBuild(DocumentBuild const& BuildToAppend,size_t DirectoryIndex,std::string DirectoryName,MBError& OutError)
+    bool h_DirectoryOrder(DocumentDirectoryInfo const& Left, DocumentDirectoryInfo const& Right)
+    {
+        if (Left.FileIndexBegin < Right.FileIndexBegin || Left.FileIndexEnd < Right.FileIndexEnd)
+        {
+            return(true);
+        }
+        return(false);
+    }
+    DocumentDirectoryInfo DocumentFilesystem::p_UpdateFilesystemOverBuild(DocumentBuild const& BuildToAppend,size_t FileIndexBegin,size_t DirectoryIndex,std::string DirectoryName,MBError& OutError)
     {
         MBError Result = true;
-        std::vector<DocumentPath> BuildFiles; 
-        for(std::string const& Path : BuildToAppend.BuildFiles)
-        {
-            DocumentPath NewPath = DocumentPath::ParsePath(Path,OutError);
-            if(!OutError)
-            {
-                break;
-            }
-            BuildFiles.push_back(std::move(NewPath));
-        }
-        std::sort(BuildFiles.begin(),BuildFiles.end());
+        std::vector<DocumentPath> const& BuildFiles = BuildToAppend.BuildFiles;
+        //std::vector<DocumentPath> BuildFiles; 
+        //for(std::string const& Path : BuildToAppend.BuildFiles)
+        //{
+        //    DocumentPath NewPath = DocumentPath::ParsePath(Path,OutError);
+        //    if(!OutError)
+        //    {
+        //        break;
+        //    }
+        //    BuildFiles.push_back(std::move(NewPath));
+        //}
+        //std::sort(BuildFiles.begin(),BuildFiles.end());
         
         DocumentDirectoryInfo NewInfo;
         DocumentPathFileIterator FilesIterator(BuildFiles,0,0,BuildFiles.size());
@@ -1849,8 +1884,8 @@ ParseOffset--;
         size_t SubDirectoriesCount = FilesIterator.DirectoryCount() + BuildToAppend.SubBuilds.size();
         NewInfo.DirectoryIndexBegin = m_DirectoryInfos.size();
         NewInfo.DirectoryIndexEnd = m_DirectoryInfos.size()+SubDirectoriesCount;
-        NewInfo.FileIndexBegin = m_TotalSources.size();
-        NewInfo.FileIndexEnd = m_TotalSources.size()+FilesIterator.GetCurrentOffset();
+        NewInfo.FileIndexBegin = FileIndexBegin;
+        NewInfo.FileIndexEnd = FileIndexBegin +FilesIterator.GetCurrentOffset();
         NewInfo.Name = std::move(DirectoryName); 
         //NewInfo.ParentDirectoryIndex = ParentIndex; Set by the caller
         //Adding the new files
@@ -1862,26 +1897,50 @@ ParseOffset--;
             {
                 return(NewInfo);   
             }
-            m_TotalSources.push_back(std::move(NewSource));
+            m_TotalSources[FileIndexBegin+i] =std::move(NewSource);
         }
         m_DirectoryInfos.resize(m_DirectoryInfos.size()+SubDirectoriesCount);
+        //total files
+        size_t TotalSubdirectoryFiles = 0;
+        for (auto const& Build : BuildToAppend.SubBuilds)
+        {
+            DocumentPathFileIterator TempIterator = DocumentPathFileIterator(Build.second.BuildFiles, 0, 0, Build.second.BuildFiles.size());
+            TempIterator.NextDirectory();
+            TotalSubdirectoryFiles += TempIterator.GetCurrentOffset();
+        }
+        for (size_t i = 0; i < FilesIterator.DirectoryCount(); i++)
+        {
+            DocumentPathFileIterator TempIterator = DocumentPathFileIterator(BuildFiles, 1, FilesIterator.GetDirectoryBegin(i), FilesIterator.GetDirectoryEnd(i));
+            TempIterator.NextDirectory();
+            TotalSubdirectoryFiles += TempIterator.GetCurrentOffset();
+        }
+        size_t SubdirectoryFileBegin = m_TotalSources.size();
+        m_TotalSources.resize(m_TotalSources.size() + TotalSubdirectoryFiles);
+
         auto SubBuildIterator = BuildToAppend.SubBuilds.begin();
         auto SubBuildEnd = BuildToAppend.SubBuilds.end();
         size_t CurrentDirectoryIndex = 0;
+        size_t CurrentFileOffset = 0;
         while(FilesIterator.HasEnded() == false  && SubBuildIterator != SubBuildEnd)
         {
             if(FilesIterator.GetDirectoryName() < SubBuildIterator->first)
             {
-                DocumentDirectoryInfo NewDirectoryInfo = p_UpdateFilesystemOverFiles(BuildToAppend,BuildFiles,FirstDirectoryIndex+CurrentDirectoryIndex,0,FilesIterator.GetCurrentOffset(),FilesIterator.GetDirectoryEnd()); 
+                DocumentDirectoryInfo NewDirectoryInfo = p_UpdateFilesystemOverFiles(BuildToAppend, SubdirectoryFileBegin+CurrentFileOffset,BuildFiles,FirstDirectoryIndex+CurrentDirectoryIndex,0,FilesIterator.GetCurrentOffset(),FilesIterator.GetDirectoryEnd());
+
+                DocumentPathFileIterator TempIterator = DocumentPathFileIterator(BuildFiles, 1, FilesIterator.GetCurrentOffset(), FilesIterator.GetDirectoryEnd());
+                TempIterator.NextDirectory();
+                CurrentFileOffset += TempIterator.GetCurrentOffset();
+
                 NewDirectoryInfo.ParentDirectoryIndex = DirectoryIndex;
                 m_DirectoryInfos[FirstDirectoryIndex+CurrentDirectoryIndex] = std::move(NewDirectoryInfo);
                 FilesIterator.NextDirectory();
             }
             else if(FilesIterator.GetDirectoryName() > SubBuildIterator->first)
             {
-                DocumentDirectoryInfo NewDirectoryInfo = p_UpdateFilesystemOverBuild(SubBuildIterator->second,FirstDirectoryIndex+CurrentDirectoryIndex,SubBuildIterator->first,OutError);
+                DocumentDirectoryInfo NewDirectoryInfo = p_UpdateFilesystemOverBuild(SubBuildIterator->second, SubdirectoryFileBegin+CurrentFileOffset,FirstDirectoryIndex+CurrentDirectoryIndex,SubBuildIterator->first,OutError);
                 NewDirectoryInfo.ParentDirectoryIndex = DirectoryIndex;
                 m_DirectoryInfos[FirstDirectoryIndex+CurrentDirectoryIndex] = std::move(NewDirectoryInfo);
+                CurrentFileOffset += SubBuildIterator->second.BuildFiles.size();
                 SubBuildIterator++;
             }
             else if(FilesIterator.GetDirectoryName() == SubBuildIterator->first)
@@ -1894,21 +1953,32 @@ ParseOffset--;
         }
         while (!FilesIterator.HasEnded())
         {
-            DocumentDirectoryInfo NewDirectoryInfo = p_UpdateFilesystemOverFiles(BuildToAppend, BuildFiles, FirstDirectoryIndex + CurrentDirectoryIndex, 1, FilesIterator.GetCurrentOffset(), FilesIterator.GetDirectoryEnd());
+            DocumentDirectoryInfo NewDirectoryInfo = p_UpdateFilesystemOverFiles(BuildToAppend, SubdirectoryFileBegin + CurrentFileOffset, BuildFiles, FirstDirectoryIndex + CurrentDirectoryIndex, 1, FilesIterator.GetCurrentOffset(), FilesIterator.GetDirectoryEnd());
             NewDirectoryInfo.ParentDirectoryIndex = DirectoryIndex;
             NewDirectoryInfo.Name = FilesIterator.GetDirectoryName();
             m_DirectoryInfos[FirstDirectoryIndex + CurrentDirectoryIndex] = std::move(NewDirectoryInfo);
+
+            DocumentPathFileIterator TempIterator = DocumentPathFileIterator(BuildFiles, 1, FilesIterator.GetCurrentOffset(), FilesIterator.GetDirectoryEnd());
+            TempIterator.NextDirectory();
+            CurrentFileOffset += TempIterator.GetCurrentOffset();
+
             CurrentDirectoryIndex++;
             FilesIterator.NextDirectory();
         }
         while (SubBuildIterator != SubBuildEnd)
         {
-            DocumentDirectoryInfo NewDirectoryInfo = p_UpdateFilesystemOverBuild(SubBuildIterator->second, FirstDirectoryIndex + CurrentDirectoryIndex, SubBuildIterator->first, OutError);
+            DocumentDirectoryInfo NewDirectoryInfo = p_UpdateFilesystemOverBuild(SubBuildIterator->second, SubdirectoryFileBegin + CurrentFileOffset, FirstDirectoryIndex + CurrentDirectoryIndex, SubBuildIterator->first, OutError);
             NewDirectoryInfo.ParentDirectoryIndex = DirectoryIndex;
             m_DirectoryInfos[FirstDirectoryIndex + CurrentDirectoryIndex] = std::move(NewDirectoryInfo);
+
+            DocumentPathFileIterator TempIterator = DocumentPathFileIterator(SubBuildIterator->second.BuildFiles, 0, 0, SubBuildIterator->second.BuildFiles.size());
+            TempIterator.NextDirectory();
+            CurrentFileOffset += TempIterator.GetCurrentOffset();
+
             SubBuildIterator++;
             CurrentDirectoryIndex++;
         }
+        assert(CurrentFileOffset == TotalSubdirectoryFiles);
         OutError = Result;
         return(NewInfo);
     }
@@ -1917,8 +1987,10 @@ ParseOffset--;
         MBError ReturnValue = true;
         DocumentFilesystem Result;
         Result.m_DirectoryInfos.resize(1);
-        DocumentDirectoryInfo TopInfo = Result.p_UpdateFilesystemOverBuild(BuildToParse,0,"/",ReturnValue);
+        Result.m_TotalSources.resize(BuildToParse.BuildFiles.size());
+        DocumentDirectoryInfo TopInfo = Result.p_UpdateFilesystemOverBuild(BuildToParse,0,0,"/",ReturnValue);
         Result.m_DirectoryInfos[0] = TopInfo;
+        assert(std::is_sorted(Result.m_DirectoryInfos.begin(), Result.m_DirectoryInfos.end(), h_DirectoryOrder));
         if(ReturnValue)
         {
             *OutFilesystem = std::move(Result);   
@@ -1955,6 +2027,7 @@ ParseOffset--;
         if(FormatOption->second.size() > 1)
         {
             AssociatedTerminal.PrintLine("Can only specify one output format"); 
+            return(1);
         }
         std::string const& FormatString = FormatOption->second[0];
 
@@ -1996,7 +2069,15 @@ ParseOffset--;
         {
             for(std::string& Source : BuildFiles)
             {
-                BuildToCompile.BuildFiles.push_back(std::move(Source));
+                //BuildToCompile.BuildFiles.push_back(std::move(Source));
+                MBError ParseResult;
+                DocumentPath NewFile = DocumentPath::ParsePath(Source, ParseResult);
+                if (!ParseResult)
+                {
+                    AssociatedTerminal.PrintLine("Error parsing document path: " + ParseResult.ErrorMessage);
+                    return(1);
+                }
+                BuildToCompile.BuildFiles.push_back(std::move(NewFile));
             }
         }
         DocumentFilesystem BuildFilesystem; 
