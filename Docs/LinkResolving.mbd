@@ -18,7 +18,7 @@ able to compile to many other formats. This means that the reference syntax
 first of all has to be uniform and format agnostic. 
 
 Furthermore, only being able to include references to "local files" or files
-that the current @[documentation build(Building.mbd) knows about means that it's
+that the current @[documentation build](Building.mbd) knows about means that it's
 very difficult to include references to external projects. Either A, all
 documentation sources has to be a part of one gigantic predetermined structure
 that you know about, which has the obvious disadvantage that it's very unmodular

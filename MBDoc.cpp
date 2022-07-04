@@ -2480,7 +2480,8 @@ ParseOffset--;
             p_CompileFormat(Format, ReferenceSolver, FileStream, 0, std::to_string(ElementIndex));
             ElementIndex++;
         }
-        OutStream.write("</div></body></html>", 7);
+        OutStream.write("</div></body></html>", 20);
+        OutStream.flush();
     }
     void HTTPCompiler::Compile(DocumentFilesystem const& BuildToCompile,CommonCompilationOptions const& Options)
     {

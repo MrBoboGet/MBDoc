@@ -85,8 +85,8 @@ int main(int argc,const char** argv)
     //argv = NewArgv;
     //argc = sizeof(NewArgv) / sizeof(const char*);
     //
-    //MBDoc::DocCLI CLI;
-    //CLI.Run(argv, argc);
+    MBDoc::DocCLI CLI;
+    CLI.Run(argv, argc);
 
-    return(Test());
+    //return(Test());
 }
