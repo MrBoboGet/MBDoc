@@ -4,12 +4,12 @@ In @[the formats documentation](Formats.mbd) the markup language is specified
 and the design of the syntax is discussed, and in @[Index](index.mbd) the
 purpose of the project and the general goals are discussed. This document serves
 to explain the way references are resolved from a given @ReferenceIdentifier,
-the design decisions and how this servres the goals outlined. This is breafy
+the design decisions and how this serves the goals outlined. This is briefly
 touched upon in @Format, but the definite source for the design of the reference
 identifiers and how they are resolved is here.
 
-When writing documentation, being able to refer to other doucments, preivous
-concpets, definitions etc is one of the most important features. When the scope
+When writing documentation, being able to refer to other doucments, previous
+concepts, definitions etc is one of the most important features. When the scope
 of the project is small, or the target output structure is very rigid and
 already decided, hardcoding links to other resources is very much viable.
 However, this is only really true if one is working with a specific output
@@ -127,7 +127,8 @@ ReferenceIdentifier = PathSpecifier [PartSpecifier];
         the requirements, if any, of the PartSpecifiers.
 
         _# Path resolution
-            This part of the algorithm retrieves all the possible documents that are applicable.
+            This part of the algorithm retrieves all the possible documents that
+            are applicable.
         /#
         _# Part resolution
             This step is only made given that there exist PartSpecifier. If not

@@ -1,4 +1,11 @@
 {
-    "Sources": [ "CodeIndex.mbd", "Format.mbd", "index.mbd", "LinkResolving.mbd" ],
+    "Sources": [ "CodeIndex.mbd", 
+         "Format.mbd", 
+         "index.mbd", 
+         "LinkResolving.mbd",
+         "Building.mbd",
+         "History.mbd",
+         "Attributes.mbd",
+         "BuildPipeline.mbd"],
     "SubBuilds": {}
 }

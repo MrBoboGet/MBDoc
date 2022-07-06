@@ -1281,7 +1281,7 @@ ParseOffset--;
     void DocumentFilesystemIterator::NextDirectory()
     {
         DocumentDirectoryInfo const& DirectoryInfo = m_AssociatedFilesystem->m_DirectoryInfos[m_CurrentDirectoryIndex];
-        m_DirectoryFilePosition = (DirectoryInfo.DirectoryIndexEnd-DirectoryInfo.DirectoryIndexBegin)-1;
+        m_DirectoryFilePosition = (DirectoryInfo.FileIndexEnd-DirectoryInfo.FileIndexBegin)-1;
         Increment();
     }
     void DocumentFilesystemIterator::NextFile()
@@ -2478,7 +2478,10 @@ ParseOffset--;
         for (FormatElement const& Format : SourceToCompile.Contents)
         {
             p_CompileFormat(Format, ReferenceSolver, FileStream, 0, std::to_string(ElementIndex));
-            ElementIndex++;
+            if (Format.Type != FormatElementType::Default)
+            {
+                ElementIndex++;
+            }
         }
         OutStream.write("</div></body></html>", 20);
         OutStream.flush();

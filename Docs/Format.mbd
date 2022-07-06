@@ -47,21 +47,23 @@ in order to fulfill the requiremnts outlined.
     The following is a description of all the components of all the elements
     that constitues a document and their purpose, that is supposed to describe
     their functioanlity. The design behind these components are seperate from
-    how they are in turn represented in syntax, which can be found @[here](#The
-    Syntax).
+    how they are in turn represented in syntax, which can be found 
+    @[here](#The Syntax).
     
     # The Format Element
         All but the simplest text files have some sort of structure. This can be
         as easy as dividing it up into paragraphs, or having some simple
         headings.  When writing a book, there might be different chapters that
         have different names, and when writing a tutorial there might be
-        different distinct steps. The "Format element" is a @[simple](#Easy to
-        create compilers for) and @[concise](#Unobtrusive syntax) abstraction
+        different distinct steps. The "Format element" is a 
+        @[simple](#Easy to create compilers for)
+        and @[concise](#Unobtrusive syntax) abstraction
         for all of the different ways a document can be formatted.
 
         The format element has the following properties: It has a name that can
-        be @[reffered to](#References), it can contain @[Block elements](#The
-        Block Element), and it can contain other formats elements.
+        be @[reffered to](#References), it can contain 
+        @[Block elements](#The Block Element), and it can contain other formats
+        elements.
 
         The properties of the format elements is intentionally very limited. The
         purpose is to both be as general as possible, and to defer as much
@@ -116,6 +118,9 @@ in order to fulfill the requiremnts outlined.
             reference, hyperlink, a way to go to other documents. It has 1
             mandatory component, the reference identifier, and optionally a part
             that describes what text should be displayed.
+
+            To undestand how references are resolved, go
+            @[here](LinkResolving.mbd).
         /#
 
     # The Directive

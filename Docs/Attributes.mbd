@@ -1,0 +1,12 @@
+%title Attributes
+
+This document can be seen as a supplementary to 
+@[the markup specification](Format.mbd), in
+that it doesn't provide any new information about what attributes are, but
+rather describe the design principles guiding them. While how already exisitng
+attributes can be understood without reading this document, so are the reason
+why they are design as they are described here, and new attributes used by a
+target semantic should have these design considerations in mind.
+
+# Attributes and arbirary semantics
+

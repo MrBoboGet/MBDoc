@@ -1,0 +1,218 @@
+%title Building
+
+When compiling documents or compiling any type of program, manually inputting
+everything on the command line quickly get's very tedious. While some people
+might solve this with custom bash scripts or similar, providing a uniform
+portable way to build documentation should be a feature provided by the program.
+
+This is something that notably isn't commonly done by compilers, and compiling
+for example C/C++ code is mostly dependant on extra tools such as make or cmake
+to make the build process easier. These build systems are however very
+feature full, providing arbitrary command execution and determining which file
+needs to be rebuilt and so on.
+
+The provided build system here is purposefully very simple and declerative in
+it's structure, for a full motivation on the build philosophy go here 
+@[MBBuild](/{MBBuild}). 
+
+In the rest of the document the goals guiding the design of the build systems
+are described, followed by a syntactic description of the build files, and
+finally a description of the semantics and how they are used by the program
+
+#_ The Goals
+    # Hand written and easily extensible
+
+        Some build systems like .sln are machine generated and meant to be used
+        solely by the target application, aren't feasible to write by hand, and
+        other systems like CMake can get relativly complex and require a lot of
+        maintenance. The build files used in MBDoc should be easy to write by
+        hand, simple so that constant rereading of the documentation isn't
+        needed to create them.
+
+    #_ External tools friendly
+
+        A common goal for many programs is that they are extensible, and combine
+        well with other applications. It is impossible for a program to foresee 
+        all the possible use cases, and if the only way to utilize the
+        functionality is through to the original program, the functionality is
+        inherently limited. This means that a important part of the build
+        specification is that external tools can utilize them.
+
+        # Declarative
+
+            The build files should not specify the way documentation is created,
+            should only provide the minimum required components needed to make a
+            build. 
+
+        # Only provide functionality that can be replicated on the CLI
+            
+            This ensures that there are no hidden features that are intrinsic to
+            the way these build files specify a build, and that the whole
+            process can be replicated by other programs invocing MBDoc.
+    /_
+
+    # Format/Semantic agnostic
+        
+        This goal is something that is tighly integrated with the overall
+        philosophy of the project, and is meant to ensure that the way files 
+        are built should not need to really on the target format and semantic.
+
+        [[Note]]
+        This doesn't neccesarilly mean that build files can't specify a target
+        semantic and format, as this could be used to simply creating mixed
+        semantic builds, it does however mean that they can't specify
+        semantic/format specific options for the build.
+
+    # Future compatible
+
+        Extra functionality added to the build files should be something that
+        doesn't interfere with the default behaviour of previously written
+        files, and not specifying and option should always have a well defined
+        default behaviour that should match the default behaviour of the program
+        before this was able to be specified.
+/_
+
+#_ The syntax
+    The build specification file follows the 
+    @[JSON format](https://www.json.org/json-en.html). This ensures that the
+    files are able to be written by hand with a familiar syntax, aswell as
+    providing a syntax which is forwards compatible. Currently only 4 fields are
+    specified, and an application encountering a field it doesn't recognize is
+    free to ignore it. 
+
+    The Build specication is a json object that can optionally contain the
+    following named fields.
+
+    # Sources
+    
+        The sources field has to be an array of strings, specifing the sources
+        contained in a project. 
+
+    # SubBuilds
+
+        This field is a JSON object whose field name describe the mount point
+        for a SubBuild, and whose value has to be a string specifing either a
+        a relative path or and absolute path of the subbuild json specification.
+
+    # Version
+
+        A string following the semantics and syntax of @(https://semver.org/).
+        The version describes the version of the Build specification file, and
+        is used mainly used as a hint to the program on how it should interpet
+        the file. Wheter the version is taken into account unspecified, and 
+        the program is free to ignore this field entirely.
+
+    # MinVersion
+        
+        Like the Version field, this purpose of the field is to indicate which
+        version this build specification is, however, unlike the Version field
+        a MBDoc MUST read this field and determine wheter or not it can process
+        the file. A file that the program cannot process results in an error and
+        the build process stops. 
+
+        A program that encounters a file with a higher MinVersion than it's
+        latest implementation can process MUST result in an error, however, it's 
+        implementation defined in what way older MinVersions that the current
+        supported are handled.
+    
+    This concludes the syntax for the build specification files, and following
+    are a couple of examples
+
+   # Examples
+   
+    A build file only specifying sources contained.
+```json
+{
+    "Sources":["foo.mbd","bar.mbd"] 
+}
+```
+    A build file specifing a couple of sub builds
+```json
+{
+    "Sources":["foo.mbd","bar.mbd"] 
+    "SubBuilds":{"SubBuild1":"../ParentDirectoryBuild.json","SubBuild2":"sub/SubDirectoryBuild.json"}
+}
+```
+    A build specifing a version and min version
+```json
+{
+    "Version":"0.3.0",
+    "MinVersion":"0.2.0",
+    "Sources":["foo.mbd","bar.mbd"] 
+    "SubBuilds":{"SubBuild1":"../ParentDirectoryBuild.json","SubBuild2":"sub/SubDirectoryBuild.json"}
+}
+```
+/_
+
+#_ Semantics 
+    
+    The semantics for the Version and MinVersion fields are described above, and
+    the semantics for the other fields are entirely based on the concept of the
+    Document filesystem. 
+
+    A MBDocBuild always represent a complete directory structure. This directory
+    structure can then be "mounted" to other builds, in order to create more
+    complex builds. When mounting a subbuild, a new directory is created with
+    the name specified, with the directory contents being that of the sub build.
+    
+    [[Note]]
+    With a naive implementation of a MBDocBuild parser, it is possible to
+    specify a cyclic build system where sub builds include the parent build, and
+    possibly creating a infinite loop. In order to remove this possibility so is
+    the inclusion of a subbuild that is already a part of the build treated as
+    an error, immediately ending the build. Builds are uniquely determined by
+    ther canoncial path to their build specification.
+
+    # Sources
+        The source array specify which source files should be a part of the
+        project. The syntax of the path is that of a POSIX path, and *the root
+        directory is the directory containing the current build specification*,
+        also, the special ".." directory is not allowed to be a part of the
+        path. This main implication of this is that the files included in a
+        MBDocBuild has to be part of the directory containing the build
+        specification. This is meant to ensure that moving a directory
+        containing the build specification doesn't change the behaviour, and to
+        encourage a completely modular design of the builds.
+
+        A source path has to point a file existing on the filesystem, and can't 
+        for a example point to a directory. A path that doesn't exist or isn't a
+        file is treated as a fatal error and ends the build.
+
+        The files and their corresponding parent directories are included as is
+        in the document filesystem, essentially mimicing the local strucutre
+        entirely.
+    
+    # SubBuilds
+        The Fields in the SubBuilds field specify a "mount point" for another
+        MBDocBuild. This creates a directory in the currents builds "document
+        fileystem" representation with the name specified as the name of the
+        field in the SubBuilds object, and the directories contents is that of
+        the build specified by the path.
+
+        Unlike the paths in Sources so is the path here allowed to be relative
+        and absolute, and it follows the semantics of that of the underlying
+        operating system. However, the "current path" for evaluating the path is
+        always the directory of the build specification.
+
+        A sub build path that doesn't point to file existing on the filesystem
+        is treated as a fatal error, and ends the build process.
+
+        The directory mount name is the name for a single directory, and can't
+        contain subdirectories. This means that it is NOT possible to mount all
+        of the subbuilds to the same directory "SubBuilds/{BuildName}". 
+
+        It's also a fatal error to have the same mount name as that of a
+        implcitily created directory from including all of the sources in the
+        sources field.
+
+        This means for example that this build always result in a fatal error.
+```json
+{
+   "Sources":["foo/bar"],
+   "SubBuilds":{"foo":"../NewBuild.json"}
+}
+```
+    /_
+        
+
+    

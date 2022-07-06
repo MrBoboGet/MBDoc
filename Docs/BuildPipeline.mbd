@@ -1,0 +1,136 @@
+%title "The Build Pipeline"
+
+When creating documents from source files so are there a couple of distinct
+steps that form a pipeline. While these individual steps are not strictly
+neccessary to understand in order to use the program, so are they neccessary to
+understand if one wants to configure an individual part of the build process or
+want to understand how references are resolved.
+
+In this document the pipeline for compiling a build is described, and how the
+individual parts of the process can be customized. While it describes the
+functionality that the implementation is ment to provide, so doesn't it actually
+describe the implementantation. An overview of the implementation can be find
+@[here](CodeIndex.mbd).
+
+
+#_ The pipeline
+    
+    # Build specification
+        The first part of any build, is of course to specify what is a part of
+        the build in the first place.
+
+        This part isn't intrinsically connected to the 
+        @[builtin build specification](Building.mbd), the builtin specification
+        is however intentionally designed to be as close to the way builds are
+        specified in the CLI as possible.
+
+        The result of the build specification is always the construction of d
+        @[The Document Filesystem](#The Document Filesystem).
+
+        _# The Document Filesystem
+            The Document Filesystem is a "filesystem" that resides solely in
+            memory, and represents the complete structure of a build. The
+            purpose of @[build files](Building.mbd) is solely to specify how
+            this filesystem is created.
+
+            The filesystem follows the semantics of the POSIX filesystem very
+            closely, but in a very simplified form. The filesystem has exactly 2
+            kind of objects, directories and files. All filesystem objects have
+            a name, and belongs to a directory. The contents of a directory is
+            a combination of other directories and files. The contents of file
+            is the parsed source following the 
+            @[mbd markup language](Format.mbd).
+
+            Paths are also interpreted the same way as in a posix filesystem.
+            The root of the build is the root directory in a POSIX path, '/',
+            and relative paths are specified in the same way.  
+
+            There are however some extra restrictions to the valid characters
+            that a name can contain here that aren't present in POSIX path.
+            They are as follows:
+
+        /# 
+
+        As the document filesystem contains parsed sources, so is the parsing of
+        source files naturally a substep in creating this filesystem, and isn't
+        a distinct part of the pipeline
+
+        #_ Preprocessing and Parsing
+            
+            Parsing of a source files in turn consist of 2 different disjunct
+            steps, the Preprocessing and then parsing.
+
+            # Preprocessing 
+                The preprocessing is completely lexical, and in some sense even
+                more barebones compared to a C/C++ preprocessor as it
+                inserts/replaces text as is, tokens aren't recognized and
+                interpreted.
+
+                The complete specification of the preprocessor can be found
+                @[here](Preprocessing.mbd).
+
+            # Parsing
+                After preprocessing so is the final text then parsed. The
+                semantics and syntax of a valid mbd file is described
+                @[here](Format.mbd). How these are in turn represented
+                programatically, and in turn for the compiler, can be read about
+                in the @[code index](CodeIndex.mbd).
+        /_
+
+    # Compilation
+        This is the part where the actual output is generated, and where most of
+        the user specified options apply. 
+
+        In order to compile a program so are there 2 mandatory things that need
+        to be determined, the output format and the output semantic.
+
+        _# Output format
+            The result of compilation is always a file in some kind of file
+            format. What file format is outputted has to be specified, and is
+            the format option.
+
+            Example of possible formats are pdf, markdown, html.
+
+            The only propery a format is guaranteed to provide, is that
+            documents with different semantics are linkable  together, which
+            means that references can correctly refer to other documents of the
+            same output format.
+        /#
+
+        _# Semantic
+            A semantic is in some ways the most important option for deciding
+            how the final output looks. While a format describes in what way
+            it's viewable and what kind of graphical options is supports, so
+            doesn't it specify the look, that's the semantics purpose.
+
+            The assumption made here, which is further described in the 
+            @[motivation for this project](History.mbd), is that the way a
+            document looks can be determined irrespective of it's contents. The
+            most important part of writing documentation is not meticoulus
+            control of how the output looks, but rather the content, and that
+            the resulting document is uniformly structured and rendered. 
+
+            This is also the main difference between MBDoc and regular markup
+            langauge's, very little control of the structure and the way the
+            format looks is given to the actual markup langauge and moved to the
+            semantic.
+        /#
+
+        In software so is a compiler determined by the output format and
+        semantic, which recieves as argument the 
+        @[document filesystem](#The Document Filesystem), and compiler specific
+        options given on the command line.
+
+        While the document filesystem might give a very natural output structure
+        for the document so is it compiler defined how the output is generated,
+        only guaranteed that the content of all sources are present and linkable.
+
+        But consider for example the situation where the output format is a pdf.
+        Outputting one pdf for all the sources might not make very much sense or
+        be especially convenient, and all sourcess might be combined into one
+        document. But for HTML outputting a directory where the files link to
+        each other through relative paths might more convenient. 
+
+        The documentation for the formats supported inately by the application
+        can be found @[here](Compilers).
+/_

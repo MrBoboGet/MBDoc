@@ -81,10 +81,10 @@ int main(int argc,const char** argv)
 {
     //std::filesystem::current_path(std::filesystem::current_path().parent_path().parent_path());
     //mbdoc C:\Users\emanu\Desktop\Program\C++\MBPM_INSTALL_DIRECTORY\MBTotalDoc\MBDocBuild.json -f:html -o:temp
-    //const char* NewArgv[] = { "mbdoc","C:\\Users\\emanu\\Desktop\\Program\\C++\\MBPM_INSTALL_DIRECTORY\\MBTotalDoc\\MBDocBuild.json","-o:temp","-f:html"};
+    //const char* NewArgv[] = { "mbdoc","../../Docs/MBDocBuild.json","-o:../../TempOut","-f:html"};
     //argv = NewArgv;
     //argc = sizeof(NewArgv) / sizeof(const char*);
-    //
+    ////
     MBDoc::DocCLI CLI;
     CLI.Run(argv, argc);
 
