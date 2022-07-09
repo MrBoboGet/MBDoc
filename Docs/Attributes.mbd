@@ -1,12 +1,125 @@
 %title Attributes
 
-This document can be seen as a supplementary to 
-@[the markup specification](Format.mbd), in
-that it doesn't provide any new information about what attributes are, but
-rather describe the design principles guiding them. While how already exisitng
-attributes can be understood without reading this document, so are the reason
-why they are design as they are described here, and new attributes used by a
-target semantic should have these design considerations in mind.
+This document describes the attributes that are available in most semantics,
+but most importantly describes the design behind the attributes and how the
+should be defined.
 
-# Attributes and arbirary semantics
+Attributes are partly included to allow arbitrary extensions. This also means
+that it's impossible for this document to describe all possible attributes.
+The attributes that are supported are inherently relative to a specific
+semantic, and a complete documentation of what attributes are supported can be
+found for their respective documents. 
 
+The rest of this document descrbies the design behind the attributes and the way
+they are intended to be supported, and then describes the most common
+attributess and how they are used. 
+
+# Definiton and syntax
+    Attributes are meta data that can be given to either a format element or
+    block element. The meta data isn't included explicitly as a part of the
+    document, but can depending on the compiler change the way the block or
+    format element is presented. They are one of the primary extension
+    mechanisms, the other being directives. A block element or foramt element
+    can optionally have a *AttributeList* describing which attributes it has
+
+    _# Syntax
+```MBBNF
+Name = "[[:alpha:]_]+";
+String  = '"' "([^\\]|\\.)*" '"';
+ValueAttribute = Name [[:space:]]* '=' [[:space:]]* (Name|String);
+AttributeList = '[[' ((Name|ValueAttribute) [,| ])*  ']]'
+```
+        A AttributeList contains as it name implies, a list of attributes. An
+        attribute is either just a name, denoting the existance of an attribute, or
+        the name of the attribute plus a string argument. The quotes for a *String*
+        value are ommited in the argument, so Name=Value is equivalent to
+        Name="Value".
+    /#
+
+    It is then up to the compiler to determine how the existance or value +
+    existance of a attribute is to be interpreted.
+
+#_ Attributes and arbirary semantics
+    While  attributes are ment to support a extensions mechanism for the markup
+    language, so are they still very different in their use cases in comparison
+    to for example tex libraries. Tex provides a feature rich program with
+    high controll of how the output looks, which means that packets are user
+    extensions can work entirely without the need for editing the underlying
+    program. These may not be true extensions to the language, but they serve
+    the same purpose, to provide functionality that doesn't exist from the
+    beginning or is inconvenient to use efficiently. This is something MBDoc
+    can't provide.
+
+    MBDoc is be design very limited in it's capabilities, and strives to be
+    compatible with very limited target's like text files. Another goal of the
+    markup language is that it can be compiled to arbitrary semantics and still
+    look good, or as intended. While a attribute might for one semantic might
+    mean that consecutive block elements should be placed in paralell instead of
+    after another, so is this something that is impossible, or atleast not
+    somehting that can be good in a good way, on a terminal. But more
+    importantly, if one starts writing the document with the assumption that the
+    block elements are parallel, so is the content of the source file not
+    compatible with semantics that doesn't support this attribute. 
+    
+    In order to avoid these problems so are there a couple of guidelines that
+    need to be followed in order to ensure that the attribute is compatible with
+    the design of MBDoc.
+
+    # Focus on semantics rather than rendering
+        In order to ensure that an attribute isn't incompatible with different
+        semantics, so should the focus be on the semantics rather than how it
+        looks. This means that even for formats that support very high control
+        of the rendering, so should this functionality not be exposed through an
+        attribute, but instead implicitly used in order to deliver on the
+        intented semantic for a more genaral purpose.
+
+        A good example of a attribute that can be implemented differently is the
+        "Note" attribute. On the default HTML and terminal semantic so is the
+        implmeneted through adding the text "Note:" with a highligt. But another
+        HTML semantic might render this as and adjecet div with the note, as
+        some mathematical papers do. 
+
+        This means that no matter which semantic you use, so should the intended
+        behaviour of  the note block be the same.
+    
+    # An attribute must be able to be ignored
+        This is in some ways the single most important guide line for making
+        cusetom attributes. If any attribute defined can be ignored so is the
+        inter format/semantic comaptibility of the attribute greatly improved,
+        and gurantees that even tough the document doesn't have the ideal look,
+        atleast compiles and has the right contents.
+
+        But what it means to be safely ignorable is not neccesarilly obvious.
+        But take the "Note" attribute as an example. The content of the note
+        block is the same whether or not the semantic recognizes the option or
+        not, the difference is just that no special emphasis is but on it, which
+        means that is ignorable. 
+
+        Some attibutes that was scraped for this reason is for example the "ID"
+        attribute, which would give the given format element another ID to be
+        used for linkage. The problem here is that expected behaviour  is
+        changed if a given semantic doesn't recognize this attribute. If one
+        writes internal references using this new id, but the given semantic
+        doesn't support it, so is the resulting document of broken, links don't
+        work like they should. This means that the document can't be ported very
+        easily to different semantics, which is the most important property to
+        avoid to align with the principles of MBDoc.
+        
+/_  
+
+#_ Default attributes
+    While attributes are something that, 
+    @[by design](Attributes and arbirary semantics) are optionally supported by
+    a compiler, so are there a couple of attributes that are supported by all
+    the builtin compilers. These attributes are also encouraged to be supported
+    by custom compilers, as they most likely have familiarity and easy enough
+    semantics to be resuble, there are however no mandatory attributes that must
+    be supported.
+
+    # Note
+        The note attribute is ment to put special emphasis in a particular *block
+        element*, possibly providing information that is extra important to have
+        in mind, such as when undefined behaviour is invoked, or common
+        misconceptions about the inteneded behaviour.
+
+/_

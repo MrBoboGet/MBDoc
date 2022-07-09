@@ -84,7 +84,7 @@ describe the implementantation. An overview of the implementation can be find
         In order to compile a program so are there 2 mandatory things that need
         to be determined, the output format and the output semantic.
 
-        _# Output format
+        _# Formats
             The result of compilation is always a file in some kind of file
             format. What file format is outputted has to be specified, and is
             the format option.
@@ -97,7 +97,7 @@ describe the implementantation. An overview of the implementation can be find
             same output format.
         /#
 
-        _# Semantic
+        _# Semantics
             A semantic is in some ways the most important option for deciding
             how the final output looks. While a format describes in what way
             it's viewable and what kind of graphical options is supports, so

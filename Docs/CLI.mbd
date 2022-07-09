@@ -1,0 +1,119 @@
+%title  CLI
+
+This document describes the command line interface for MBDoc, how to use it to
+compile documents and how customize the process.
+
+This document doesn't however all of the concepts or abstractions used in the
+process, so only reading this document might prove insufficient to effectivly
+use the program. However, this document will always refer to the appropriate
+documentation for these concept, so this document might still be used as an
+alternative index.
+
+# Arguments and options
+    The arguments given to the program are divided up into 2 categories,
+    raw arguments, and options. The options are also further divided into Value
+    options and flags. Flags are only present in the command, and work by
+    modyfing behaviour in some binary way. Value options are options that also
+    have a value given to the option in the form of a string. An example of a
+    value options is the "o" option, which specifies the output directory, while
+    a flag option might be "--check-references", which makes the program
+    outputs which references are resolvable instead of compiling. 
+
+    All arguments given that start with "--" is interpreted as a flag, and all
+    arguments that are on the form "-{OptionName}:{Value}" are interpreted as
+    value options. All other arguments are given as raw arguments to the
+    program.
+
+    In order to pass specific options to the the compiler so it is the special 
+    empty flag "--" used. All arguments and options after this flag are not
+    passed to the program, and are instead passed and parsed by the compiler
+    used for the compilation. This compile is uniquely determined by the format
+    and semantic.
+
+#_ Raw arguments
+    All of the raw arguments given to the program are interpreted as files
+    included in the build. However, the nature of this files are by default
+    determined by their file extension. In order to include a file with a
+    specific meaning regardless of their file extension, use the appriopriate
+    command described bellow.
+    
+    # .json
+        Files ending with .json are interpreted as @[build files](Building.mbd),
+        which specifiy all of  the files and sub builds needed for a complete
+        build.
+
+        As a build file already specifies a root for the 
+        @[document filessystem](BuildPipeline.mbd#The Document Filesystem)  so
+        is it not possible to specify any other files with a build, and doing so
+        is treated as a fatal error.
+
+        To specify a build file directly, use the @[b](#b) value  option.
+
+    # .mbd
+        Files with mbd as a filextension are treated as a source file, with it's
+        relative path to the working directory as it's place relative to the
+        root in the 
+        @[document filesystem](BuildPipeline.mbd#The Document Filesystem). 
+
+        To specify a source directly, use the @[s](#so) value option.
+        
+/_  
+
+# Flags
+    # check-references 
+        Modifies the execution so that only references with regards to the
+        document filesystem are checked instead, and prints all of the
+        references that couldn't be resolved  and which source it belongs to. 
+
+        Compilers are allowed to add extra rules for resolving references *that
+        can't be resolved be the default way*, which means that this might make
+        more references unsolved than would present during actual compilation.
+
+        If  the program is run with this option so is the inclusion of the
+        @(#f) option or @(#o) option *not* mandatory.
+
+#_ Value options
+    # f
+        specifies the output format for the compilation. Current legal builtin
+        values are "html","md","rawterminal". Providing a format that isn't
+        supported is treated a fatal error and ends the process.
+
+        More about formats and semantics can be found 
+        @[here](BuildPipeline.mbd#Formats).
+
+        [[Note]]
+        Unless another flags overrides this, so is this option mandatory for any
+        compilation.
+    # o
+        Specifies the top directory of the ouput. While the exact structure of
+        the output is compiler dependant so is the output guaranteed to only
+        reside in the given directory. Providing a directory that doesn't exist
+        is treated as a fatal error, and ends the process.
+
+        [[Note]]
+        Unless another flags overrides this, so is this option mandatory for any
+        compilation.
+
+    # s 
+        This specifies the semantic used for the compilation. 
+
+        More about formats and semantics can be found 
+        @[here](BuildPipeline.mbd#Formats).
+
+        [[Note]]
+        Unless another flags overrides this, so is this option mandatory for any
+        compilation.
+    # b
+        Specifies a build file to compile directly instead of relying on the
+        file extension.
+
+        Follows all of the same rules and semantics as specifying the build as a
+        raw argument, which means that no other source or build file may be
+        specified.
+
+    # so
+        Adds a source file explicitly to the build without requiring the use of
+        correct file extensions. Has the exact same behaviour as specifying it
+        as a raw argument.
+    
+/_

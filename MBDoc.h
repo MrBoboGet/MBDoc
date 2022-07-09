@@ -10,6 +10,8 @@
 #include <MBUtility/MBErrorHandling.h>
 #include <unordered_set>
 #include <variant>
+
+#include "MBCLI/MBCLI.h"
 namespace MBDoc
 {
 
@@ -488,6 +490,7 @@ namespace MBDoc
     struct CommonCompilationOptions
     {
         std::string OutputDirectory;   
+        MBCLI::ArgumentListCLIInput CompilerSpecificOptions;
     };
 
     class DocumentCompiler
@@ -497,13 +500,7 @@ namespace MBDoc
         virtual void Compile(DocumentFilesystem const& FilesystemToCompile,CommonCompilationOptions const& Options) = 0;
     };
 
-    class DocCLI
-    {
-    private:
-        
-    public:
-        int Run(const char** argv,int argc);
-    };
+    
 
     class MarkdownReferenceSolver 
     {
@@ -525,7 +522,7 @@ namespace MBDoc
         void Initialize(DocumentSource const& Documents);
     };
 
-    class MarkdownCompiler : DocumentCompiler
+    class MarkdownCompiler : public DocumentCompiler
     {
     private:
         
@@ -539,6 +536,7 @@ namespace MBDoc
         MarkdownReferenceSolver p_CreateReferenceSolver(DocumentSource const& Source);
     public:
         virtual void Compile(std::vector<DocumentSource> const& Sources);
+        void Compile(DocumentFilesystem const& BuildToCompile,CommonCompilationOptions const& Options) override; 
     };
     class HTTPReferenceSolver
     {
@@ -561,7 +559,7 @@ namespace MBDoc
         void Initialize(DocReference const& Document);   
         void WriteTOC(MBUtility::MBOctetOutputStream& OutStream);
     };
-    class HTTPCompiler : DocumentCompiler
+    class HTTPCompiler : public DocumentCompiler
     {
     private:
         void p_CompileText(std::vector<std::unique_ptr<TextElement>> const& ElementsToCompile,HTTPReferenceSolver const& HTTPReferenceSolverReferenceSolver,MBUtility::MBOctetOutputStream& OutStream);
