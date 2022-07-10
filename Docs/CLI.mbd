@@ -59,7 +59,7 @@ alternative index.
         
 /_  
 
-# Flags
+#_ Flags
     # check-references 
         Modifies the execution so that only references with regards to the
         document filesystem are checked instead, and prints all of the
@@ -71,7 +71,7 @@ alternative index.
 
         If  the program is run with this option so is the inclusion of the
         @(#f) option or @(#o) option *not* mandatory.
-
+/_
 #_ Value options
     # f
         specifies the output format for the compilation. Current legal builtin

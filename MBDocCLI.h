@@ -14,6 +14,8 @@ namespace MBDoc
         DocumentBuild p_GetBuild(MBCLI::ArgumentListCLIInput const& CommandInput);
         DocumentFilesystem p_GetFilesystem(DocumentBuild const& Build,MBCLI::ArgumentListCLIInput const& CommandInput);
         std::unique_ptr<DocumentCompiler> p_GetCompiler(MBCLI::ArgumentListCLIInput const& CommandInput);  
+
+        void p_Help(MBCLI::ArgumentListCLIInput const& Input);
     public:
         int Run(const char** argv,int argc);
     };

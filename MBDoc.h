@@ -453,6 +453,13 @@ namespace MBDoc
 
     class DocumentFilesystem
     {
+    public:
+        struct BuildDirectory
+        {
+            std::filesystem::path DirectoryPath;
+            std::vector<std::string> FileNames;
+            std::vector<std::pair<std::string, BuildDirectory>> SubDirectories;
+        };
     private:
         friend class DocumentFilesystemIterator;
         std::unordered_map<std::string,DocumentPath> m_CachedPathsConversions;
@@ -479,8 +486,11 @@ namespace MBDoc
          
         DocumentPath p_ResolveReference(DocumentPath const& CurrentPath,DocumentReference const& ReferenceIdentifier,bool* OutResult) const;
 
-        DocumentDirectoryInfo p_UpdateFilesystemOverFiles(DocumentBuild const& CurrentBuild,size_t FileIndexBegin,std::vector<DocumentPath> const& Files,size_t DirectoryIndex,int Depth,size_t DirectoryBegin,size_t DirectoryEnd);
-        DocumentDirectoryInfo p_UpdateFilesystemOverBuild(DocumentBuild const& BuildToAppend,size_t FileIndexBegin,size_t DirectoryIndex,std::string DirectoryName,MBError& OutError);
+        //DocumentDirectoryInfo p_UpdateFilesystemOverFiles(DocumentBuild const& CurrentBuild,size_t FileIndexBegin,size_t DirectoryIndex,BuildDirectory const& DirectoryToCompile);
+        //DocumentDirectoryInfo p_UpdateFilesystemOverBuild(DocumentBuild const& BuildToAppend,size_t FileIndexBegin,size_t DirectoryIndex,std::string DirectoryName,MBError& OutError);
+
+        static BuildDirectory p_ParseBuildDirectory(DocumentBuild const&  BuildToParse);
+        DocumentDirectoryInfo p_UpdateOverDirectory(BuildDirectory const& Directory,size_t FileIndexBegin,size_t DirectoryIndex);
     public: 
         DocumentFilesystemIterator begin() const;
         DocumentPath ResolveReference(DocumentPath const& DocumentPath,std::string const& PathIdentifier,MBError& OutResult) const;

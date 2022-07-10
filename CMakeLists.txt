@@ -104,9 +104,10 @@ set(COMMON_STATIC_LIBRARIES
 )
 set(COMMON_LIBRARIES ${COMMON_STATIC_LIBRARIES} ${COMMON_DYNAMIC_LIBRARIES})
 
-add_library(MBDoc STATIC ${COMMON_FILES})
-MBPM_ApplyConfiguration("MBDoc")
-target_compile_features("MBDoc" PRIVATE cxx_std_17)
+add_library(MBDocLib STATIC ${COMMON_FILES})
+MBPM_ApplyConfiguration("MBDocLib")
+target_compile_features("MBDocLib" PRIVATE cxx_std_17)
+set_target_properties(MBDocLib PROPERTIES OUTPUT_NAME "MBDoc")
 
 add_executable("mbdoc" ${COMMON_FILES} ${EXECUTABLE_FILES})
 MBPM_ApplyConfiguration("mbdoc")

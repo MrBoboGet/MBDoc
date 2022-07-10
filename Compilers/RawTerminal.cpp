@@ -4,6 +4,7 @@
 #include "MBUtility/MBInterfaces.h"
 #include <fstream>
 #include <iostream>
+#include <MBUtility/MBStrings.h>
 namespace MBDoc
 {
     
@@ -43,7 +44,11 @@ namespace MBDoc
         while(ParseOffset < StringToSplit.size())
         {
             size_t NextWordBegin = 0;
-            MBParsing::SkipWhitespace(StringToSplit,ParseOffset,&ParseOffset);
+            MBParsing::SkipWhitespace(StringToSplit,ParseOffset,&NextWordBegin);
+            if (NextWordBegin >= StringToSplit.size())
+            {
+                break;
+            }
             char Delimiters[] = {' ','\n','\t'};
             size_t NextWordEnd = MBParsing::GetNextDelimiterPosition(Delimiters,Delimiters+sizeof(Delimiters)/sizeof(char),
                     StringToSplit.data(),StringToSplit.size(),NextWordBegin);
@@ -81,26 +86,45 @@ namespace MBDoc
                 WordOffset++;
                 if(WordOffset >= LineOffsets[LineOffset])
                 {
+                    OutStream.Write("\n", 1);
                     LineOffset++; 
                 }
             }
             OutStream.Write("\n",1);
         }
     }
-    void RawTerminalCompiler::p_CompileFormat(FormatElement const& FormatToCompile,MBUtility::MBOctetOutputStream& OutStream,CommonCompilationOptions const& Options)
+    void RawTerminalCompiler::p_CompileFormat(FormatElement const& FormatToCompile,MBUtility::MBOctetOutputStream& OutStream,CommonCompilationOptions const& Options, std::string const& Prefix, int Depth,
+        std::filesystem::path const& OutPath)
     {
-        if(FormatToCompile.Name != "")
+        if(FormatToCompile.Name != "" && Depth != -1)
         {
             OutStream.Write("\n",1);  
-            OutStream.Write(FormatToCompile.Name.data(),FormatToCompile.Name.size());
+            MBCLI::ANSISequenceOutputter ANSIOutputter;
+            ANSIOutputter.WriteColorChange(MBCLI::ANSITerminalColor::Green,OutStream);
+
+            std::string NameToWrite = Prefix;
+            if (NameToWrite != "")
+            {
+                NameToWrite += " ";
+            }
+            NameToWrite += FormatToCompile.Name;
+            if (Depth == 0)
+            {
+                NameToWrite = std::string((80 - NameToWrite.size()) / 2, ' ')+NameToWrite;
+            }
+
+            OutStream.Write(NameToWrite.data(), NameToWrite.size());
+            ANSIOutputter.WriteColorChange(MBCLI::ANSITerminalColor::White, OutStream);
             OutStream.Write("\n",1);  
         }
 
+        int FormatCount = 1;
         for(auto const& Element : FormatToCompile.Contents)
         {
             if(Element.GetType() == FormatComponentType::Format)
             {
-                p_CompileFormat(Element.GetFormatData(),OutStream,Options); 
+                p_CompileFormat(Element.GetFormatData(), OutStream, Options, Prefix +"." + std::to_string(FormatCount),Depth+1,OutPath);
+                FormatCount++;
             }
             else if(Element.GetType() == FormatComponentType::Block)
             {
@@ -111,7 +135,21 @@ namespace MBDoc
                 p_CompileDirective(Element.GetDirectiveData(),OutStream,Options); 
             }
         }
-
+        if (m_CPPCompilation && FormatToCompile.Name != "" && OutPath.filename() != FormatToCompile.Name)
+        {
+            std::filesystem::path PathToUse = std::filesystem::path(OutPath).replace_filename(FormatToCompile.Name);
+            std::ofstream SplitPart = std::ofstream(PathToUse, std::ios::binary | std::ios::out);
+            if (SplitPart.is_open() == false)
+            {
+                throw std::runtime_error("Error compiling output: can't open file");
+            }
+            MBUtility::MBFileOutputStream SplitOutStream(&SplitPart);
+            SplitOutStream.Write("R\"1337xd(", 9);
+            p_CompileFormat(FormatToCompile, SplitOutStream, Options, "", -1, PathToUse);
+            SplitOutStream.Write(")1337xd\"", 8);
+            m_CppIncludePaths[FormatToCompile.Name] = PathToUse;
+            SplitPart.flush();
+        }
     }
     void RawTerminalCompiler::p_CompileText(TextElement const& TextToCompile,std::vector<i_FormatTextInfo>& OutText,CommonCompilationOptions const& Options)
     {
@@ -161,30 +199,60 @@ namespace MBDoc
     }
     void RawTerminalCompiler::Compile(const DocumentFilesystem &FilesystemToCompile, const CommonCompilationOptions &Options)  
     {
-        auto LiteralOption = Options.CompilerSpecificOptions.CommandOptions.find("text-literal");
+        m_CPPCompilation = Options.CompilerSpecificOptions.CommandOptions.find("cpp") != Options.CompilerSpecificOptions.CommandOptions.end();
         auto Iterator = FilesystemToCompile.begin();
+
+        m_CLIInput = Options.CompilerSpecificOptions;
+        m_FilesystemToCompile = &FilesystemToCompile;
         while(!Iterator.HasEnded())
         {
             if(!Iterator.EntryIsDirectory())
             {
-                std::string OutFile = Options.OutputDirectory+Iterator.GetCurrentPath().GetString();
+                m_CurrentPath = Iterator.GetCurrentPath();
+                std::filesystem::path OutFile = Options.OutputDirectory+Iterator.GetCurrentPath().GetString();
+                m_CppIncludePaths[m_CurrentPath.GetString().substr(1)] = OutFile;
+                if (!std::filesystem::exists(OutFile.parent_path()))
+                {
+                    std::filesystem::create_directories(OutFile.parent_path());
+                }
                 std::ofstream FileStream = std::ofstream(OutFile,std::ios::binary|std::ios::out);
+                if(FileStream.is_open() == false)
+                {
+                    throw std::runtime_error("Error compiling output: can't open file");
+                }
                 MBUtility::MBFileOutputStream OutStream(&FileStream);
-                if(LiteralOption != Options.CompilerSpecificOptions.CommandOptions.end())
+                if(m_CPPCompilation)
                 {
                     OutStream.Write("R\"1337xd(",9);
                 }
                 DocumentSource const& SourceToCompile = Iterator.GetDocumentInfo();
+
+                int FormatIndex = 1;
                 for(FormatElement const& ElementToCompile : SourceToCompile.Contents)
                 {
-                    p_CompileFormat(ElementToCompile,OutStream,Options);
+                    p_CompileFormat(ElementToCompile,OutStream,Options,std::to_string(FormatIndex),0,OutFile);
+                    FormatIndex++;
                 }
-                if(LiteralOption != Options.CompilerSpecificOptions.CommandOptions.end())
+                if(m_CPPCompilation)
                 {
                     OutStream.Write(")1337xd\"",8);
                 }
             }
             Iterator++;
+        }
+        if (m_CPPCompilation)
+        {
+            std::filesystem::path OutIncludeIndex = Options.OutputDirectory;
+            OutIncludeIndex /= "HelpInclude.i";
+            std::string Contents = "{";
+            for (auto const& Include : m_CppIncludePaths)
+            {
+                Contents += "{\"" + Include.first + "\",\n#include \""+
+                    MBUtility::ReplaceAll(MBUnicode::PathToUTF8(std::filesystem::relative(Include.second)),"\\","/") + "\"\n},";
+            }
+            Contents += "}";
+            std::ofstream OutIncludeStream = std::ofstream(OutIncludeIndex);
+            OutIncludeStream << Contents;
         }
     }
 }

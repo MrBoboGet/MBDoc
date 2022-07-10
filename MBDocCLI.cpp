@@ -14,7 +14,7 @@ namespace MBDoc
     bool DocCLI::p_VerifyArguments(MBCLI::ArgumentListCLIInput const& ArgumentsToVerfiy)
     {
         bool ReturnValue = true;
-        std::unordered_set<std::string> ValidFlags = { "check-references" };
+        std::unordered_set<std::string> ValidFlags = { "check-references","help"};
         for(auto const& Option : ArgumentsToVerfiy.CommandOptions)
         {
             if(ValidFlags.find(Option.first) == ValidFlags.end())
@@ -57,10 +57,7 @@ namespace MBDoc
                 DelimiterPositions.push_back(i);   
             }
         }
-        if(DelimiterPositions.size() == 0)
-        {
-            DelimiterPositions.push_back(argc);   
-        }
+        DelimiterPositions.push_back(argc);   
         size_t ArgvBegin = 0;
         for(size_t i = 0; i < DelimiterPositions.size();i++)
         {
@@ -106,6 +103,7 @@ namespace MBDoc
         }
         else if(BuildFiles.size() > 0)
         {
+            ReturnValue.BuildRootDirectory = std::filesystem::current_path();
             for(std::string& Source : BuildFiles)
             {
                 //BuildToCompile.BuildFiles.push_back(std::move(Source));
@@ -203,12 +201,41 @@ namespace MBDoc
         }
         return(ReturnValue);
     }
+    void DocCLI::p_Help(MBCLI::ArgumentListCLIInput const& Input)
+    {
+        std::unordered_map<std::string, const char*> HelpIndex =
+#include "TempOut/HelpInclude.i"
+            ;
+        if (Input.CommandArguments.size() > 1)
+        {
+            m_AssociatedTerminal.PrintLine("Can only help with one thing at a time");
+            std::exit(1);
+        }
+        else if (Input.CommandArguments.size() == 0)
+        {
+            m_AssociatedTerminal.PrintLine(HelpIndex["CLI.mbd"]);
+        }
+        else if (HelpIndex.find(Input.CommandArguments[0]) != HelpIndex.end())
+        {
+            m_AssociatedTerminal.PrintLine(HelpIndex[Input.CommandArguments[0]]);
+        }
+        else
+        {
+            m_AssociatedTerminal.PrintLine("No help available :(");
+            std::exit(1);
+        }
+    }
     int DocCLI::Run(const char** argv,int argc)
     {
         std::vector<MBCLI::ArgumentListCLIInput> CommandInputs = p_GetInputs(argv,argc);
         if(!p_VerifyArguments(CommandInputs[0]))
         {
             return(1);   
+        }
+        if (CommandInputs[0].CommandOptions.find("help") != CommandInputs[0].CommandOptions.end())
+        {
+            p_Help(CommandInputs[0]);
+            return(0);
         }
         CommonCompilationOptions CompileOptions = p_GetOptions(CommandInputs);
         std::unique_ptr<DocumentCompiler> CompilerToUse = p_GetCompiler(CommandInputs[0]); 
