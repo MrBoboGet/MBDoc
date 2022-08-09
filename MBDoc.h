@@ -8,6 +8,7 @@
 #include <memory>
 #include <MBUtility/MBInterfaces.h>
 #include <MBUtility/MBErrorHandling.h>
+#include <MBUtility/MBInterfaces.h>
 #include <unordered_set>
 #include <variant>
 
@@ -244,7 +245,7 @@ namespace MBDoc
         FormatElement(FormatElement &&) = default;
         FormatElement(FormatElement const&) = delete;
         FormatElement() {};
-        FormatElementType Type;
+        FormatElementType Type = FormatElementType::Null;
         std::string Name;
         AttributeList  Attributes;
         std::vector<FormatElementComponent> Contents;    
@@ -281,25 +282,25 @@ namespace MBDoc
         std::unordered_set<std::string> References;
         std::vector<FormatElement> Contents;
     };
+    typedef MBUtility::LineRetriever LineRetriever;
+    //class LineRetriever
+    //{
+    //private:
+    //    MBUtility::MBOctetInputStream* m_InputStream = nullptr;
+    //    std::string m_CurrentLine;
+    //    std::string m_Buffer;
+    //    size_t m_BufferOffset = 0;
+    //    bool m_Finished = false;
+    //    bool m_StreamFinished = false;
+    //    bool m_LineBuffered = false;
+    //public:
+    //    LineRetriever(MBUtility::MBOctetInputStream* InputStream);
+    //    bool Finished();
+    //    bool GetLine(std::string& OutLine);
+    //    void DiscardLine();
+    //    std::string& PeekLine();
 
-    class LineRetriever
-    {
-    private:
-        MBUtility::MBOctetInputStream* m_InputStream = nullptr;
-        std::string m_CurrentLine;
-        std::string m_Buffer;
-        size_t m_BufferOffset = 0;
-        bool m_Finished = false;
-        bool m_StreamFinished = false;
-        bool m_LineBuffered = false;
-    public:
-        LineRetriever(MBUtility::MBOctetInputStream* InputStream);
-        bool Finished();
-        bool GetLine(std::string& OutLine);
-        void DiscardLine();
-        std::string& PeekLine();
-
-    };
+    //};
 
     class DocumentParsingContext
     {

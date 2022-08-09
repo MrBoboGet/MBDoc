@@ -1,0 +1,21 @@
+# Top2 Top
+@[Current Dir Ref](Top2.mbd).
+@[Current Top Ref](Top2.mbd#Top1 Top).
+@[Current Sub Ref](Top2.mbd#Top1 Sub).
+@[Current SubSub Ref](Top2.mbd#Top1 SubSub).
+
+@[Internal TopRef](#Top2 Top).
+@[Internal SubRef](#Top2 Sub).
+@[Internal SubSubRef](#Top2 SubSub).
+
+@[SubDir Ref](/Sub/Sub1.mbd).
+_# Top2 Sub
+    Content
+    #Top2 SubSub
+        Content
+/#
+_# Top2 Sub2
+    Content
+    #Top2 SubSub2
+        Content
+/#
