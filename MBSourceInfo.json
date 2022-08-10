@@ -1,1 +1,53 @@
-{"Dependancies":["MBParsing","MBUtility","MBUnicode"],"ExtraIncludes":[],"Language":"C++","Targets":{"MBDoc":{"Sources":["/MBDoc.cpp","/MBDocMain.cpp"],"TargetType":"Executable"}}}
+{
+    "Dependancies": 
+    [
+        "MBCLI",
+        "MBUnicode",
+        "MBParsing",
+        "MBUtility"
+    ],
+    "ExtraIncludes": 
+    [
+
+    ],
+    "Language":"C++",
+    "Standard":"C++17",
+    "Targets": 
+    {
+        "MBDoc": 
+        {
+            "OutputName":"mbdoc",
+            "Sources": 
+            [
+                "/Compilers/RawTerminal.cpp",
+                "/MBDoc.cpp",
+                "/MBDocCLI.cpp",
+                "/MBDocMain.cpp"
+            ],
+            "TargetType":"Executable"
+        },
+        "Lib": 
+        {
+            "OutputName":"MBDoc",
+            "Sources": 
+            [
+                "/Compilers/RawTerminal.cpp",
+                "/MBDoc.cpp",
+                "/MBDocCLI.cpp"
+            ],
+            "TargetType":"Library"
+        },
+        "MBDocTest": 
+        {
+            "OutputName":"mbdoc_test",
+            "Sources": 
+            [
+                "/Compilers/RawTerminal.cpp",
+                "/MBDoc.cpp",
+                "/MBDocCLI.cpp",
+                "/MBDocTestMain.cpp"
+            ],
+            "TargetType":"Executable"
+        }
+    }
+}

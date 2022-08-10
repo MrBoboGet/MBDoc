@@ -2,10 +2,10 @@ project(MBDoc)
 set(PROJECT_NAME "MBDoc")
 ##BEGIN MBPM_VARIABLES
 set(MBPM_DEPENDENCIES 
+	"MBCLI"
 	"MBUnicode"
 	"MBParsing"
 	"MBUtility"
-	"MBCLI"
 )
 set(MBPM_SystemLibraries
 Ws2_32.lib
@@ -113,3 +113,8 @@ add_executable("mbdoc" ${COMMON_FILES} ${EXECUTABLE_FILES})
 MBPM_ApplyConfiguration("mbdoc")
 target_compile_features("mbdoc" PRIVATE cxx_std_17)
 target_link_libraries("mbdoc" ${COMMON_LIBRARIES})
+
+add_executable("mbdoc_test" ${COMMON_FILES} "${CMAKE_CURRENT_SOURCE_DIR}/MBDocTestMain.cpp")
+MBPM_ApplyConfiguration("mbdoc_test")
+target_compile_features("mbdoc_test" PRIVATE cxx_std_17)
+target_link_libraries("mbdoc_test" ${COMMON_LIBRARIES})

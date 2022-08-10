@@ -1,6 +1,6 @@
 #include "RawTerminal.h"
 #include "MBCLI/MBCLI.h"
-#include "MBDoc.h"
+#include "../MBDoc.h"
 #include "MBUtility/MBInterfaces.h"
 #include <fstream>
 #include <iostream>

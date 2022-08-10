@@ -761,6 +761,10 @@ ParseOffset--;
     }
     void h_UpdateReferences(DocumentSource& SourceToModify,FormatElement const& FormatComponent)
     {
+        if (FormatComponent.Name != "")
+        {
+            SourceToModify.ReferenceTargets.insert(FormatComponent.Name);
+        }
         SourceToModify.ReferenceTargets.insert(FormatComponent.Name);
         for(FormatElementComponent const& Element : FormatComponent.Contents)
         {
@@ -778,17 +782,7 @@ ParseOffset--;
     {
         for(FormatElement const& Format : SourceToModify.Contents)
         {
-            for(FormatElementComponent const& Element : Format.Contents)
-            {
-                if(Element.GetType() == FormatComponentType::Format)
-                {
-                    h_UpdateReferences(SourceToModify,Element.GetFormatData());            
-                }
-                else if(Element.GetType() == FormatComponentType::Block)
-                {
-                    h_UpdateReferences(SourceToModify,Element.GetBlockData());
-                } 
-            }
+            h_UpdateReferences(SourceToModify, Format);
         } 
     }
     DocumentSource DocumentParsingContext::ParseSource(MBUtility::MBOctetInputStream& InputStream,std::string FileName,MBError& OutError)
@@ -855,7 +849,20 @@ ParseOffset--;
             ReturnValue.BuildRootDirectory = BuildDirectory; 
             for(MBParsing::JSONObject const& Object : JSONData["Sources"].GetArrayData())
             {
-                ReturnValue.BuildFiles.push_back(DocumentPath::ParsePath(Object.GetStringData(),OutError));   
+                std::string CurrentString = Object.GetStringData();
+                if (CurrentString.size() == 0)
+                {
+                    OutError = false;
+                    OutError.ErrorMessage = "Empty source name not allowed";
+                    return(ReturnValue);
+                }
+                if (CurrentString[0] == '/')
+                {
+                    OutError = false;
+                    OutError.ErrorMessage = "Invalid source name \"" + CurrentString + "\": Only relative paths allowed";
+                    return(ReturnValue);
+                }
+                ReturnValue.BuildFiles.push_back(DocumentPath::ParsePath(CurrentString,OutError));
                 if (!OutError)
                 {
                     return(ReturnValue);
@@ -1981,17 +1988,25 @@ ParseOffset--;
     MBError DocumentFilesystem::CreateDocumentFilesystem(DocumentBuild const& BuildToParse,DocumentFilesystem* OutFilesystem)
     {
         MBError ReturnValue = true;
-        DocumentFilesystem Result;
-        Result.m_DirectoryInfos.resize(1);
-        BuildDirectory Directory = p_ParseBuildDirectory(BuildToParse);
-        Result.m_TotalSources.resize(Directory.FileNames.size());
-        DocumentDirectoryInfo TopInfo = Result.p_UpdateOverDirectory(Directory,0,0);
-        Result.m_DirectoryInfos[0] = TopInfo;
-        Result.m_DirectoryInfos[0].Name = "/";
-        assert(std::is_sorted(Result.m_DirectoryInfos.begin(), Result.m_DirectoryInfos.end(), h_DirectoryOrder));
-        if(ReturnValue)
+        try 
         {
-            *OutFilesystem = std::move(Result);   
+            DocumentFilesystem Result;
+            Result.m_DirectoryInfos.resize(1);
+            BuildDirectory Directory = p_ParseBuildDirectory(BuildToParse);
+            Result.m_TotalSources.resize(Directory.FileNames.size());
+            DocumentDirectoryInfo TopInfo = Result.p_UpdateOverDirectory(Directory, 0, 0);
+            Result.m_DirectoryInfos[0] = TopInfo;
+            Result.m_DirectoryInfos[0].Name = "/";
+            assert(std::is_sorted(Result.m_DirectoryInfos.begin(), Result.m_DirectoryInfos.end(), h_DirectoryOrder));
+            if (ReturnValue)
+            {
+                *OutFilesystem = std::move(Result);
+            }
+        }
+        catch (std::exception const& e) 
+        {
+            ReturnValue = false;
+            ReturnValue.ErrorMessage = e.what();
         }
         return(ReturnValue);  
     }

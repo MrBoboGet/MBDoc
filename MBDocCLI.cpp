@@ -204,9 +204,10 @@ namespace MBDoc
     void DocCLI::p_Help(MBCLI::ArgumentListCLIInput const& Input)
     {
         std::unordered_map<std::string, const char*> HelpIndex =
-#include "TempOut/HelpInclude.i"
-            ;
-        if (Input.CommandArguments.size() > 1)
+//#include "TempOut/HelpInclude.i"
+//            ;
+        {{"change me",nullptr}};
+        if (Input.CommandArguments.size() > 1)  
         {
             m_AssociatedTerminal.PrintLine("Can only help with one thing at a time");
             std::exit(1);
@@ -224,6 +225,7 @@ namespace MBDoc
             m_AssociatedTerminal.PrintLine("No help available :(");
             std::exit(1);
         }
+
     }
     int DocCLI::Run(const char** argv,int argc)
     {

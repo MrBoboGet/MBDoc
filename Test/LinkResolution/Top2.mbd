@@ -1,8 +1,8 @@
 # Top2 Top
-@[Current Dir Ref](Top2.mbd).
-@[Current Top Ref](Top2.mbd#Top1 Top).
-@[Current Sub Ref](Top2.mbd#Top1 Sub).
-@[Current SubSub Ref](Top2.mbd#Top1 SubSub).
+@[Current Dir Ref](Top1.mbd).
+@[Current Top Ref](Top1.mbd#Top1 Top).
+@[Current Sub Ref](Top1.mbd#Top1 Sub).
+@[Current SubSub Ref](Top1.mbd#Top1 SubSub).
 
 @[Internal TopRef](#Top2 Top).
 @[Internal SubRef](#Top2 Sub).
