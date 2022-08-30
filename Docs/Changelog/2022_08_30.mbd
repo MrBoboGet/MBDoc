@@ -1,0 +1,2 @@
+Removed _ as a special character. No text modifcation semantics where defined for it anywats, 
+and it interfers with common naming conventions for files or functions.

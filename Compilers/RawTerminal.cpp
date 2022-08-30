@@ -100,7 +100,7 @@ namespace MBDoc
         {
             OutStream.Write("\n",1);  
             MBCLI::ANSISequenceOutputter ANSIOutputter;
-            ANSIOutputter.WriteColorChange(MBCLI::ANSITerminalColor::Green,OutStream);
+            ANSIOutputter.WriteColorChange(OutStream,MBCLI::ANSITerminalColor::Green);
 
             std::string NameToWrite = Prefix;
             if (NameToWrite != "")
@@ -114,7 +114,7 @@ namespace MBDoc
             }
 
             OutStream.Write(NameToWrite.data(), NameToWrite.size());
-            ANSIOutputter.WriteColorChange(MBCLI::ANSITerminalColor::White, OutStream);
+            ANSIOutputter.WriteColorChange(OutStream,MBCLI::ANSITerminalColor::White);
             OutStream.Write("\n",1);  
         }
 
@@ -184,10 +184,10 @@ namespace MBDoc
                 MBCLI::ANSISequenceOutputter ANSIOutputter;
                 std::string ColorBeginString;
                 MBUtility::MBStringOutputStream OutStream(ColorBeginString);
-                ANSIOutputter.WriteColorChange(MBCLI::ANSITerminalColor::Blue,OutStream);
+                ANSIOutputter.WriteColorChange(OutStream,MBCLI::ANSITerminalColor::Blue);
                 std::string ColorEndString;
                 OutStream = MBUtility::MBStringOutputStream(ColorEndString);
-                ANSIOutputter.WriteColorChange(MBCLI::ANSITerminalColor::White,OutStream);
+                ANSIOutputter.WriteColorChange(OutStream,MBCLI::ANSITerminalColor::White);
                 NewInfo.Text = ColorBeginString + NewInfo.Text + ColorEndString;
             }
             OutText.push_back(NewInfo);

@@ -16,6 +16,7 @@
 namespace MBDoc
 {
 
+     
     //BEGIN AttributeList
     bool AttributeList::IsEmpty() const
     {
@@ -1664,6 +1665,11 @@ ParseOffset--;
                 }
                 SearchRoot = p_ResolveDirectorySpecifier(SearchRoot.Index, ReferenceIdentifier, SpecifierOffset);
             }
+            if (SearchRoot.Type == DocumentFSType::Null)
+            {
+                *OutResult = false;
+                return(ReturnValue);
+            }
         }
         else
         {
@@ -1950,7 +1956,7 @@ ParseOffset--;
             DocumentSource NewFile = Parser.ParseSource(Directory.DirectoryPath / File, ParseError);
             if (!ParseError)
             {
-                throw new std::runtime_error("Error parsing file: " + ParseError.ErrorMessage);
+                throw std::runtime_error("Error parsing file "+MBUnicode::PathToUTF8(Directory.DirectoryPath/File) +": " + ParseError.ErrorMessage);
             }
             m_TotalSources[FileIndexBegin + FileIndex] = std::move(NewFile);
             FileIndex++;

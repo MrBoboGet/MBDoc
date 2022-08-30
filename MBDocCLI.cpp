@@ -229,48 +229,57 @@ namespace MBDoc
     }
     int DocCLI::Run(const char** argv,int argc)
     {
-        std::vector<MBCLI::ArgumentListCLIInput> CommandInputs = p_GetInputs(argv,argc);
-        if(!p_VerifyArguments(CommandInputs[0]))
+        try 
         {
-            return(1);   
-        }
-        if (CommandInputs[0].CommandOptions.find("help") != CommandInputs[0].CommandOptions.end())
-        {
-            p_Help(CommandInputs[0]);
-            return(0);
-        }
-        CommonCompilationOptions CompileOptions = p_GetOptions(CommandInputs);
-        std::unique_ptr<DocumentCompiler> CompilerToUse = p_GetCompiler(CommandInputs[0]); 
-        DocumentBuild BuildToCompile = p_GetBuild(CommandInputs[0]);
-        DocumentFilesystem BuildFilesystem = p_GetFilesystem(BuildToCompile,CommandInputs[0]);
-        if (CommandInputs[0].CommandOptions.find("check-references") != CommandInputs[0].CommandOptions.end())
-        {
-            auto Iterator = BuildFilesystem.begin();
-            while (!Iterator.HasEnded())
+            std::vector<MBCLI::ArgumentListCLIInput> CommandInputs = p_GetInputs(argv, argc);
+            if (!p_VerifyArguments(CommandInputs[0]))
             {
-                if (!Iterator.EntryIsDirectory())
+                return(1);
+            }
+            if (CommandInputs[0].CommandOptions.find("help") != CommandInputs[0].CommandOptions.end())
+            {
+                p_Help(CommandInputs[0]);
+                return(0);
+            }
+            CommonCompilationOptions CompileOptions = p_GetOptions(CommandInputs);
+            std::unique_ptr<DocumentCompiler> CompilerToUse = p_GetCompiler(CommandInputs[0]);
+            DocumentBuild BuildToCompile = p_GetBuild(CommandInputs[0]);
+            DocumentFilesystem BuildFilesystem = p_GetFilesystem(BuildToCompile, CommandInputs[0]);
+            if (CommandInputs[0].CommandOptions.find("check-references") != CommandInputs[0].CommandOptions.end())
+            {
+                auto Iterator = BuildFilesystem.begin();
+                while (!Iterator.HasEnded())
                 {
-                    MBDoc::DocumentPath CurrentPath = Iterator.GetCurrentPath();
-                    MBDoc::DocumentSource const& CurrentSource = Iterator.GetDocumentInfo();
-                    for (std::string const& Reference : CurrentSource.References)
+                    if (!Iterator.EntryIsDirectory())
                     {
-                        MBError ReferenceResult = true;
-                        BuildFilesystem.ResolveReference(CurrentPath, Reference, ReferenceResult);
-                        if (!ReferenceResult)
+                        MBDoc::DocumentPath CurrentPath = Iterator.GetCurrentPath();
+                        MBDoc::DocumentSource const& CurrentSource = Iterator.GetDocumentInfo();
+                        for (std::string const& Reference : CurrentSource.References)
                         {
-                            std::cout << "Error resolving reference " + Reference + " in file " + CurrentPath.GetString() << std::endl;
+                            MBError ReferenceResult = true;
+                            BuildFilesystem.ResolveReference(CurrentPath, Reference, ReferenceResult);
+                            if (!ReferenceResult)
+                            {
+                                std::cout << "Error resolving reference " + Reference + " in file " + CurrentPath.GetString() << std::endl;
+                            }
                         }
                     }
+                    Iterator++;
                 }
-                Iterator++;
+                return(0);
+            }
+            else
+            {
+                CompilerToUse->Compile(BuildFilesystem, CompileOptions);
             }
             return(0);
         }
-        else
+        catch (std::exception const& e)
         {
-            CompilerToUse->Compile(BuildFilesystem,CompileOptions);   
+            std::cout << e.what() << std::endl;
+            std::exit(1);
         }
-        return(0);
+        std::exit(0);
     }      
 }
 

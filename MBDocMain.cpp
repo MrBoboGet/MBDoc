@@ -84,13 +84,15 @@ int main(int argc,const char** argv)
     //Test();
     //std::filesystem::current_path(std::filesystem::current_path().parent_path().parent_path());
     //mbdoc C:\Users\emanu\Desktop\Program\C++\MBPM_INSTALL_DIRECTORY\MBTotalDoc\MBDocBuild.json -f:html -o:temp
-    const char* NewArgv[] = { "mbdoc","../../../MBDocBuild.json","-o:../../TempOut","-f:html"};
+    //std::filesystem::current_path("C:\\Users\\emanu\\Desktop\\Program\\C++\\MBPacketManager\\Docs");
+    //std::filesystem::current_path("C:\\Users\\emanu\\Desktop\\Program\\C++\\MBDoc\\Docs");
+    //const char* NewArgv[] = { "mbdoc","../../../MBDocBuild.json","-o:../../TempOut","-f:html"};
     //std::filesystem::current_path(std::filesystem::current_path().parent_path().parent_path());
     //std::cout << std::filesystem::current_path() << std::endl;
     //const char* NewArgv[] = { "mbdoc","Docs/CLI.mbd","-o:TempOut","-f:rawterminal","--","--cpp"};
-    //const char* NewArgv[] = { "mbdoc","--help","f" };
-    argv = NewArgv;
-    argc = sizeof(NewArgv) / sizeof(const char*);
+    //const char* NewArgv[] = { "mbdoc","CLI.mbd","-f:html","-o:temp"};
+    //argv = NewArgv;
+    //argc = sizeof(NewArgv) / sizeof(const char*);
     ////
     MBDoc::DocCLI CLI;
     CLI.Run(argv, argc);
