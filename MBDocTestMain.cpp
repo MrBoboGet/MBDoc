@@ -68,10 +68,6 @@ std::vector<std::string> TestLinkResolving()
 //Assumes that it's run in the Test subdirectory
 int main(int argc,const char** argv)
 {
-    //
-    //std::filesystem::current_path("../../Test");
-    //std::filesystem::current_path("C:\\Users\\emanu\\Desktop\\Program\\C++\\MBDoc\\Docs");
-    //std::cout << std::filesystem::current_path() << std::endl; 
     bool ErrorOccured = false;
     std::vector<std::vector<std::string>(*)()> Tests = {TestLinkResolving};
     for(auto const& Test : Tests)

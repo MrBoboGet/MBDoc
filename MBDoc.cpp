@@ -252,12 +252,12 @@ namespace MBDoc
                 ResultParsed = true;
                 ParseOffset += 1;
             }   
-            if (CharData[ParseOffset] == '_')
-            {
-                ReturnValue.Modifiers = ReturnValue.Modifiers | TextModifier::Underlined;
-                ResultParsed = true;
-                ParseOffset += 1;
-            }
+            //if (CharData[ParseOffset] == '_')
+            //{
+            //    ReturnValue.Modifiers = ReturnValue.Modifiers | TextModifier::Underlined;
+            //    ResultParsed = true;
+            //    ParseOffset += 1;
+            //}
         }
         if(OutParseOffset != nullptr)
         {
@@ -300,7 +300,7 @@ ParseOffset--;
             {
                 NextReferenceDeclaration = std::find(CharData + FindTextModifierDelimiterOffset, CharData + DataSize, '@') - (CharData);
                 NextTextModifier = std::find(CharData + FindTextModifierDelimiterOffset, CharData + DataSize, '*') - (CharData);
-                NextTextModifier = std::min(NextTextModifier, size_t(std::find(CharData + FindTextModifierDelimiterOffset, CharData + DataSize, '_') - (CharData)));
+                //NextTextModifier = std::min(NextTextModifier, size_t(std::find(CharData + FindTextModifierDelimiterOffset, CharData + DataSize, '_') - (CharData)));
 
                 NextModifier = std::min(NextTextModifier, NextReferenceDeclaration);
                 if (NextModifier == DataSize)
@@ -323,6 +323,9 @@ ParseOffset--;
                 NewText.Modifiers = CurrentTextModifier;
                 NewText.Color = CurrentTextColor;
                 NewText.Text = std::string(CharData + ParseOffset, NextModifier - ParseOffset);
+                //Unescape text
+
+                //TODO fix efficiently, jank
                 ReturnValue.push_back(std::unique_ptr<TextElement>(new RegularText(std::move(NewText))));
                 ParseOffset = NextModifier;
             }
@@ -2236,8 +2239,17 @@ ParseOffset--;
         }
     }
     //END MarkdownReferenceSolver
-    //
     
+    //TODO optimize
+    std::string h_EscapeHTMLText(std::string const& TextToEscape)
+    {
+        //Inefficient af, but enough for current demands
+        std::string ReturnValue = TextToEscape;
+        MBUtility::ReplaceAll(&ReturnValue, "&", "&amp;");
+        MBUtility::ReplaceAll(&ReturnValue, "<", "&lt;");
+        MBUtility::ReplaceAll(&ReturnValue, ">", "&gt;");
+        return(ReturnValue);
+    }
     //BEGIN HTTPReferenceSolver
     void HTTPReferenceSolver::SetCurrentPath(DocumentPath CurrentPath)
     {
@@ -2264,7 +2276,7 @@ ParseOffset--;
         }
         else
         {
-            ReturnValue += "#\" style=\"color: red;\">"+ReferenceIdentifier.VisibleText;
+            ReturnValue += "#\" style=\"color: red;\">"+h_EscapeHTMLText(ReferenceIdentifier.VisibleText);
         }
         ReturnValue += "</a>";
         return(ReturnValue);
@@ -2277,7 +2289,6 @@ ParseOffset--;
 
 
     //BEGIN HTTPCompiler
-
     void HTTPCompiler::p_CompileText(std::vector<std::unique_ptr<TextElement>> const& ElementsToCompile,HTTPReferenceSolver const& HTTPReferenceSolverReferenceSolver,MBUtility::MBOctetOutputStream& OutStream)
     {
         for(std::unique_ptr<TextElement> const& Text : ElementsToCompile)
@@ -2293,8 +2304,9 @@ ParseOffset--;
             }
             if(Text->Type == TextElementType::Regular)
             {
-                RegularText const& TextToWrite = static_cast<RegularText const&>(*Text);
-                OutStream.Write(TextToWrite.Text.data(),TextToWrite.Text.size());
+                RegularText const& RegularTextElement= static_cast<RegularText const&>(*Text);
+                std::string TextToWrite = h_EscapeHTMLText(RegularTextElement.Text);
+                OutStream.Write(TextToWrite.data(),TextToWrite.size());
             }
             if (Text->Type == TextElementType::Reference)
             {
@@ -2401,7 +2413,8 @@ ParseOffset--;
             throw std::runtime_error("File not open");
         }
         MBUtility::MBFileOutputStream FileStream(&OutStream);
-        std::string TopInfo = "<!DOCTYPE html><html><head><style>body{background-color: black; color: #00FF00;}</style></head><body><div style=\"width: 50%;margin: auto\">";
+        //std::string TopInfo = "<!DOCTYPE html><html><head><style>body{background-color: black; color: #00FF00;}</style></head><body><div style=\"width: 50%;margin: auto\">";
+        std::string TopInfo = "<!DOCTYPE html><html><head><style>body{background-color: black; color: #00FF00;}</style></head><body><div style=\"width: 80ch;margin: auto\">";
         OutStream.write(TopInfo.data(), TopInfo.size());
         size_t ElementIndex = 1;
         for (FormatElement const& Format : SourceToCompile.Contents)
