@@ -340,12 +340,17 @@ namespace MBDoc
         std::string operator[](size_t ComponentIndex) const;
         bool operator<(DocumentPath const& OtherPath) const;
 
+        bool operator==(DocumentPath const& PathToCompare) const;
+        bool operator!=(DocumentPath const& PathToCompare) const;
+
         static DocumentPath ParsePath(std::string const& PathToParse, MBError& OutError);
 
         void AddDirectory(std::string StringToAdd);
         void PopDirectory();
         void SetPartIdentifier(std::string PartSpecifier);
         std::string const& GetPartIdentifier() const;
+
+        bool Empty() const;
     };
 
     class DocumentBuild
@@ -398,10 +403,14 @@ namespace MBDoc
         size_t m_DirectoryFilePosition = -1;
         size_t m_CurrentDirectoryIndex = -1;
         DocumentFilesystem const* m_AssociatedFilesystem = nullptr;
+        
+
+        size_t m_CurrentDepth = 0;
     protected:
         DocumentFilesystemIterator(size_t DirectoryRoot);
         size_t GetCurrentDirectoryIndex() const;
         size_t GetCurrentFileIndex() const;
+        void CalculateDepth();
     public:
         //Accessors
         DocumentPath GetCurrentPath() const;
@@ -409,6 +418,7 @@ namespace MBDoc
         std::string GetEntryName() const;
         DocumentSource const& GetDocumentInfo() const;
         bool HasEnded() const;
+        size_t CurrentDepth() const;
         //Modifiers
         void Increment();
         void NextDirectory();
@@ -556,7 +566,8 @@ namespace MBDoc
         DocumentFilesystem const* m_AssociatedBuild = nullptr;
         DocumentPath m_CurrentPath;
     public:
-        std::string GetReferenceString(DocReference const& ReferenceIdentifier) const;      
+        std::string GetReferenceString(DocReference const& ReferenceIdentifier) const;
+        std::string GetDocumentPathURL(DocumentPath const& PathToConvert) const;
         //Holds a reference to the build for the duration
         void SetCurrentPath(DocumentPath CurrentPath);
         void Initialize(DocumentFilesystem const* Build);
@@ -571,6 +582,36 @@ namespace MBDoc
         void Initialize(DocReference const& Document);   
         void WriteTOC(MBUtility::MBOctetOutputStream& OutStream);
     };
+    class HTTPNavigationCreator
+    {
+        struct File
+        {
+            std::string Name; 
+            DocumentPath Path;
+        };
+        struct Directory
+        {
+            std::string Name;
+            DocumentPath Path;
+            std::vector<File> Files;
+            std::vector<Directory> SubDirectories;
+            bool Open = false;
+        };
+        DocumentPath m_CurrentPath;
+        DocumentPath m_PreviousOpen;
+        Directory m_TopDirectory;
+        
+        static Directory p_CreateDirectory(DocumentFilesystemIterator& FileIterator); 
+        void p_WriteDirectory(MBUtility::MBOctetOutputStream& OutStream,HTTPReferenceSolver const& ReferenceSolver,Directory const& DirectoryToWrite) const; 
+        void p_WriteFile(MBUtility::MBOctetOutputStream& OutStream, HTTPReferenceSolver const& ReferenceSolver,File const& DirectoryToWrite) const;
+        //void p_WriteTopDirectory(
+        void p_ToggleOpen(DocumentPath const& PathToToggle);
+    public:
+        HTTPNavigationCreator(DocumentFilesystem const& FilesystemToInspect);
+        void SetOpen(DocumentPath NewPath);
+        void SetCurrentPath(DocumentPath CurrentPath);
+        void WriteTableDiv(MBUtility::MBOctetOutputStream& OutStream, HTTPReferenceSolver const& ReferenceSolver) const;
+    };
     class HTTPCompiler : public DocumentCompiler
     {
     private:
@@ -579,7 +620,7 @@ namespace MBDoc
         void p_CompileDirective(Directive const& DirectiveToCompile, HTTPReferenceSolver const& ReferenceSolver, MBUtility::MBOctetOutputStream& OutStream);
         void p_CompileFormat(FormatElement const& SourceToCompile, HTTPReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream,int Depth
             ,std::string const& NamePrefix);
-        void p_CompileSource(std::string const& OutPath,DocumentSource const& SourceToCompile, HTTPReferenceSolver const&  ReferenceSolver);
+        void p_CompileSource(std::string const& OutPath,DocumentSource const& SourceToCompile, HTTPReferenceSolver const&  ReferenceSolver,HTTPNavigationCreator const& NavigationCreator);
     public:
         void Compile(DocumentFilesystem const& BuildToCompile,CommonCompilationOptions const& Options) override; 
     };
