@@ -3,9 +3,11 @@ set(PROJECT_NAME "MBDoc")
 ##BEGIN MBPM_VARIABLES
 set(MBPM_DEPENDENCIES 
 	"MBCLI"
+	"MBBenchmark"
 	"MBUnicode"
 	"MBParsing"
 	"MBUtility"
+	"MBMime"
 )
 set(MBPM_SystemLibraries
 Ws2_32.lib

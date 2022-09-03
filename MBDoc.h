@@ -131,6 +131,7 @@ namespace MBDoc
     {
         Null,
         Paragraph,
+        MediaInclude,
         Table,
         CodeBlock,
     };
@@ -147,6 +148,14 @@ namespace MBDoc
             Type = BlockElementType::Paragraph; 
         };
         std::vector<std::unique_ptr<TextElement>> TextElements;//Can be sentences, text, inline references etc
+    };
+    struct MediaInclude : BlockElement
+    {
+        MediaInclude() 
+        {
+            Type = BlockElementType::MediaInclude; 
+        };
+        std::string MediaPath;
     };
     struct CodeBlock : BlockElement 
     {
@@ -267,7 +276,7 @@ namespace MBDoc
     {
     public:
         DocumentSource(DocumentSource const&) = delete;
-        DocumentSource(DocumentSource&&) = default;
+        DocumentSource(DocumentSource&&) noexcept = default;
         DocumentSource& operator=(DocumentSource OtherSource)
         {
             std::swap(Name, OtherSource.Name);
@@ -278,6 +287,7 @@ namespace MBDoc
         }
         DocumentSource() {};
 
+        std::filesystem::path Path;
         std::string Name;
         std::unordered_set<std::string> ReferenceTargets;
         std::unordered_set<std::string> References;
@@ -309,6 +319,7 @@ namespace MBDoc
         DocReference p_ParseReference(void const* Data,size_t DataSize,size_t ParseOffset,size_t* OutParseOffset);
         std::vector<std::unique_ptr<TextElement>> p_ParseTextElements(void const* Data,size_t DataSize,size_t ParseOffset,size_t* OutParseOffset);
         std::unique_ptr<BlockElement> p_ParseCodeBlock(LineRetriever& Retriever);
+        std::unique_ptr<BlockElement> p_ParseMediaInclude(LineRetriever& Retriever);
         std::unique_ptr<BlockElement> p_ParseBlockElement(LineRetriever& Retriever);
         AttributeList p_ParseAttributeList(LineRetriever& Retriever);
 
@@ -612,13 +623,22 @@ namespace MBDoc
         void SetCurrentPath(DocumentPath CurrentPath);
         void WriteTableDiv(MBUtility::MBOctetOutputStream& OutStream, HTTPReferenceSolver const& ReferenceSolver) const;
     };
+
+    //Share common data, pointless to move every time
     class HTTPCompiler : public DocumentCompiler
     {
     private:
+        
+        std::unordered_map<std::string, DocumentPath> m_MovedResources = {};
+        std::filesystem::path m_OutputDirectory = "";
+        
+        int m_ExportedElementsCount = 0;
+        DocumentPath p_GetUniquePath(std::string const& Extension);
+        
         void p_CompileText(std::vector<std::unique_ptr<TextElement>> const& ElementsToCompile,HTTPReferenceSolver const& HTTPReferenceSolverReferenceSolver,MBUtility::MBOctetOutputStream& OutStream);
-        void p_CompileBlock(BlockElement const* BlockToCompile, HTTPReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream);
+        void p_CompileBlock(BlockElement const* BlockToCompile,std::filesystem::path const& SourcePath, HTTPReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream);
         void p_CompileDirective(Directive const& DirectiveToCompile, HTTPReferenceSolver const& ReferenceSolver, MBUtility::MBOctetOutputStream& OutStream);
-        void p_CompileFormat(FormatElement const& SourceToCompile, HTTPReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream,int Depth
+        void p_CompileFormat(FormatElement const& SourceToCompile,std::filesystem::path const& SourcePath, HTTPReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream,int Depth
             ,std::string const& NamePrefix);
         void p_CompileSource(std::string const& OutPath,DocumentSource const& SourceToCompile, HTTPReferenceSolver const&  ReferenceSolver,HTTPNavigationCreator const& NavigationCreator);
     public:

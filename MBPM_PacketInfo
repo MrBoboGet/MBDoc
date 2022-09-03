@@ -7,5 +7,5 @@
 		"StaticDebug": "MBDoc_SD"
 	},
 	"ExportedExecutableTargets": [ "mbdoc" ],
-	"Dependancies": [ "MBUtility","MBParsing","MBUnicode","MBCLI"]
+	"Dependancies": [ "MBUtility","MBParsing","MBMime","MBUnicode","MBCLI"]
 }

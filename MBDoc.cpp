@@ -13,6 +13,8 @@
 #include <MBUtility/MBStrings.h>
 #include <MBUnicode/MBUnicode.h>
 #include <MBCLI/MBCLI.h>
+
+#include <MBMime/MBMime.h>
 namespace MBDoc
 {
 
@@ -349,6 +351,36 @@ ParseOffset--;
         }
         return(ReturnValue);
     }
+    std::unique_ptr<BlockElement> DocumentParsingContext::p_ParseMediaInclude(LineRetriever& Retriever)
+    {
+        std::unique_ptr<BlockElement> ReturnValue = std::make_unique<MediaInclude>();
+        MediaInclude& NewElement = (MediaInclude&)*ReturnValue;
+        std::string IncludeString;
+        Retriever.GetLine(IncludeString);
+        size_t ParseOffset = 0; 
+        MBParsing::SkipWhitespace(IncludeString,0,&ParseOffset);
+        if(ParseOffset + 1 >= IncludeString.size())
+        {
+            throw std::runtime_error("Invalid MediaInclude header: must start with !#"); 
+        }
+        if(std::memcmp(IncludeString.data()+ParseOffset,"!#",2) != 0)
+        {
+            throw std::runtime_error("Invalid MediaInclude header: must start with !#"); 
+        }
+        ParseOffset += 2;
+        MBParsing::SkipWhitespace(IncludeString,ParseOffset,&ParseOffset);
+        if(ParseOffset >= IncludeString.size() || IncludeString[ParseOffset] != '(')
+        {
+            throw std::runtime_error("Invalid MediaInclude: Need delimitng ( and ending ) for path");  
+        }
+        auto EndIt = std::find(IncludeString.begin()+ParseOffset,IncludeString.end(),')');
+        if(EndIt == IncludeString.end())
+        {
+            throw std::runtime_error("Invalid MediaInclude: Need delimitng ( and ending ) for path");  
+        }
+        NewElement.MediaPath = std::string(IncludeString.begin()+ParseOffset+1,EndIt); 
+        return(ReturnValue);
+    }
     std::unique_ptr<BlockElement> DocumentParsingContext::p_ParseCodeBlock(LineRetriever& Retriever)
     {
         std::unique_ptr<BlockElement> ReturnValue = std::make_unique<CodeBlock>();
@@ -447,6 +479,21 @@ ParseOffset--;
                         break;
                     }
                 }
+            }
+            if(ParseOffset + 1 < CurrentLine.size())
+            {
+                if(std::memcmp(CurrentLine.data()+ParseOffset,"!#",2) == 0)
+                {
+                    if(TotalParagraphData.size() > 0)
+                    {
+                        break;
+                    }   
+                    else
+                    {
+                        ReturnValue = p_ParseMediaInclude(Retriever);   
+                        break;
+                    }
+                } 
             }
             TotalParagraphData += CurrentLine+" ";
             Retriever.DiscardLine();
@@ -818,7 +865,9 @@ ParseOffset--;
             return(DocumentSource());
         }
         MBUtility::MBFileInputStream InputStream(&FileStream);
-        return(ParseSource(InputStream,MBUnicode::PathToUTF8(InputFile.filename()),OutError));
+        DocumentSource ReturnValue = ParseSource(InputStream, MBUnicode::PathToUTF8(InputFile.filename()), OutError);
+        ReturnValue.Path = InputFile;
+        return(ReturnValue);
     }
     DocumentSource DocumentParsingContext::ParseSource(const void* Data,size_t DataSize,std::string FileName,MBError& OutError)
     {
@@ -1990,7 +2039,9 @@ ParseOffset--;
             {
                 throw std::runtime_error("Error parsing file "+MBUnicode::PathToUTF8(Directory.DirectoryPath/File) +": " + ParseError.ErrorMessage);
             }
+            //LIBRARY BUG? seems like std::move(NewFile) produces a file with empty path, weird
             m_TotalSources[FileIndexBegin + FileIndex] = std::move(NewFile);
+            m_TotalSources[FileIndexBegin + FileIndex].Path = Directory.DirectoryPath / File;
             FileIndex++;
         }
 
@@ -2344,12 +2395,12 @@ ParseOffset--;
                 NewFile.Name = CurrentSource.Name;
                 NewFile.Path = FileIterator.GetCurrentPath();
                 ReturnValue.Files.push_back(std::move(NewFile));
+                ++FileIterator;
             }
             else
             {
                 ReturnValue.SubDirectories.push_back(p_CreateDirectory(FileIterator));  
             } 
-            ++FileIterator;
         }
         return(ReturnValue);
     }
@@ -2483,7 +2534,16 @@ ParseOffset--;
             }
         }
     }
-    void HTTPCompiler::p_CompileBlock(BlockElement const* BlockToCompile, HTTPReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream)
+    DocumentPath HTTPCompiler::p_GetUniquePath(std::string const& Extension)
+    {
+        DocumentPath ReturnValue;
+        ReturnValue.AddDirectory("/");
+        ReturnValue.AddDirectory("___Resources");
+        ReturnValue.AddDirectory(std::to_string(m_ExportedElementsCount) + "." + Extension);
+        m_ExportedElementsCount += 1;
+        return(ReturnValue);
+    }
+    void HTTPCompiler::p_CompileBlock(BlockElement const* BlockToCompile,std::filesystem::path const& SourcePath, HTTPReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream)
     {
         if(BlockToCompile->Type == BlockElementType::Paragraph)
         {
@@ -2501,7 +2561,47 @@ ParseOffset--;
             CodeBlock const& BlockToWrite = static_cast<CodeBlock const&>(*BlockToCompile);
             OutStream.Write(BlockToWrite.RawText.data(), BlockToWrite.RawText.size());
             OutStream.Write("</pre>", 6);
-        } 
+        }
+        else if (BlockToCompile->Type == BlockElementType::MediaInclude)
+        {
+            MediaInclude const& MediaToInclude = (MediaInclude const&)*BlockToCompile;
+            std::filesystem::path MediaToIncludePath = SourcePath.parent_path()/MediaToInclude.MediaPath;
+            std::string CanonicalString = MBUnicode::PathToUTF8(std::filesystem::canonical(MediaToIncludePath));
+            DocumentPath& OutPath = m_MovedResources[CanonicalString];
+            std::string Extension;
+            size_t DotPosition = MediaToInclude.MediaPath.find_last_of('.');
+            if (DotPosition != MediaToInclude.MediaPath.npos)
+            {
+                Extension = MediaToInclude.MediaPath.substr(DotPosition + 1);
+            }
+            if (OutPath.Empty())
+            {
+                //need to actually move the path
+                OutPath = p_GetUniquePath(Extension);
+                if (!std::filesystem::exists(MediaToIncludePath))
+                {
+                    throw std::runtime_error("Can't find media to include: "+MediaToInclude.MediaPath);
+                }
+                std::filesystem::copy_options Options = std::filesystem::copy_options::overwrite_existing;
+                //innefficent, but / gets wacky with the std::filesystem 
+                std::filesystem::copy(MediaToIncludePath, m_OutputDirectory / OutPath.GetString().substr(1),Options);
+            }
+            MBMIME::MediaType TypeToInclude = MBMIME::GetMediaTypeFromExtension(Extension);
+            if (TypeToInclude == MBMIME::MediaType::Video)
+            {
+                std::string TotalElementData = "<video src=\"" + ReferenceSolver.GetDocumentPathURL(OutPath) + "\" controls style=\"display: block; margin: auto\"></video>";
+                OutStream.Write(TotalElementData.data(), TotalElementData.size());
+            }
+            else if (TypeToInclude == MBMIME::MediaType::Image)
+            {
+                std::string TotalElementData = "<img src=\"" + ReferenceSolver.GetDocumentPathURL(OutPath) + "\" style=\"display: block; margin: auto\">";
+                OutStream.Write(TotalElementData.data(), TotalElementData.size());
+            }
+            else
+            {
+                throw std::runtime_error("Can't deduce valid media type from extension \"" + Extension + "\"");
+            }
+        }
     }
     void HTTPCompiler::p_CompileDirective(Directive const& DirectiveToCompile, HTTPReferenceSolver const& ReferenceSolver, MBUtility::MBOctetOutputStream& OutStream)
     {
@@ -2514,7 +2614,8 @@ ParseOffset--;
             }
         }
     }
-    void HTTPCompiler::p_CompileFormat(FormatElement const& FormatToCompile, HTTPReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream,int Depth,
+    void HTTPCompiler::p_CompileFormat(FormatElement const& FormatToCompile,std::filesystem::path const& SourcePath,
+        HTTPReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream,int Depth,
         std::string const& NamePrefix)
     {
         std::string HeadingTag = "h"+std::to_string(Depth+2);
@@ -2540,11 +2641,11 @@ ParseOffset--;
             }  
             else if(Component.GetType() == FormatComponentType::Block)
             {
-                p_CompileBlock(&Component.GetBlockData(),ReferenceSolver,OutStream);
+                p_CompileBlock(&Component.GetBlockData(),SourcePath,ReferenceSolver,OutStream);
             }
             else if(Component.GetType() == FormatComponentType::Format)
             {
-                p_CompileFormat(Component.GetFormatData(),ReferenceSolver,OutStream,Depth+1,NamePrefix+"."+std::to_string(FormatOffset));
+                p_CompileFormat(Component.GetFormatData(),SourcePath,ReferenceSolver,OutStream,Depth+1,NamePrefix+"."+std::to_string(FormatOffset));
                 FormatOffset++;
             }
         } 
@@ -2586,7 +2687,7 @@ ParseOffset--;
         size_t ElementIndex = 1;
         for (FormatElement const& Format : SourceToCompile.Contents)
         {
-            p_CompileFormat(Format, ReferenceSolver, FileStream, 0, std::to_string(ElementIndex));
+            p_CompileFormat(Format,SourceToCompile.Path, ReferenceSolver, FileStream, 0, std::to_string(ElementIndex));
             if (Format.Type != FormatElementType::Default)
             {
                 ElementIndex++;
@@ -2601,6 +2702,8 @@ ParseOffset--;
         ReferenceSolver.Initialize(&BuildToCompile);
         HTTPNavigationCreator NavigationCreator(BuildToCompile);
         DocumentFilesystemIterator FileIterator = BuildToCompile.begin();
+        m_OutputDirectory = Options.OutputDirectory;
+        std::filesystem::create_directories(m_OutputDirectory / "___Resources");
         while (!FileIterator.HasEnded())
         {
             if (!FileIterator.EntryIsDirectory())
