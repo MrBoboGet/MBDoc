@@ -923,7 +923,7 @@ ParseOffset--;
             }
             for(auto const& SubBuildSpecifier : JSONData["SubBuilds"].GetMapData())
             {
-                DocumentBuild NewSubBuild = ParseDocumentBuild(MBUnicode::PathToUTF8(BuildDirectory)+"/"+SubBuildSpecifier.second.GetStringData(),OutError);
+                DocumentBuild NewSubBuild = ParseDocumentBuild(MBUnicode::PathToUTF8(BuildDirectory)+"./"+SubBuildSpecifier.second.GetStringData(),OutError);
                 if(!OutError)
                 {
                     return(ReturnValue);   
@@ -1238,6 +1238,10 @@ ParseOffset--;
     void DocumentFilesystemIterator::Increment()
     {
         DocumentDirectoryInfo const& CurrentInfo = m_AssociatedFilesystem->m_DirectoryInfos[m_CurrentDirectoryIndex];
+        if (m_DirectoryFilePosition == -1)
+        {
+            m_CurrentDepth += 1;
+        }
         m_DirectoryFilePosition += 1;
         assert(m_DirectoryFilePosition <= CurrentInfo.FileIndexEnd-CurrentInfo.FileIndexBegin);
         if(m_DirectoryFilePosition == (CurrentInfo.FileIndexEnd - CurrentInfo.FileIndexBegin))
@@ -1246,7 +1250,6 @@ ParseOffset--;
             if(CurrentInfo.DirectoryIndexEnd - CurrentInfo.DirectoryIndexBegin != 0)
             {
                 m_CurrentDirectoryIndex = CurrentInfo.DirectoryIndexBegin;
-                m_CurrentDepth += 1;
             }
             else
             {
@@ -1257,12 +1260,14 @@ ParseOffset--;
                 while(true)
                 {
                     m_CurrentDepth -= 1;
+                    //Finished
                     if(CurrentDirectoryIndex == m_OptionalDirectoryRoot)
                     {
                         break;   
                     }
                     size_t PreviousIndex = CurrentDirectoryIndex;
                     CurrentDirectoryIndex = m_AssociatedFilesystem->m_DirectoryInfos[PreviousIndex].ParentDirectoryIndex; 
+                    //Finished
                     if(CurrentDirectoryIndex == -1)
                     {
                         break;
@@ -2074,6 +2079,24 @@ ParseOffset--;
         }
         return(false);
     }
+    void DocumentFilesystem::__PrintDirectoryStructure(DocumentDirectoryInfo const& CurrentDir,int Depth) const
+    {
+        std::cout << std::string(4 * Depth, ' ')<<CurrentDir.Name<<"\n";
+        for (size_t i = CurrentDir.FileIndexBegin; i < CurrentDir.FileIndexEnd;i++)
+        {
+            std::cout << std::string(4 * (Depth + 1), ' ') << m_TotalSources[i].Name << std::endl;
+        }
+        for (size_t i = CurrentDir.DirectoryIndexBegin; i < CurrentDir.DirectoryIndexEnd; i++)
+        {
+            __PrintDirectoryStructure(m_DirectoryInfos[i], Depth + 1);
+        }
+
+    }
+    void DocumentFilesystem::__PrintDirectoryStructure() const
+    {
+        DocumentDirectoryInfo const& CurrentInfo = m_DirectoryInfos[0];
+        __PrintDirectoryStructure(CurrentInfo, 0);
+    }
     MBError DocumentFilesystem::CreateDocumentFilesystem(DocumentBuild const& BuildToParse,DocumentFilesystem* OutFilesystem)
     {
         MBError ReturnValue = true;
@@ -2339,6 +2362,10 @@ ParseOffset--;
     {
         std::string ReturnValue = DocumentPath::GetRelativePath(PathToConvert, m_CurrentPath).GetString();
         ReturnValue = MBUtility::ReplaceAll(ReturnValue, ".mbd", ".html");
+        if (PathToConvert.GetPartIdentifier() != "")
+        {
+            ReturnValue += "#" + PathToConvert.GetPartIdentifier();
+        }
         return(ReturnValue);
     }
     std::string HTTPReferenceSolver::GetReferenceString(DocReference const& ReferenceIdentifier) const
@@ -2348,8 +2375,8 @@ ParseOffset--;
         DocumentPath ReferencePath = m_AssociatedBuild->ResolveReference(m_CurrentPath, ReferenceIdentifier.Identifier, OutResult);
         if (OutResult)
         {
-            std::string Path = DocumentPath::GetRelativePath(ReferencePath, m_CurrentPath).GetString();
-            ReturnValue += MBUtility::ReplaceAll(Path,".mbd",".html");
+            std::string Path = GetDocumentPathURL(ReferencePath);
+            ReturnValue += Path;
             ReturnValue += "\">";
             if (ReferenceIdentifier.VisibleText == "")
             {
@@ -2412,7 +2439,7 @@ ParseOffset--;
     }
     void HTTPNavigationCreator::p_ToggleOpen(DocumentPath const& PathToToggle)
     {
-        Directory& CurrentDir = m_TopDirectory;
+        Directory* CurrentDir = &m_TopDirectory;
         for(int i = 0; i < PathToToggle.ComponentCount();i++)
         {
             std::string CurrentComponent = PathToToggle[i];
@@ -2421,12 +2448,12 @@ ParseOffset--;
                 continue;   
             }
             //simple linear search
-            for(auto& Dir : CurrentDir.SubDirectories)
+            for(auto& Dir : CurrentDir->SubDirectories)
             {
                 if(Dir.Name == CurrentComponent)
                 {
-                    CurrentDir = Dir;    
-                    CurrentDir.Open = !CurrentDir.Open;
+                    CurrentDir = &Dir;    
+                    CurrentDir->Open = !CurrentDir->Open;
                     break;
                 }
             }
@@ -2451,7 +2478,18 @@ ParseOffset--;
         }
         ElementHeader += ">";
         OutStream.Write(ElementHeader.data(),ElementHeader.size());
-        std::string SummaryString = "<summary><a href=\""+ ReferenceSolver.GetDocumentPathURL(DirectoryToWrite.Path)+"\">"+
+
+        std::string HrefURL = ReferenceSolver.GetDocumentPathURL(DirectoryToWrite.Path);
+        if (HrefURL == "")
+        {
+            //this means that we are in the same directory as that pointed to by the path, essentially meaning we want to point to the index of the directory
+            HrefURL = "index.html";
+        }
+        else
+        {
+            HrefURL += "/index.html";
+        }
+        std::string SummaryString = "<summary><a href=\""+ HrefURL+"\">"+
             DirectoryToWrite.Name+"</a></summary>";
         OutStream.Write(SummaryString.data(), SummaryString.size());
         OutStream.Write("<ul>", 4);
@@ -2481,6 +2519,24 @@ ParseOffset--;
             ElementData = "<mark>" + ElementData + "</mark>";
         }
         OutStream.Write(ElementData.data(),ElementData.size());
+    }
+    void HTTPNavigationCreator::__PrintDirectoryStructure(Directory const& DirectoryToPrint,int Depth) const
+    {
+        std::cout << std::string(4*Depth, ' ')<<DirectoryToPrint.Name<<"\n";
+        for (auto const& File : DirectoryToPrint.Files)
+        {
+            std::cout << std::string(4*(Depth+1), ' ') << File.Name << "\n";
+        }
+        for (auto const& SubDir : DirectoryToPrint.SubDirectories)
+        {
+            __PrintDirectoryStructure(SubDir, Depth + 1);
+        }
+    }
+    void HTTPNavigationCreator::__PrintDirectoryStructure() const
+    {
+        __PrintDirectoryStructure(m_TopDirectory,0);
+
+        std::cout.flush();
     }
     void HTTPNavigationCreator::WriteTableDiv(MBUtility::MBOctetOutputStream& OutStream, HTTPReferenceSolver const& ReferenceSolver) const
     {
@@ -2702,6 +2758,15 @@ ParseOffset--;
         ReferenceSolver.Initialize(&BuildToCompile);
         HTTPNavigationCreator NavigationCreator(BuildToCompile);
         DocumentFilesystemIterator FileIterator = BuildToCompile.begin();
+
+        //DEBUG
+        //std::cout << "Regular info:" << std::endl;
+        //BuildToCompile.__PrintDirectoryStructure();
+        //std::cout << "Adapted directory info" << std::endl;
+        //NavigationCreator.__PrintDirectoryStructure();
+        //return;
+
+
         m_OutputDirectory = Options.OutputDirectory;
         std::filesystem::create_directories(m_OutputDirectory / "___Resources");
         while (!FileIterator.HasEnded())

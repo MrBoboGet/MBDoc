@@ -514,10 +514,14 @@ namespace MBDoc
 
         static BuildDirectory p_ParseBuildDirectory(DocumentBuild const&  BuildToParse);
         DocumentDirectoryInfo p_UpdateOverDirectory(BuildDirectory const& Directory,size_t FileIndexBegin,size_t DirectoryIndex);
+
+        void __PrintDirectoryStructure(DocumentDirectoryInfo const& CurrentDir,int Depth) const;
     public: 
         DocumentFilesystemIterator begin() const;
         DocumentPath ResolveReference(DocumentPath const& DocumentPath,std::string const& PathIdentifier,MBError& OutResult) const;
         static MBError CreateDocumentFilesystem(DocumentBuild const& BuildToParse,DocumentFilesystem* OutBuild);
+
+        void __PrintDirectoryStructure() const;
     };
 
     struct CommonCompilationOptions
@@ -617,11 +621,15 @@ namespace MBDoc
         void p_WriteFile(MBUtility::MBOctetOutputStream& OutStream, HTTPReferenceSolver const& ReferenceSolver,File const& DirectoryToWrite) const;
         //void p_WriteTopDirectory(
         void p_ToggleOpen(DocumentPath const& PathToToggle);
+
+        void __PrintDirectoryStructure(Directory const& DirectoryToPrint,int Depth) const;
     public:
         HTTPNavigationCreator(DocumentFilesystem const& FilesystemToInspect);
         void SetOpen(DocumentPath NewPath);
         void SetCurrentPath(DocumentPath CurrentPath);
         void WriteTableDiv(MBUtility::MBOctetOutputStream& OutStream, HTTPReferenceSolver const& ReferenceSolver) const;
+
+        void __PrintDirectoryStructure() const;
     };
 
     //Share common data, pointless to move every time
