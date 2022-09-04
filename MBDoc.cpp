@@ -2484,7 +2484,7 @@ ParseOffset--;
     }
     void HTTPNavigationCreator::WriteTableDiv(MBUtility::MBOctetOutputStream& OutStream, HTTPReferenceSolver const& ReferenceSolver) const
     {
-        std::string ElementHeader = "<div style=\"width: 30%\">";
+        std::string ElementHeader = "<div style=\"width: 30%; display: inline-block\">";
         OutStream.Write(ElementHeader.data(),ElementHeader.size()); 
         p_WriteDirectory(OutStream,ReferenceSolver,m_TopDirectory);
         //for(auto const& FileToWrite : m_TopDirectory.Files)
@@ -2682,7 +2682,7 @@ ParseOffset--;
         OutStream.write(TopFlex.data(), TopFlex.size());
         NavigationCreator.WriteTableDiv(FileStream,ReferenceSolver);
         
-        std::string ContentTop = "<div style=\"width: 80ch; left: 50%; right: 50%\">";
+        std::string ContentTop = "<div style=\"width: 80ch; display: inline-block; position: absolute; top: 0; left: 0; right: 0; bottom: 0; margin: auto;\">";
         OutStream.write(ContentTop.data(),ContentTop.size());
         size_t ElementIndex = 1;
         for (FormatElement const& Format : SourceToCompile.Contents)
