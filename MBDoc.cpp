@@ -1,6 +1,6 @@
 #include "MBDoc.h"
-#include "MBUtility/MBErrorHandling.h"
-#include "MBUtility/MBInterfaces.h"
+#include <MBUtility/MBErrorHandling.h>
+#include <MBUtility/MBInterfaces.h>
 #include <cstring>
 #include <exception>
 #include <memory>
@@ -778,8 +778,16 @@ ParseOffset--;
         while(!Retriever.Finished())
         {
             AttributeList NewAttributes;
-            ReturnValue.push_back(p_ParseFormatElement(Retriever,&NewAttributes));  
-            if (Retriever.Finished() == false && Retriever.PeekLine() == "/_")
+            ReturnValue.push_back(p_ParseFormatElement(Retriever,&NewAttributes));
+            std::string const& CurrentLine = Retriever.PeekLine();
+            size_t FirstCharacter = 0;
+            MBParsing::SkipWhitespace(CurrentLine, 0, &FirstCharacter);
+            bool IsInvalidBeginning = false;
+            if (FirstCharacter + 1 < CurrentLine.size())
+            {
+                IsInvalidBeginning = std::memcmp(CurrentLine.data() + FirstCharacter, "/_", 2) == 0;
+            }
+            if (Retriever.Finished() == false && IsInvalidBeginning)
             {
                 throw std::runtime_error("Missmatched #_ and  /_ pair");
             }

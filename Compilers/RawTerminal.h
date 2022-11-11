@@ -1,6 +1,6 @@
 #include "../MBDoc.h"
-#include "MBUtility/MBInterfaces.h"
-#include "MBCLI/MBCLI.h"
+#include <MBUtility/MBInterfaces.h>
+#include <MBCLI/MBCLI.h>
 
 namespace MBDoc
 {

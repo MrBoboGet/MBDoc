@@ -1,5 +1,5 @@
 #include "MBDocCLI.h"
-#include "MBCLI/MBCLI.h"
+#include <MBCLI/MBCLI.h>
 #include "MBDoc.h"
 
 #include <iostream>

@@ -81,6 +81,9 @@ int Test()
 
 int main(int argc,const char** argv)
 {
+    const char* NewArgv[] = { "mbdoc","../../../MBPacketManager/Docs/MBDocBuild.json","-f:html","-o:TempOut" };
+    argc = sizeof(NewArgv) / sizeof(const char*);
+    argv = NewArgv;
     MBDoc::DocCLI CLI;
     CLI.Run(argv, argc);
 }
