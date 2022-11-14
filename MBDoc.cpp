@@ -2876,6 +2876,7 @@ ParseOffset--;
         OutStream.write(ContentTop.data(),ContentTop.size());
 
         m_FormatDepth = 0;
+        m_FormatCounts.resize(0);
         for (FormatElement const& Format : Document.Contents)
         {
             Visit(Format);
@@ -2972,7 +2973,7 @@ ParseOffset--;
         {
             m_FormatCounts.push_back(0);
         }
-        m_FormatCounts[m_FormatDepth] += 1;
+        m_FormatCounts[m_FormatDepth-1] += 1;
         std::string HeadingTag = "h"+std::to_string(m_FormatDepth);
         if(FormatToCompile.Type != FormatElementType::Default)
         {
