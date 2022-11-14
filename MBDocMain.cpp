@@ -72,10 +72,10 @@ int Test()
         }
         Iterator++;
     }
-    MBDoc::HTTPCompiler HTTPCompiler;
+    MBDoc::HTMLCompiler HTTPCompiler;
     MBDoc::CommonCompilationOptions Options;
     Options.OutputDirectory = "OutHTTPTemp";
-    HTTPCompiler.Compile(Filesystem,Options);
+    //HTTPCompiler.Compile(Filesystem,Options);
     return(0);
 }
 

@@ -22,7 +22,7 @@ namespace MBDoc
 
     };
     
-    class RawTerminalCompiler : public DocumentCompiler
+    class RawTerminalCompiler
     {
     private:
         MBCLI::ArgumentListCLIInput m_CLIInput;

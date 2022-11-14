@@ -162,16 +162,16 @@ namespace MBDoc
 
         if(FormatString == "html")
         {
-            ReturnValue = std::unique_ptr<DocumentCompiler>(new HTTPCompiler());
+            ReturnValue = std::unique_ptr<DocumentCompiler>(new HTMLCompiler());
         }
-        else if(FormatString == "md")
-        {
-            ReturnValue = std::unique_ptr<DocumentCompiler>(new MarkdownCompiler());   
-        }
-        else if(FormatString == "rawterminal")
-        {
-            ReturnValue = std::unique_ptr<DocumentCompiler>(new RawTerminalCompiler());
-        }
+        //else if(FormatString == "md")
+        //{
+        //    ReturnValue = std::unique_ptr<DocumentCompiler>(new MarkdownCompiler());   
+        //}
+        //else if(FormatString == "rawterminal")
+        //{
+        //    ReturnValue = std::unique_ptr<DocumentCompiler>(new RawTerminalCompiler());
+        //}
         if(ReturnValue == nullptr)
         {
             m_AssociatedTerminal.PrintLine("Failed to find suitable compiler, terminating");  
@@ -270,7 +270,19 @@ namespace MBDoc
             }
             else
             {
-                CompilerToUse->Compile(BuildFilesystem, CompileOptions);
+                CompilerToUse->AddOptions(CompileOptions);
+                CompilerToUse->PeekDocumentFilesystem(BuildFilesystem);
+                auto FilesystemIterator = BuildFilesystem.begin();
+                while(!FilesystemIterator.HasEnded())
+                {
+                    if(!FilesystemIterator.EntryIsDirectory())
+                    {
+                        DocumentPath CurrentPath = FilesystemIterator.GetCurrentPath();
+                        CompilerToUse->CompileDocument(CurrentPath,FilesystemIterator.GetDocumentInfo());
+                    } 
+                    FilesystemIterator++;        
+                }
+                //CompilerToUse->Compile(BuildFilesystem, CompileOptions);
             }
             return(0);
         }
