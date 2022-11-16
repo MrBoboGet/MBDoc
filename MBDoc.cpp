@@ -1318,11 +1318,11 @@ ParseOffset--;
         m_OptionalDirectoryRoot = DirectoryRoot;
         //Calculate depth
     }
-    size_t DocumentFilesystemIterator::GetCurrentDirectoryIndex() const
+    IndexType DocumentFilesystemIterator::GetCurrentDirectoryIndex() const
     {
         return(m_CurrentDirectoryIndex);   
     }
-    size_t DocumentFilesystemIterator::GetCurrentFileIndex() const
+    IndexType DocumentFilesystemIterator::GetCurrentFileIndex() const
     {
         return(m_DirectoryFilePosition); 
     }
@@ -1551,7 +1551,7 @@ ParseOffset--;
     //END DocumentPathFileIterator
 
     //BEGIN DocumentFilesystem
-    DocumentFilesystem::FSSearchResult DocumentFilesystem::p_ResolveDirectorySpecifier(size_t RootDirectoryIndex,DocumentReference const& ReferenceToResolve,size_t SpecifierOffset) const
+    DocumentFilesystem::FSSearchResult DocumentFilesystem::p_ResolveDirectorySpecifier(IndexType RootDirectoryIndex,DocumentReference const& ReferenceToResolve,IndexType SpecifierOffset) const
     {
         FSSearchResult ReturnValue;        
         DocumentFilesystemIterator Iterator(RootDirectoryIndex); 
@@ -1588,15 +1588,15 @@ ParseOffset--;
     {
         return(LeftInfo.Name < RightInfo);
     }
-    size_t DocumentFilesystem::p_DirectorySubdirectoryIndex(size_t DirectoryIndex,std::string const& SubdirectoryName) const
+    IndexType DocumentFilesystem::p_DirectorySubdirectoryIndex(IndexType DirectoryIndex,std::string const& SubdirectoryName) const
     {
-        size_t ReturnValue = 0; 
+        IndexType ReturnValue = 0; 
         DocumentDirectoryInfo const& DirectoryInfo = m_DirectoryInfos[DirectoryIndex];
         if(DirectoryInfo.DirectoryIndexEnd - DirectoryInfo.DirectoryIndexBegin== 0)
         {
             return(-1);   
         }
-        size_t Index = std::lower_bound(m_DirectoryInfos.begin()+DirectoryInfo.DirectoryIndexBegin,m_DirectoryInfos.begin()+DirectoryInfo.DirectoryIndexEnd,SubdirectoryName,h_DirectoryComp)-m_DirectoryInfos.begin();
+        IndexType Index = std::lower_bound(m_DirectoryInfos.begin()+DirectoryInfo.DirectoryIndexBegin,m_DirectoryInfos.begin()+DirectoryInfo.DirectoryIndexEnd,SubdirectoryName,h_DirectoryComp)-m_DirectoryInfos.begin();
         if(Index == DirectoryInfo.DirectoryIndexEnd)
         {
             ReturnValue = -1;  
@@ -1614,15 +1614,15 @@ ParseOffset--;
         }
         return(ReturnValue); return(ReturnValue);
     }
-    size_t DocumentFilesystem::p_DirectoryFileIndex(size_t DirectoryIndex,std::string const& FileName) const
+    IndexType DocumentFilesystem::p_DirectoryFileIndex(IndexType DirectoryIndex,std::string const& FileName) const
     {
-        size_t ReturnValue = 0; 
+        IndexType ReturnValue = 0; 
         DocumentDirectoryInfo const& DirectoryInfo = m_DirectoryInfos[DirectoryIndex];
         if(DirectoryInfo.FileIndexEnd - DirectoryInfo.FileIndexBegin == 0)
         {
             return(-1);   
         }
-        size_t Index = std::lower_bound(m_TotalSources.begin()+DirectoryInfo.FileIndexBegin,m_TotalSources.begin()+DirectoryInfo.FileIndexEnd,FileName, h_FileComp)-m_TotalSources.begin();
+        IndexType Index = std::lower_bound(m_TotalSources.begin()+DirectoryInfo.FileIndexBegin,m_TotalSources.begin()+DirectoryInfo.FileIndexEnd,FileName, h_FileComp)-m_TotalSources.begin();
         if(Index == DirectoryInfo.FileIndexEnd)
         {
             ReturnValue = -1;  
@@ -1640,11 +1640,11 @@ ParseOffset--;
         }
         return(ReturnValue);
     }
-    DocumentFilesystem::FSSearchResult DocumentFilesystem::p_ResolveAbsoluteDirectory(size_t RootDirectoryIndex,PathSpecifier const& Path) const
+    DocumentFilesystem::FSSearchResult DocumentFilesystem::p_ResolveAbsoluteDirectory(IndexType RootDirectoryIndex,PathSpecifier const& Path) const
     {
         //All special cases stems from the fact that the special / directory isnt the child of any other directory
         FSSearchResult ReturnValue;        
-        size_t LastDirectoryIndex = RootDirectoryIndex;
+        IndexType LastDirectoryIndex = RootDirectoryIndex;
         int Offset = 0;
         if (Path.PathNames.front() == "/")
         {
@@ -1653,7 +1653,7 @@ ParseOffset--;
         }
         for(int i = Offset; i < int(Path.PathNames.size())-1;i++)
         {
-            size_t SubdirectoryIndex = p_DirectorySubdirectoryIndex(LastDirectoryIndex,Path.PathNames[i]);
+            IndexType SubdirectoryIndex = p_DirectorySubdirectoryIndex(LastDirectoryIndex,Path.PathNames[i]);
             if(SubdirectoryIndex == -1)
             {
                 ReturnValue.Type = DocumentFSType::Null;  
@@ -1667,7 +1667,7 @@ ParseOffset--;
             ReturnValue.Type = DocumentFSType::Directory;
             return(ReturnValue);
         }
-        size_t FileIndex = p_DirectoryFileIndex(LastDirectoryIndex,Path.PathNames.back());
+        IndexType FileIndex = p_DirectoryFileIndex(LastDirectoryIndex,Path.PathNames.back());
         if(FileIndex != -1)
         {
             ReturnValue.Type = DocumentFSType::File;   
@@ -1675,7 +1675,7 @@ ParseOffset--;
         }
         else
         {
-            size_t DirectoryIndex = p_DirectorySubdirectoryIndex(LastDirectoryIndex,Path.PathNames.back());    
+            IndexType DirectoryIndex = p_DirectorySubdirectoryIndex(LastDirectoryIndex,Path.PathNames.back());    
             if(DirectoryIndex != -1)
             {
                 ReturnValue.Type = DocumentFSType::Directory;   
@@ -1737,10 +1737,10 @@ ParseOffset--;
         //}
         return(false);
     }
-    DocumentPath DocumentFilesystem::p_GetFileIndexPath(size_t FileIndex) const
+    DocumentPath DocumentFilesystem::p_GetFileIndexPath(IndexType FileIndex) const
     {
         DocumentPath ReturnValue;
-        size_t DirectoryIndex = std::lower_bound(m_DirectoryInfos.begin(), m_DirectoryInfos.end(), FileIndex, h_ContainFileComp) - m_DirectoryInfos.begin();
+        IndexType DirectoryIndex = std::lower_bound(m_DirectoryInfos.begin(), m_DirectoryInfos.end(), FileIndex, h_ContainFileComp) - m_DirectoryInfos.begin();
         if (DirectoryIndex == m_DirectoryInfos.size())
         {
             return(ReturnValue);
@@ -1759,9 +1759,9 @@ ParseOffset--;
         ReturnValue.AddDirectory(m_TotalSources[FileIndex].Name);
         return(ReturnValue);
     }
-    size_t DocumentFilesystem::p_GetFileDirectoryIndex(DocumentPath const& PathToSearch) const
+    IndexType DocumentFilesystem::p_GetFileDirectoryIndex(DocumentPath const& PathToSearch) const
     {
-        size_t ReturnValue = 0;
+        IndexType ReturnValue = 0;
         int Offset = 0;
         if (PathToSearch[0] == "/")
         {
@@ -1777,9 +1777,9 @@ ParseOffset--;
         }
         return(ReturnValue);
     }
-    size_t DocumentFilesystem::p_GetFileIndex(DocumentPath const& PathToSearch) const
+    IndexType DocumentFilesystem::p_GetFileIndex(DocumentPath const& PathToSearch) const
     {
-        size_t ReturnValue = 0;
+        IndexType ReturnValue = 0;
         for (size_t i = 0; i < PathToSearch.ComponentCount(); i++)
         {
             if (PathToSearch[i] == "/")
@@ -1809,7 +1809,7 @@ ParseOffset--;
         FSSearchResult SearchRoot;
         SearchRoot.Type = DocumentFSType::Directory;
         SearchRoot.Index = 0;//Root directory
-        size_t SpecifierOffset = 0;
+        IndexType SpecifierOffset = 0;
         if (ReferenceIdentifier.PathSpecifiers.size() > 0)
         {
             if (ReferenceIdentifier.PathSpecifiers[0].AnyRoot == false)
@@ -1877,7 +1877,7 @@ ParseOffset--;
         }
         if (SearchRoot.Type == DocumentFSType::Directory)
         {
-            size_t FileIndex = p_DirectoryFileIndex(SearchRoot.Index, "index.mbd");
+            IndexType FileIndex = p_DirectoryFileIndex(SearchRoot.Index, "index.mbd");
             if (FileIndex != -1)
             {
                 SearchRoot.Index = FileIndex;
@@ -2125,17 +2125,17 @@ ParseOffset--;
     //    std::sort(ReturnValue.SubDirectories.begin(), ReturnValue.SubDirectories.end(), h_PairStringOrder);
     //    return(ReturnValue);
     //}
-    DocumentDirectoryInfo DocumentFilesystem::p_UpdateOverDirectory(DocumentBuild const& Directory, size_t FileIndexBegin, size_t DirectoryIndex)
+    DocumentDirectoryInfo DocumentFilesystem::p_UpdateOverDirectory(DocumentBuild const& Directory, IndexType FileIndexBegin, IndexType DirectoryIndex)
     {
         DocumentDirectoryInfo ReturnValue;
-        size_t NewDirectoryIndexBegin = m_DirectoryInfos.size();
+        IndexType NewDirectoryIndexBegin = m_DirectoryInfos.size();
         ReturnValue.DirectoryIndexBegin = NewDirectoryIndexBegin;
         ReturnValue.DirectoryIndexEnd = NewDirectoryIndexBegin+Directory.SubDirectories.size();
         ReturnValue.FileIndexBegin = FileIndexBegin;
         ReturnValue.FileIndexEnd = FileIndexBegin+Directory.DirectoryFiles.size();
         
         MBError ParseError = true;
-        size_t FileIndex = 0;
+        IndexType FileIndex = 0;
         //This part assumes that the names of the files are sorted
         for (std::filesystem::path const& File : Directory.DirectoryFiles)
         {
@@ -2157,11 +2157,11 @@ ParseOffset--;
         {
             TotalSubFiles += SubDirectory.second.DirectoryFiles.size();
         }
-        size_t NewFileIndexBegin = m_TotalSources.size();
+        IndexType NewFileIndexBegin = m_TotalSources.size();
         m_TotalSources.resize(TotalSubFiles + m_TotalSources.size());
         m_DirectoryInfos.resize(m_DirectoryInfos.size() + Directory.SubDirectories.size());
-        size_t DirectoryOffset = 0;
-        size_t FileOffset = 0;
+        IndexType DirectoryOffset = 0;
+        IndexType FileOffset = 0;
         for (auto const& SubDirectory : Directory.SubDirectories)
         {
             m_DirectoryInfos[NewDirectoryIndexBegin + DirectoryOffset] = p_UpdateOverDirectory(SubDirectory.second, NewFileIndexBegin + FileOffset, NewDirectoryIndexBegin + DirectoryOffset);

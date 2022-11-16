@@ -384,7 +384,6 @@ namespace MBDoc
         std::vector<std::pair<std::string,DocumentBuild>> SubDirectories;
         
         size_t GetTotalFiles() const;    
-
         void t__Sort();
         //The relative directory is a part of the identity
         //[[SemanticallyAuthoritative]]
@@ -411,28 +410,28 @@ namespace MBDoc
     struct DocumentDirectoryInfo
     {
         std::string Name;       
-        size_t ParentDirectoryIndex = -1;
-        size_t FileIndexBegin = -1;
-        size_t FileIndexEnd = -1;
-        size_t DirectoryIndexBegin = -1;
-        size_t DirectoryIndexEnd = -1;
+        IndexType ParentDirectoryIndex = -1;
+        IndexType FileIndexBegin = -1;
+        IndexType FileIndexEnd = -1;
+        IndexType DirectoryIndexBegin = -1;
+        IndexType DirectoryIndexEnd = -1;
     };
     class DocumentFilesystem;
     class DocumentFilesystemIterator
     {
         friend class DocumentFilesystem;
     private:
-        size_t m_OptionalDirectoryRoot = -1;
-        size_t m_DirectoryFilePosition = -1;
-        size_t m_CurrentDirectoryIndex = -1;
+        IndexType m_OptionalDirectoryRoot = -1;
+        IndexType m_DirectoryFilePosition = -1;
+        IndexType m_CurrentDirectoryIndex = -1;
         DocumentFilesystem const* m_AssociatedFilesystem = nullptr;
         
 
         size_t m_CurrentDepth = 0;
     protected:
         DocumentFilesystemIterator(size_t DirectoryRoot);
-        size_t GetCurrentDirectoryIndex() const;
-        size_t GetCurrentFileIndex() const;
+        IndexType GetCurrentDirectoryIndex() const;
+        IndexType GetCurrentFileIndex() const;
         void CalculateDepth();
     public:
         //Accessors
@@ -503,21 +502,21 @@ namespace MBDoc
         struct FSSearchResult
         {
             DocumentFSType Type = DocumentFSType::Null; 
-            size_t Index = -1;
+            IndexType Index = -1;
         };
         
         
         
-        size_t p_DirectorySubdirectoryIndex(size_t DirectoryIndex,std::string const& SubdirectoryName) const;
-        size_t p_DirectoryFileIndex(size_t DirectoryIndex,std::string const& FileName) const;
+        IndexType p_DirectorySubdirectoryIndex(IndexType DirectoryIndex,std::string const& SubdirectoryName) const;
+        IndexType p_DirectoryFileIndex(IndexType DirectoryIndex,std::string const& FileName) const;
         //Resolving
-        FSSearchResult p_ResolveDirectorySpecifier(size_t RootDirectoryIndex,DocumentReference const& ReferenceToResolve,size_t SpecifierOffset) const;
-        FSSearchResult p_ResolveAbsoluteDirectory(size_t RootDirectoryIndex,PathSpecifier const& Path) const;
+        FSSearchResult p_ResolveDirectorySpecifier(IndexType RootDirectoryIndex,DocumentReference const& ReferenceToResolve,IndexType SpecifierOffset) const;
+        FSSearchResult p_ResolveAbsoluteDirectory(IndexType RootDirectoryIndex,PathSpecifier const& Path) const;
         FSSearchResult p_ResolvePartSpecifier(FSSearchResult CurrentResult,std::string const& PartSpecifier) const;
         
-        DocumentPath p_GetFileIndexPath(size_t FileIndex) const;
-        size_t p_GetFileDirectoryIndex(DocumentPath const& PathToSearch) const;
-        size_t p_GetFileIndex(DocumentPath const& PathToSearch) const;
+        DocumentPath p_GetFileIndexPath(IndexType FileIndex) const;
+        IndexType p_GetFileDirectoryIndex(DocumentPath const& PathToSearch) const;
+        IndexType p_GetFileIndex(DocumentPath const& PathToSearch) const;
          
         DocumentPath p_ResolveReference(DocumentPath const& CurrentPath,DocumentReference const& ReferenceIdentifier,bool* OutResult) const;
 
@@ -525,7 +524,7 @@ namespace MBDoc
         //DocumentDirectoryInfo p_UpdateFilesystemOverBuild(DocumentBuild const& BuildToAppend,size_t FileIndexBegin,size_t DirectoryIndex,std::string DirectoryName,MBError& OutError);
 
         //static BuildDirectory p_ParseBuildDirectory(DocumentBuild const&  BuildToParse);
-        DocumentDirectoryInfo p_UpdateOverDirectory(DocumentBuild const& Directory,size_t FileIndexBegin,size_t DirectoryIndex);
+        DocumentDirectoryInfo p_UpdateOverDirectory(DocumentBuild const& Directory,IndexType FileIndexBegin,IndexType DirectoryIndex);
 
         void __PrintDirectoryStructure(DocumentDirectoryInfo const& CurrentDir,int Depth) const;
     public: 
