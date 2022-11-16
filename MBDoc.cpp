@@ -15,6 +15,7 @@
 #include <MBCLI/MBCLI.h>
 
 #include <MBMime/MBMime.h>
+#include <numeric>
 namespace MBDoc
 {
     //BEGIN TextElement
@@ -991,17 +992,6 @@ ParseOffset--;
         }
         return(ReturnValue);
     }
-    void DocumentBuild::t__Sort()
-    {
-        std::sort(DirectoryFiles.begin(),DirectoryFiles.end(),[](std::filesystem::path const& Left,std::filesystem::path const& Right)
-                {
-                    return(Left.filename() < Right.filename());
-                });
-        std::sort(SubDirectories.begin(),SubDirectories.end(),[](std::pair<std::string,DocumentBuild> const& Left,std::pair<std::string,DocumentBuild> const& Right)
-                {
-                    return(Left.first < Right.first);
-                });
-    }
     DocumentBuild DocumentBuild::ParseDocumentBuild(MBUtility::MBOctetInputStream& InputStream,std::filesystem::path const& BuildDirectory,MBError& OutError)
     {
         DocumentBuild ReturnValue;
@@ -1031,11 +1021,6 @@ ParseOffset--;
         {
             OutError = false;
             OutError.ErrorMessage = "Error parsing MBDocBuild: "+std::string(e.what());
-        }
-        //TURBO TEMP
-        if(OutError)
-        {
-            ReturnValue.t__Sort();    
         }
         return(ReturnValue); 
     }
@@ -1335,6 +1320,10 @@ ParseOffset--;
             CurrentInfo = &m_AssociatedFilesystem->m_DirectoryInfos[CurrentInfo->ParentDirectoryIndex];
         }
     }
+    void DocumentFilesystemIterator::UseUserOrder()
+    {
+        m_UseUserOrder = true; 
+    }
     void DocumentFilesystemIterator::Increment()
     {
         DocumentDirectoryInfo const& CurrentInfo = m_AssociatedFilesystem->m_DirectoryInfos[m_CurrentDirectoryIndex];
@@ -1405,7 +1394,7 @@ ParseOffset--;
         {
             return(m_AssociatedFilesystem->m_DirectoryInfos[m_CurrentDirectoryIndex].Name);  
         } 
-        return(m_AssociatedFilesystem->m_TotalSources[m_AssociatedFilesystem->m_DirectoryInfos[m_CurrentDirectoryIndex].DirectoryIndexBegin+m_DirectoryFilePosition].Name);
+        return(m_AssociatedFilesystem->m_TotalSources[m_AssociatedFilesystem->m_DirectoryInfos[m_CurrentDirectoryIndex].DirectoryIndexBegin+m_DirectoryFilePosition].Document.Name);
     }
     size_t DocumentFilesystemIterator::CurrentDepth() const
     {
@@ -1425,7 +1414,7 @@ ParseOffset--;
         {
             throw std::runtime_error("Iterator has ended");
         }
-        return(m_AssociatedFilesystem->m_TotalSources[m_AssociatedFilesystem->m_DirectoryInfos[m_CurrentDirectoryIndex].FileIndexBegin+m_DirectoryFilePosition]); 
+        return(m_AssociatedFilesystem->m_TotalSources[m_AssociatedFilesystem->m_DirectoryInfos[m_CurrentDirectoryIndex].FileIndexBegin+m_DirectoryFilePosition].Document); 
     }
 
     DocumentPath DocumentFilesystemIterator::GetCurrentPath() const
@@ -1435,7 +1424,7 @@ ParseOffset--;
         std::vector<std::string> Directories;
         if(m_DirectoryFilePosition != -1)
         {
-            Directories.push_back(m_AssociatedFilesystem->m_TotalSources[m_AssociatedFilesystem->m_DirectoryInfos[CurrentDirectoryIndex].FileIndexBegin+m_DirectoryFilePosition].Name);
+            Directories.push_back(m_AssociatedFilesystem->m_TotalSources[m_AssociatedFilesystem->m_DirectoryInfos[CurrentDirectoryIndex].FileIndexBegin+m_DirectoryFilePosition].Document.Name);
         }
         while(CurrentDirectoryIndex != -1)
         {
@@ -1584,9 +1573,9 @@ ParseOffset--;
     {
         return(LeftInfo.Name < RightInfo);
     }
-    bool h_FileComp(DocumentSource const& LeftInfo, std::string const& RightInfo)
+    bool h_FileComp(FilesystemDocumentInfo const& LeftInfo, std::string const& RightInfo)
     {
-        return(LeftInfo.Name < RightInfo);
+        return(LeftInfo.Document.Name < RightInfo);
     }
     IndexType DocumentFilesystem::p_DirectorySubdirectoryIndex(IndexType DirectoryIndex,std::string const& SubdirectoryName) const
     {
@@ -1629,7 +1618,7 @@ ParseOffset--;
         } 
         else
         {
-            if (m_TotalSources[Index].Name != FileName)
+            if (m_TotalSources[Index].Document.Name != FileName)
             {
                 ReturnValue = -1;
             }
@@ -1691,7 +1680,7 @@ ParseOffset--;
         assert(CurrentResult.Type == DocumentFSType::File || CurrentResult.Type == DocumentFSType::Directory);
         if(CurrentResult.Type == DocumentFSType::File)
         {
-            if(m_TotalSources[CurrentResult.Index].ReferenceTargets.find(PartSpecifier) != m_TotalSources[CurrentResult.Index].ReferenceTargets.end())
+            if(m_TotalSources[CurrentResult.Index].Document.ReferenceTargets.find(PartSpecifier) != m_TotalSources[CurrentResult.Index].Document.ReferenceTargets.end())
             {
                 ReturnValue = CurrentResult;     
             }   
@@ -1756,7 +1745,7 @@ ParseOffset--;
         {
             ReturnValue.AddDirectory(std::move(Component));
         }
-        ReturnValue.AddDirectory(m_TotalSources[FileIndex].Name);
+        ReturnValue.AddDirectory(m_TotalSources[FileIndex].Document.Name);
         return(ReturnValue);
     }
     IndexType DocumentFilesystem::p_GetFileDirectoryIndex(DocumentPath const& PathToSearch) const
@@ -2136,9 +2125,17 @@ ParseOffset--;
         
         MBError ParseError = true;
         IndexType FileIndex = 0;
+        std::vector<size_t> SortedFileIndexes = std::vector<size_t>(Directory.DirectoryFiles.size(),0);
+        std::iota(SortedFileIndexes.begin(),SortedFileIndexes.end(),0);
+        std::sort(SortedFileIndexes.begin(),SortedFileIndexes.end(),[&](size_t Left,size_t Right)
+                {
+                    return(Directory.DirectoryFiles[Left].filename() < Directory.DirectoryFiles[Right].filename());     
+                });
         //This part assumes that the names of the files are sorted
-        for (std::filesystem::path const& File : Directory.DirectoryFiles)
+        //for (std::filesystem::path const& File : Directory.DirectoryFiles)
+        for (size_t SortedIndex : SortedFileIndexes)
         {
+            std::filesystem::path const& File = Directory.DirectoryFiles[SortedIndex];
             DocumentParsingContext Parser;
             DocumentSource NewFile = Parser.ParseSource(File, ParseError);
             if (!ParseError)
@@ -2146,8 +2143,8 @@ ParseOffset--;
                 throw std::runtime_error("Error parsing file "+MBUnicode::PathToUTF8(File) +": " + ParseError.ErrorMessage);
             }
             //LIBRARY BUG? seems like std::move(NewFile) produces a file with empty path, weird
-            m_TotalSources[FileIndexBegin + FileIndex] = std::move(NewFile);
-            m_TotalSources[FileIndexBegin + FileIndex].Path = File;
+            m_TotalSources[FileIndexBegin + FileIndex].Document = std::move(NewFile);
+            m_TotalSources[FileIndexBegin + FileIndex].Document.Path = File;
             FileIndex++;
         }
 
@@ -2162,8 +2159,18 @@ ParseOffset--;
         m_DirectoryInfos.resize(m_DirectoryInfos.size() + Directory.SubDirectories.size());
         IndexType DirectoryOffset = 0;
         IndexType FileOffset = 0;
-        for (auto const& SubDirectory : Directory.SubDirectories)
+
+
+        std::vector<size_t> SortedDirectoryIndexes = std::vector<size_t>(Directory.SubDirectories.size(),0);
+        std::iota(SortedDirectoryIndexes.begin(),SortedDirectoryIndexes.end(),0);
+        std::sort(SortedDirectoryIndexes.begin(),SortedDirectoryIndexes.end(),[&](size_t Left,size_t Right)
+                {
+                    return(Directory.SubDirectories[Left].first < Directory.SubDirectories[Right].first);     
+                });
+        //for (auto const& SubDirectory : Directory.SubDirectories)
+        for (size_t SortedDirectoryIndex : SortedDirectoryIndexes)
         {
+            auto const& SubDirectory = Directory.SubDirectories[SortedDirectoryIndex];
             m_DirectoryInfos[NewDirectoryIndexBegin + DirectoryOffset] = p_UpdateOverDirectory(SubDirectory.second, NewFileIndexBegin + FileOffset, NewDirectoryIndexBegin + DirectoryOffset);
             m_DirectoryInfos[NewDirectoryIndexBegin + DirectoryOffset].Name = SubDirectory.first;
             m_DirectoryInfos[NewDirectoryIndexBegin + DirectoryOffset].ParentDirectoryIndex = DirectoryIndex;
@@ -2185,7 +2192,7 @@ ParseOffset--;
         std::cout << std::string(4 * Depth, ' ')<<CurrentDir.Name<<"\n";
         for (size_t i = CurrentDir.FileIndexBegin; i < CurrentDir.FileIndexEnd;i++)
         {
-            std::cout << std::string(4 * (Depth + 1), ' ') << m_TotalSources[i].Name << std::endl;
+            std::cout << std::string(4 * (Depth + 1), ' ') << m_TotalSources[i].Document.Name << std::endl;
         }
         for (size_t i = CurrentDir.DirectoryIndexBegin; i < CurrentDir.DirectoryIndexEnd; i++)
         {

@@ -415,24 +415,35 @@ namespace MBDoc
         IndexType FileIndexEnd = -1;
         IndexType DirectoryIndexBegin = -1;
         IndexType DirectoryIndexEnd = -1;
+        //fields required for ordering
+        IndexType NextDirectory = -1;
+        IndexType FirstFileIndex = -1;
+        IndexType FirstSubDirIndex = -1;
+    };
+    struct FilesystemDocumentInfo
+    {
+        DocumentSource Document;
+        IndexType NextFile = -1;
     };
     class DocumentFilesystem;
     class DocumentFilesystemIterator
     {
         friend class DocumentFilesystem;
     private:
-        IndexType m_OptionalDirectoryRoot = -1;
-        IndexType m_DirectoryFilePosition = -1;
-        IndexType m_CurrentDirectoryIndex = -1;
         DocumentFilesystem const* m_AssociatedFilesystem = nullptr;
         
-
+        IndexType m_DirectoryFilePosition = -1;
+        IndexType m_CurrentDirectoryIndex = -1;
         size_t m_CurrentDepth = 0;
+
+        IndexType m_OptionalDirectoryRoot = -1;
+        bool m_UseUserOrder = false;
     protected:
         DocumentFilesystemIterator(size_t DirectoryRoot);
         IndexType GetCurrentDirectoryIndex() const;
         IndexType GetCurrentFileIndex() const;
         void CalculateDepth();
+        void UseUserOrder();
     public:
         //Accessors
         DocumentPath GetCurrentPath() const;
@@ -496,9 +507,12 @@ namespace MBDoc
         //};
     private:
         friend class DocumentFilesystemIterator;
+
         std::unordered_map<std::string,DocumentPath> m_CachedPathsConversions;
+
         std::vector<DocumentDirectoryInfo> m_DirectoryInfos;   
-        std::vector<DocumentSource> m_TotalSources;
+        std::vector<FilesystemDocumentInfo> m_TotalSources;
+
         struct FSSearchResult
         {
             DocumentFSType Type = DocumentFSType::Null; 
