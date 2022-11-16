@@ -11,5 +11,31 @@
         "BuildPipeline.mbd",
         "CLI.mbd"
     ],
-    "SubBuilds": {}
+    "SubBuilds": {},
+
+    "TopDirectory":
+    {
+        "Files":
+        [
+            "index.mbd",
+            "History.mbd",
+            "CodeIndex.mbd",
+            "Format.mbd",
+            "LinkResolving.mbd",
+            "Building.mbd",
+            "Attributes.mbd",
+            "BuildPipeline.mbd",
+            "CLI.mbd"
+        ],
+        "SubDirectories":
+        {
+            "Compiler":
+            {
+                "Files":
+                [
+                    "Compilers/index.mbd"
+                ]
+            }
+        }
+    }
 }

@@ -927,6 +927,81 @@ ParseOffset--;
     //END DocumentSource
 
     //BEGIN DocumentBuild
+    
+    void DocumentBuild::p_ParseDocumentBuildDirectory(DocumentBuild& OutBuild,MBParsing::JSONObject const& DirectoryObject,std::filesystem::path const& BuildDirectory,MBError& OutError)
+    {
+        if(DirectoryObject.HasAttribute("Files"))
+        {
+            for(MBParsing::JSONObject const& Object : DirectoryObject["Files"].GetArrayData())
+            {
+                std::string CurrentString = Object.GetStringData();
+                if (CurrentString.size() == 0)
+                {
+                    OutError = false;
+                    OutError.ErrorMessage = "Empty source name not allowed";
+                    return;
+                }
+                if (CurrentString[0] == '/')
+                {
+                    OutError = false;
+                    OutError.ErrorMessage = "Invalid source name \"" + CurrentString + "\": Only relative paths allowed";
+                    return;
+                }
+                OutBuild.DirectoryFiles.push_back(BuildDirectory/CurrentString);
+                if (!OutError)
+                {
+                    return;
+                }
+            }
+        }
+        if(DirectoryObject.HasAttribute("SubDirectories"))
+        {
+            MBParsing::JSONObject const& SubDirectories = DirectoryObject["SubDirectories"];
+            for(auto const& SubDirSpecifier : SubDirectories.GetMapData())
+            {
+                MBParsing::JSONObject const& SubDirData = SubDirSpecifier.second;
+                DocumentBuild NewSubDir;
+                if(SubDirData.GetType() == MBParsing::JSONObjectType::String)
+                {
+                    NewSubDir = ParseDocumentBuild(BuildDirectory/SubDirData.GetStringData(),OutError);
+                    if(!OutError)
+                    {
+                        return;   
+                    }
+                }
+                else
+                {
+                    p_ParseDocumentBuildDirectory(NewSubDir,SubDirData,BuildDirectory,OutError);  
+                }
+                if(!OutError)
+                {
+                    return;   
+                }
+                OutBuild.SubDirectories.push_back(std::pair<std::string,DocumentBuild>(SubDirSpecifier.first,std::move(NewSubDir)));
+            }
+        }
+    }
+    size_t DocumentBuild::GetTotalFiles() const
+    {
+        size_t ReturnValue = 0;    
+        ReturnValue += DirectoryFiles.size();
+        for(auto const& SubDir : SubDirectories)
+        {
+            ReturnValue += SubDir.second.GetTotalFiles(); 
+        }
+        return(ReturnValue);
+    }
+    void DocumentBuild::t__Sort()
+    {
+        std::sort(DirectoryFiles.begin(),DirectoryFiles.end(),[](std::filesystem::path const& Left,std::filesystem::path const& Right)
+                {
+                    return(Left.filename() < Right.filename());
+                });
+        std::sort(SubDirectories.begin(),SubDirectories.end(),[](std::pair<std::string,DocumentBuild> const& Left,std::pair<std::string,DocumentBuild> const& Right)
+                {
+                    return(Left.first < Right.first);
+                });
+    }
     DocumentBuild DocumentBuild::ParseDocumentBuild(MBUtility::MBOctetInputStream& InputStream,std::filesystem::path const& BuildDirectory,MBError& OutError)
     {
         DocumentBuild ReturnValue;
@@ -949,44 +1024,19 @@ ParseOffset--;
         }
         try
         {
-            ReturnValue.BuildRootDirectory = BuildDirectory; 
-            for(MBParsing::JSONObject const& Object : JSONData["Sources"].GetArrayData())
-            {
-                std::string CurrentString = Object.GetStringData();
-                if (CurrentString.size() == 0)
-                {
-                    OutError = false;
-                    OutError.ErrorMessage = "Empty source name not allowed";
-                    return(ReturnValue);
-                }
-                if (CurrentString[0] == '/')
-                {
-                    OutError = false;
-                    OutError.ErrorMessage = "Invalid source name \"" + CurrentString + "\": Only relative paths allowed";
-                    return(ReturnValue);
-                }
-                ReturnValue.BuildFiles.push_back(DocumentPath::ParsePath(CurrentString,OutError));
-                if (!OutError)
-                {
-                    return(ReturnValue);
-                }
-            }
-            for(auto const& SubBuildSpecifier : JSONData["SubBuilds"].GetMapData())
-            {
-                DocumentBuild NewSubBuild = ParseDocumentBuild(MBUnicode::PathToUTF8(BuildDirectory)+"./"+SubBuildSpecifier.second.GetStringData(),OutError);
-                if(!OutError)
-                {
-                    return(ReturnValue);   
-                }
-                ReturnValue.SubBuilds.push_back(std::pair<std::string,DocumentBuild>(SubBuildSpecifier.first,std::move(NewSubBuild)));
-            }
+            MBParsing::JSONObject const& TopDirectory = JSONData["TopDirectory"];
+            p_ParseDocumentBuildDirectory(ReturnValue,TopDirectory,BuildDirectory,OutError);
         }
         catch(std::exception const& e)
         {
             OutError = false;
             OutError.ErrorMessage = "Error parsing MBDocBuild: "+std::string(e.what());
         }
-        std::sort(ReturnValue.BuildFiles.begin(), ReturnValue.BuildFiles.end());
+        //TURBO TEMP
+        if(OutError)
+        {
+            ReturnValue.t__Sort();    
+        }
         return(ReturnValue); 
     }
 
@@ -2023,80 +2073,81 @@ ParseOffset--;
     //    OutError = Result;
     //    return(NewInfo);
     //}
-    bool h_PairStringOrder(std::pair<std::string, DocumentFilesystem::BuildDirectory> const& Left, std::pair<std::string, DocumentFilesystem::BuildDirectory> Right)
-    {
-        return(Left.first < Right.first);
-    }
+    //bool h_PairStringOrder(std::pair<std::string, DocumentFilesystem::BuildDirectory> const& Left, std::pair<std::string, DocumentFilesystem::BuildDirectory> Right)
+    //{
+    //    return(Left.first < Right.first);
+    //}
 
-    DocumentFilesystem::BuildDirectory h_ParseBuildDirectory(std::vector<DocumentPath> const& Files,std::filesystem::path const& DirectoryPath, int Depth, size_t Begin, size_t End)
-    {
-        DocumentFilesystem::BuildDirectory ReturnValue;
-        ReturnValue.DirectoryPath = DirectoryPath;
-        DocumentPathFileIterator PathIterator(Files, Depth, Begin, End);
-        
-        PathIterator.NextDirectory();
-        
-        for (size_t i = 0; i < PathIterator.GetCurrentOffset(); i++)
-        {
-            ReturnValue.FileNames.push_back(Files[Begin + i][Files[Begin + i].ComponentCount() - 1]);
-        }
-        while (!PathIterator.HasEnded())
-        {
-            std::string CurrentDirectoryName = PathIterator.GetDirectoryName();
-            DocumentFilesystem::BuildDirectory NewDirectory = h_ParseBuildDirectory(Files,DirectoryPath/CurrentDirectoryName, Depth + 1, Begin + PathIterator.GetCurrentOffset(),Begin+PathIterator.GetDirectoryEnd());
-            ReturnValue.SubDirectories.push_back(std::pair<std::string, DocumentFilesystem::BuildDirectory>(CurrentDirectoryName, std::move(NewDirectory)));
-            PathIterator.NextDirectory();
-        }
+    //DocumentFilesystem::BuildDirectory h_ParseBuildDirectory(std::vector<DocumentPath> const& Files,std::filesystem::path const& DirectoryPath, int Depth, size_t Begin, size_t End)
+    //{
+    //    DocumentFilesystem::BuildDirectory ReturnValue;
+    //    ReturnValue.DirectoryPath = DirectoryPath;
+    //    DocumentPathFileIterator PathIterator(Files, Depth, Begin, End);
+    //    
+    //    PathIterator.NextDirectory();
+    //    
+    //    for (size_t i = 0; i < PathIterator.GetCurrentOffset(); i++)
+    //    {
+    //        ReturnValue.FileNames.push_back(Files[Begin + i][Files[Begin + i].ComponentCount() - 1]);
+    //    }
+    //    while (!PathIterator.HasEnded())
+    //    {
+    //        std::string CurrentDirectoryName = PathIterator.GetDirectoryName();
+    //        DocumentFilesystem::BuildDirectory NewDirectory = h_ParseBuildDirectory(Files,DirectoryPath/CurrentDirectoryName, Depth + 1, Begin + PathIterator.GetCurrentOffset(),Begin+PathIterator.GetDirectoryEnd());
+    //        ReturnValue.SubDirectories.push_back(std::pair<std::string, DocumentFilesystem::BuildDirectory>(CurrentDirectoryName, std::move(NewDirectory)));
+    //        PathIterator.NextDirectory();
+    //    }
 
-        return(ReturnValue);
-    }
+    //    return(ReturnValue);
+    //}
 
-    DocumentFilesystem::BuildDirectory DocumentFilesystem::p_ParseBuildDirectory(DocumentBuild const& BuildToParse)
-    {
-        BuildDirectory ReturnValue;
-        ReturnValue.DirectoryPath = BuildToParse.BuildRootDirectory;
-        DocumentPathFileIterator PathIterator(BuildToParse.BuildFiles,0,0,BuildToParse.BuildFiles.size());
-        PathIterator.NextDirectory();
-        for (size_t i = 0; i < PathIterator.GetCurrentOffset(); i++)
-        {
-            ReturnValue.FileNames.push_back(BuildToParse.BuildFiles[i][BuildToParse.BuildFiles[i].ComponentCount() - 1]);
-        }
-        while (PathIterator.HasEnded() == false)
-        {
-            std::string DirectoryName = PathIterator.GetDirectoryName();
-            DocumentFilesystem::BuildDirectory NewDirectory = h_ParseBuildDirectory(BuildToParse.BuildFiles,BuildToParse.BuildRootDirectory/DirectoryName, 1, PathIterator.GetCurrentOffset(), PathIterator.GetDirectoryEnd());
-            ReturnValue.SubDirectories.push_back(std::pair<std::string, DocumentFilesystem::BuildDirectory>(std::move(DirectoryName), std::move(NewDirectory)));
-            PathIterator.NextDirectory();
-        }
-        for (auto const& SubBuild : BuildToParse.SubBuilds)
-        {
-            ReturnValue.SubDirectories.push_back(std::pair<std::string, BuildDirectory>(SubBuild.first, p_ParseBuildDirectory(SubBuild.second)));
-        }
-        std::sort(ReturnValue.SubDirectories.begin(), ReturnValue.SubDirectories.end(), h_PairStringOrder);
-        return(ReturnValue);
-    }
-    DocumentDirectoryInfo DocumentFilesystem::p_UpdateOverDirectory(BuildDirectory const& Directory, size_t FileIndexBegin, size_t DirectoryIndex)
+    //DocumentFilesystem::BuildDirectory DocumentFilesystem::p_ParseBuildDirectory(DocumentBuild const& BuildToParse)
+    //{
+    //    BuildDirectory ReturnValue;
+    //    ReturnValue.DirectoryPath = BuildToParse.BuildRootDirectory;
+    //    DocumentPathFileIterator PathIterator(BuildToParse.BuildFiles,0,0,BuildToParse.BuildFiles.size());
+    //    PathIterator.NextDirectory();
+    //    for (size_t i = 0; i < PathIterator.GetCurrentOffset(); i++)
+    //    {
+    //        ReturnValue.FileNames.push_back(BuildToParse.BuildFiles[i][BuildToParse.BuildFiles[i].ComponentCount() - 1]);
+    //    }
+    //    while (PathIterator.HasEnded() == false)
+    //    {
+    //        std::string DirectoryName = PathIterator.GetDirectoryName();
+    //        DocumentFilesystem::BuildDirectory NewDirectory = h_ParseBuildDirectory(BuildToParse.BuildFiles,BuildToParse.BuildRootDirectory/DirectoryName, 1, PathIterator.GetCurrentOffset(), PathIterator.GetDirectoryEnd());
+    //        ReturnValue.SubDirectories.push_back(std::pair<std::string, DocumentFilesystem::BuildDirectory>(std::move(DirectoryName), std::move(NewDirectory)));
+    //        PathIterator.NextDirectory();
+    //    }
+    //    for (auto const& SubBuild : BuildToParse.SubBuilds)
+    //    {
+    //        ReturnValue.SubDirectories.push_back(std::pair<std::string, BuildDirectory>(SubBuild.first, p_ParseBuildDirectory(SubBuild.second)));
+    //    }
+    //    std::sort(ReturnValue.SubDirectories.begin(), ReturnValue.SubDirectories.end(), h_PairStringOrder);
+    //    return(ReturnValue);
+    //}
+    DocumentDirectoryInfo DocumentFilesystem::p_UpdateOverDirectory(DocumentBuild const& Directory, size_t FileIndexBegin, size_t DirectoryIndex)
     {
         DocumentDirectoryInfo ReturnValue;
         size_t NewDirectoryIndexBegin = m_DirectoryInfos.size();
         ReturnValue.DirectoryIndexBegin = NewDirectoryIndexBegin;
         ReturnValue.DirectoryIndexEnd = NewDirectoryIndexBegin+Directory.SubDirectories.size();
         ReturnValue.FileIndexBegin = FileIndexBegin;
-        ReturnValue.FileIndexEnd = FileIndexBegin+Directory.FileNames.size();
+        ReturnValue.FileIndexEnd = FileIndexBegin+Directory.DirectoryFiles.size();
         
         MBError ParseError = true;
         size_t FileIndex = 0;
-        for (std::string const& File : Directory.FileNames)
+        //This part assumes that the names of the files are sorted
+        for (std::filesystem::path const& File : Directory.DirectoryFiles)
         {
             DocumentParsingContext Parser;
-            DocumentSource NewFile = Parser.ParseSource(Directory.DirectoryPath / File, ParseError);
+            DocumentSource NewFile = Parser.ParseSource(File, ParseError);
             if (!ParseError)
             {
-                throw std::runtime_error("Error parsing file "+MBUnicode::PathToUTF8(Directory.DirectoryPath/File) +": " + ParseError.ErrorMessage);
+                throw std::runtime_error("Error parsing file "+MBUnicode::PathToUTF8(File) +": " + ParseError.ErrorMessage);
             }
             //LIBRARY BUG? seems like std::move(NewFile) produces a file with empty path, weird
             m_TotalSources[FileIndexBegin + FileIndex] = std::move(NewFile);
-            m_TotalSources[FileIndexBegin + FileIndex].Path = Directory.DirectoryPath / File;
+            m_TotalSources[FileIndexBegin + FileIndex].Path = File;
             FileIndex++;
         }
 
@@ -2104,7 +2155,7 @@ ParseOffset--;
         size_t TotalDirectories = Directory.SubDirectories.size();
         for (auto const& SubDirectory : Directory.SubDirectories) 
         {
-            TotalSubFiles += SubDirectory.second.FileNames.size();
+            TotalSubFiles += SubDirectory.second.DirectoryFiles.size();
         }
         size_t NewFileIndexBegin = m_TotalSources.size();
         m_TotalSources.resize(TotalSubFiles + m_TotalSources.size());
@@ -2117,7 +2168,7 @@ ParseOffset--;
             m_DirectoryInfos[NewDirectoryIndexBegin + DirectoryOffset].Name = SubDirectory.first;
             m_DirectoryInfos[NewDirectoryIndexBegin + DirectoryOffset].ParentDirectoryIndex = DirectoryIndex;
             DirectoryOffset++;
-            FileOffset += SubDirectory.second.FileNames.size();
+            FileOffset += SubDirectory.second.DirectoryFiles.size();
         }
         return(ReturnValue);
     }
@@ -2154,9 +2205,9 @@ ParseOffset--;
         {
             DocumentFilesystem Result;
             Result.m_DirectoryInfos.resize(1);
-            BuildDirectory Directory = p_ParseBuildDirectory(BuildToParse);
-            Result.m_TotalSources.resize(Directory.FileNames.size());
-            DocumentDirectoryInfo TopInfo = Result.p_UpdateOverDirectory(Directory, 0, 0);
+            //BuildDirectory Directory = p_ParseBuildDirectory(BuildToParse);
+            Result.m_TotalSources.resize(BuildToParse.GetTotalFiles());
+            DocumentDirectoryInfo TopInfo = Result.p_UpdateOverDirectory(BuildToParse, 0, 0);
             Result.m_DirectoryInfos[0] = TopInfo;
             Result.m_DirectoryInfos[0].Name = "/";
             assert(std::is_sorted(Result.m_DirectoryInfos.begin(), Result.m_DirectoryInfos.end(), h_DirectoryOrder));

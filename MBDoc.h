@@ -1,5 +1,6 @@
 #pragma once
 #include <algorithm>
+#include <cstdint>
 #include <filesystem>
 #include <string>
 #include <unordered_map>
@@ -370,14 +371,21 @@ namespace MBDoc
 
     class DocumentBuild
     {
-    public:
-        std::filesystem::path BuildRootDirectory;
-        std::vector<DocumentPath> BuildFiles = {};
-        //The first part is the "MountPoint", the directory prefix. Currently only supports a single directory name
-
-        //Guranteeed sorting
-        std::vector<std::pair<std::string,DocumentBuild>> SubBuilds;
+    private:
         
+        static void p_ParseDocumentBuildDirectory(DocumentBuild& OutBuild,MBParsing::JSONObject const& DirectoryObject,std::filesystem::path const& BuildDirectory,MBError& OutError);
+    public:
+        //std::filesystem::path BuildRootDirectory;
+        //std::vector<DocumentPath> BuildFiles = {};
+        //The first part is the "MountPoint", the directory prefix. Currently only supports a single directory name
+        
+        std::vector<std::filesystem::path> DirectoryFiles;
+        //Guranteeed sorting
+        std::vector<std::pair<std::string,DocumentBuild>> SubDirectories;
+        
+        size_t GetTotalFiles() const;    
+
+        void t__Sort();
         //The relative directory is a part of the identity
         //[[SemanticallyAuthoritative]]
         
@@ -385,7 +393,7 @@ namespace MBDoc
         static DocumentBuild ParseDocumentBuild(MBUtility::MBOctetInputStream& InputStream,std::filesystem::path const& BuildDirectory,MBError& OutError);
         static DocumentBuild ParseDocumentBuild(std::filesystem::path const& FilePath,MBError& OutError);
     };
-    
+    typedef std::int_least32_t IndexType;
     struct PathSpecifier
     {
         bool AnyRoot = false;
@@ -481,12 +489,12 @@ namespace MBDoc
     class DocumentFilesystem
     {
     public:
-        struct BuildDirectory
-        {
-            std::filesystem::path DirectoryPath;
-            std::vector<std::string> FileNames;
-            std::vector<std::pair<std::string, BuildDirectory>> SubDirectories;
-        };
+        //struct BuildDirectory
+        //{
+        //    std::filesystem::path DirectoryPath;
+        //    std::vector<std::string> FileNames;
+        //    std::vector<std::pair<std::string, BuildDirectory>> SubDirectories;
+        //};
     private:
         friend class DocumentFilesystemIterator;
         std::unordered_map<std::string,DocumentPath> m_CachedPathsConversions;
@@ -516,8 +524,8 @@ namespace MBDoc
         //DocumentDirectoryInfo p_UpdateFilesystemOverFiles(DocumentBuild const& CurrentBuild,size_t FileIndexBegin,size_t DirectoryIndex,BuildDirectory const& DirectoryToCompile);
         //DocumentDirectoryInfo p_UpdateFilesystemOverBuild(DocumentBuild const& BuildToAppend,size_t FileIndexBegin,size_t DirectoryIndex,std::string DirectoryName,MBError& OutError);
 
-        static BuildDirectory p_ParseBuildDirectory(DocumentBuild const&  BuildToParse);
-        DocumentDirectoryInfo p_UpdateOverDirectory(BuildDirectory const& Directory,size_t FileIndexBegin,size_t DirectoryIndex);
+        //static BuildDirectory p_ParseBuildDirectory(DocumentBuild const&  BuildToParse);
+        DocumentDirectoryInfo p_UpdateOverDirectory(DocumentBuild const& Directory,size_t FileIndexBegin,size_t DirectoryIndex);
 
         void __PrintDirectoryStructure(DocumentDirectoryInfo const& CurrentDir,int Depth) const;
     public: 
