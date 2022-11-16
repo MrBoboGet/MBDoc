@@ -1331,14 +1331,39 @@ ParseOffset--;
         {
             m_CurrentDepth += 1;
         }
-        m_DirectoryFilePosition += 1;
+        if(!m_UseUserOrder)
+        {
+            m_DirectoryFilePosition += 1;
+        }
+        else
+        {
+            if(m_DirectoryFilePosition == -1)
+            {
+                m_DirectoryFilePosition = CurrentInfo.FirstFileIndex;   
+            } 
+            else
+            {
+                m_DirectoryFilePosition = m_AssociatedFilesystem->m_TotalSources[CurrentInfo.FileIndexBegin+m_DirectoryFilePosition].NextFile;    
+            }
+            if(m_DirectoryFilePosition == -1)
+            {
+                m_DirectoryFilePosition = (CurrentInfo.FileIndexEnd - CurrentInfo.FileIndexBegin);
+            }
+        }
         assert(m_DirectoryFilePosition <= CurrentInfo.FileIndexEnd-CurrentInfo.FileIndexBegin);
         if(m_DirectoryFilePosition == (CurrentInfo.FileIndexEnd - CurrentInfo.FileIndexBegin))
         {
             m_DirectoryFilePosition = -1;
             if(CurrentInfo.DirectoryIndexEnd - CurrentInfo.DirectoryIndexBegin != 0)
             {
-                m_CurrentDirectoryIndex = CurrentInfo.DirectoryIndexBegin;
+                if(!m_UseUserOrder)
+                {
+                    m_CurrentDirectoryIndex = CurrentInfo.DirectoryIndexBegin;
+                }
+                else
+                {
+                    m_CurrentDirectoryIndex = CurrentInfo.DirectoryIndexBegin + CurrentInfo.FirstSubDirIndex;
+                }
             }
             else
             {
@@ -1362,10 +1387,22 @@ ParseOffset--;
                         break;
                     }
                     DocumentDirectoryInfo const& CurrentParentInfo = m_AssociatedFilesystem->m_DirectoryInfos[CurrentDirectoryIndex];
-                    if(PreviousIndex + 1 < CurrentParentInfo.DirectoryIndexEnd)
+                    if(!m_UseUserOrder)
                     {
-                        m_CurrentDirectoryIndex = PreviousIndex+1;   
-                        break;
+                        if(PreviousIndex + 1 < CurrentParentInfo.DirectoryIndexEnd)
+                        {
+                            m_CurrentDirectoryIndex = PreviousIndex+1;   
+                            break;
+                        }
+                    }
+                    else
+                    {
+                        DocumentDirectoryInfo const& PreviousDirectoryInfo = m_AssociatedFilesystem->m_DirectoryInfos[PreviousIndex];
+                        if(PreviousDirectoryInfo.NextDirectory != -1)
+                        {
+                            m_CurrentDirectoryIndex = CurrentParentInfo.DirectoryIndexBegin+PreviousDirectoryInfo.NextDirectory;
+                            break;
+                        }
                     }
                 }    
             }
@@ -1892,6 +1929,7 @@ ParseOffset--;
         DocumentFilesystemIterator ReturnValue(0);
         ReturnValue.m_AssociatedFilesystem = this;
         ReturnValue.CurrentDepth();
+        ReturnValue.UseUserOrder();
         return(ReturnValue);
     }
     DocumentPath DocumentFilesystem::ResolveReference(DocumentPath const& Path,std::string const& PathIdentifier,MBError& OutResult) const
@@ -2114,6 +2152,15 @@ ParseOffset--;
     //    std::sort(ReturnValue.SubDirectories.begin(), ReturnValue.SubDirectories.end(), h_PairStringOrder);
     //    return(ReturnValue);
     //}
+    std::vector<size_t> h_GetOriginalMap(std::vector<size_t> const& VectorToMap)
+    {
+        std::vector<size_t> ReturnValue = std::vector<size_t>(VectorToMap.size(),0);
+        for(size_t i = 0; i < VectorToMap.size();i++)
+        {
+            ReturnValue[VectorToMap[i]] = i;    
+        }
+        return(ReturnValue);
+    }
     DocumentDirectoryInfo DocumentFilesystem::p_UpdateOverDirectory(DocumentBuild const& Directory, IndexType FileIndexBegin, IndexType DirectoryIndex)
     {
         DocumentDirectoryInfo ReturnValue;
@@ -2133,8 +2180,9 @@ ParseOffset--;
                 });
         //This part assumes that the names of the files are sorted
         //for (std::filesystem::path const& File : Directory.DirectoryFiles)
-        for (size_t SortedIndex : SortedFileIndexes)
+        for (size_t i = 0; i < SortedFileIndexes.size();i++)
         {
+            size_t SortedIndex = SortedFileIndexes[i];   
             std::filesystem::path const& File = Directory.DirectoryFiles[SortedIndex];
             DocumentParsingContext Parser;
             DocumentSource NewFile = Parser.ParseSource(File, ParseError);
@@ -2147,7 +2195,18 @@ ParseOffset--;
             m_TotalSources[FileIndexBegin + FileIndex].Document.Path = File;
             FileIndex++;
         }
-
+        auto OriginalFileMap = h_GetOriginalMap(SortedFileIndexes);
+        for(size_t i = 0; i < OriginalFileMap.size();i++)
+        {
+            if( i == 0)
+            {
+                ReturnValue.FirstFileIndex = OriginalFileMap[i];
+            }
+            else
+            {
+                m_TotalSources[FileIndexBegin+OriginalFileMap[i-1]].NextFile = OriginalFileMap[i];
+            }
+        }
         size_t TotalSubFiles = 0;
         size_t TotalDirectories = Directory.SubDirectories.size();
         for (auto const& SubDirectory : Directory.SubDirectories) 
@@ -2168,14 +2227,27 @@ ParseOffset--;
                     return(Directory.SubDirectories[Left].first < Directory.SubDirectories[Right].first);     
                 });
         //for (auto const& SubDirectory : Directory.SubDirectories)
-        for (size_t SortedDirectoryIndex : SortedDirectoryIndexes)
+        for(size_t i = 0; i < SortedDirectoryIndexes.size();i++)
         {
+            size_t SortedDirectoryIndex = SortedDirectoryIndexes[i];    
             auto const& SubDirectory = Directory.SubDirectories[SortedDirectoryIndex];
             m_DirectoryInfos[NewDirectoryIndexBegin + DirectoryOffset] = p_UpdateOverDirectory(SubDirectory.second, NewFileIndexBegin + FileOffset, NewDirectoryIndexBegin + DirectoryOffset);
             m_DirectoryInfos[NewDirectoryIndexBegin + DirectoryOffset].Name = SubDirectory.first;
             m_DirectoryInfos[NewDirectoryIndexBegin + DirectoryOffset].ParentDirectoryIndex = DirectoryIndex;
             DirectoryOffset++;
             FileOffset += SubDirectory.second.DirectoryFiles.size();
+        }
+        auto OriginalDirectoryMap = h_GetOriginalMap(SortedDirectoryIndexes);
+        for(size_t i = 0; i < SortedDirectoryIndexes.size();i++)
+        {
+            if( i == 0)
+            {
+                ReturnValue.FirstSubDirIndex = OriginalDirectoryMap[i];
+            }
+            else
+            {
+                m_DirectoryInfos[NewDirectoryIndexBegin+OriginalDirectoryMap[i-1]].NextDirectory = OriginalDirectoryMap[i];
+            }
         }
         return(ReturnValue);
     }

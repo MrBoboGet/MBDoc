@@ -19,12 +19,12 @@
         [
             "index.mbd",
             "History.mbd",
-            "CodeIndex.mbd",
-            "Format.mbd",
-            "LinkResolving.mbd",
-            "Building.mbd",
-            "Attributes.mbd",
             "BuildPipeline.mbd",
+            "Building.mbd",
+            "Format.mbd",
+            "Attributes.mbd",
+            "LinkResolving.mbd",
+            "CodeIndex.mbd",
             "CLI.mbd"
         ],
         "SubDirectories":

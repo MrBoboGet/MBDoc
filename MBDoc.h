@@ -384,7 +384,6 @@ namespace MBDoc
         std::vector<std::pair<std::string,DocumentBuild>> SubDirectories;
         
         size_t GetTotalFiles() const;    
-        void t__Sort();
         //The relative directory is a part of the identity
         //[[SemanticallyAuthoritative]]
         
