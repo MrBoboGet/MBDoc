@@ -103,18 +103,10 @@ namespace MBDoc
         }
         else if(BuildFiles.size() > 0)
         {
-            ReturnValue.BuildRootDirectory = std::filesystem::current_path();
             for(std::string& Source : BuildFiles)
             {
                 //BuildToCompile.BuildFiles.push_back(std::move(Source));
-                MBError ParseResult = true;
-                DocumentPath NewFile = DocumentPath::ParsePath(Source, ParseResult);
-                if (!ParseResult)
-                {
-                    m_AssociatedTerminal.PrintLine("Error parsing document path: " + ParseResult.ErrorMessage);
-                    std::exit(1);
-                }
-                ReturnValue.BuildFiles.push_back(std::move(NewFile));
+                ReturnValue.DirectoryFiles.push_back(Source);
             }
         }
         return(ReturnValue);

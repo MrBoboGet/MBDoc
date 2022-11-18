@@ -1,18 +1,4 @@
 {
-    "Sources": [
-        "CodeIndex.mbd",
-        "Format.mbd",
-        "index.mbd",
-        "LinkResolving.mbd",
-        "Building.mbd",
-        "History.mbd",
-        "Attributes.mbd",
-        "Compilers/index.mbd",
-        "BuildPipeline.mbd",
-        "CLI.mbd"
-    ],
-    "SubBuilds": {},
-
     "TopDirectory":
     {
         "Files":

@@ -1,0 +1,10 @@
+{
+    "PacketName":"mbdoc_docs",
+    "PacketType":"MBDoc",
+    "TypeInfo":
+    {
+        "Name":"MBDoc"
+    }
+    "Attributes":[],
+    "Dependancies":[]
+}
