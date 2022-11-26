@@ -14,9 +14,38 @@
 
 
 #include "MBCLI/MBCLI.h"
+#include "MBDoc.h"
 namespace MBDoc
 {
 
+    class DocumentPath
+    {
+    private:
+        bool m_IsAbsolute = false;
+        std::vector<std::string> m_PathComponents;
+        std::string m_PartIdentifier;
+    public:
+        //Requires that both files are relative
+        static DocumentPath GetRelativePath(DocumentPath const& TargetObject, DocumentPath const& CurrentObject);
+        bool IsSubPath(DocumentPath const& PathToCompare) const;
+        std::string GetString() const;
+        size_t ComponentCount() const;
+
+        std::string operator[](size_t ComponentIndex) const;
+        bool operator<(DocumentPath const& OtherPath) const;
+
+        bool operator==(DocumentPath const& PathToCompare) const;
+        bool operator!=(DocumentPath const& PathToCompare) const;
+
+        static DocumentPath ParsePath(std::string const& PathToParse, MBError& OutError);
+
+        void AddDirectory(std::string StringToAdd);
+        void PopDirectory();
+        void SetPartIdentifier(std::string PartSpecifier);
+        std::string const& GetPartIdentifier() const;
+
+        bool Empty() const;
+    };
     // Syntax completely line based
     
     
@@ -88,17 +117,50 @@ namespace MBDoc
         TextColor Color;
         void Accept(TextVisitor& Visitor) const;
     };
-
-
+    
+    class ReferenceVisitor;
     struct DocReference : TextElement
     {
         DocReference()
         {
             Type = TextElementType::Reference;
         }
+        //all references can be overriden with visible text, but may 
+        //not neccesarilly be neccessary for references
         std::string VisibleText;
-        std::string Identifier;
+        virtual void Accept(ReferenceVisitor& Visitor) const = 0;
     };
+
+    struct FileReference : public DocReference
+    {
+        DocumentPath Path;
+        virtual void Accept(ReferenceVisitor& Visitor) const;
+    };
+    struct URLReference : public DocReference
+    {
+        std::string URL; 
+        virtual void Accept(ReferenceVisitor& Visitor) const;
+    };
+    struct UnresolvedReference : public DocReference
+    {
+        std::string ReferenceString;         
+        virtual void Accept(ReferenceVisitor& Visitor) const;
+    };
+    //Reference type suitable for parsing "scientific" references
+    //does require actually knowing how they are made in turn...
+    //struct BibTex : public DocReference
+    //{
+    //};
+    
+    class ReferenceVisitor
+    {
+    public:
+        virtual void Visit(FileReference const& FileRef){};
+        virtual void Visit(URLReference const& URLRef){};
+        virtual void Visit(UnresolvedReference const& UnresolvedRef){};
+    };
+
+
     struct RegularText : TextElement
     {
         RegularText()
@@ -111,8 +173,8 @@ namespace MBDoc
     class TextVisitor
     {
     public:
-        virtual void Visit(RegularText const& VisitedText) = 0;
-        virtual void Visit(DocReference const& VisitedText) = 0;
+        virtual void Visit(RegularText const& VisitedText){};
+        virtual void Visit(DocReference const& VisitedText) {};
     };
     //Text elements
     class AttributeList
@@ -171,9 +233,9 @@ namespace MBDoc
     class BlockVisitor
     {
     public:
-        virtual void Visit(Paragraph const& VisitedParagraph) = 0;
-        virtual void Visit(MediaInclude const& VisitedMedia) = 0;
-        virtual void Visit(CodeBlock const& CodeBlock) = 0;
+        virtual void Visit(Paragraph const& VisitedParagraph) {};
+        virtual void Visit(MediaInclude const& VisitedMedia) {};
+        virtual void Visit(CodeBlock const& CodeBlock) {};
     };
     //Block elements
    
@@ -261,10 +323,11 @@ namespace MBDoc
     class FormatVisitor
     {
     public: 
-        virtual void Visit(BlockElement const& BlockToVisit) = 0;
-        virtual void Visit(Directive const& DirectiveToVisit) = 0;
-        virtual void Visit(FormatElement const& FormatToVisit) = 0;
+        virtual void Visit(BlockElement const& BlockToVisit) {};
+        virtual void Visit(Directive const& DirectiveToVisit){};
+        virtual void Visit(FormatElement const& FormatToVisit){};
     };
+
     //Preprocessors, starts with $
     enum class PreProcessorType
     {
@@ -296,7 +359,48 @@ namespace MBDoc
         std::string Name;
         std::unordered_set<std::string> ReferenceTargets;
         std::unordered_set<std::string> References;
+        //TODO replace with FormatElementComponent
         std::vector<FormatElement> Contents;
+    };
+
+
+
+    class DocumentVisitor : public BlockVisitor, public TextVisitor, public ReferenceVisitor
+    {
+    public:
+        using BlockVisitor::Visit;
+        using TextVisitor::Visit;
+        using ReferenceVisitor::Visit;
+        virtual void EnterFormat(FormatElement const& FormatToEnter) {};
+        virtual void LeaveFormat(FormatElement const& FormatToLeave) {};
+
+        virtual void EnterBlock(BlockElement const& BlockToEnter) {};
+        virtual void LeaveBlock(BlockElement const& BlockToLeave) {};
+
+        virtual void EnterText(TextVisitor const& TextToEnter) {};
+        virtual void LeaveText(TextElement const& TextToLeave) {};
+    };
+    
+    class DocumentTraverser : DocumentVisitor, FormatVisitor
+    {
+        void Visit(BlockElement const& BlockToVisit) override;
+        void Visit(Directive const& DirectiveToVisit)override;
+        void Visit(FormatElement const& FormatToVisit)override;
+
+        void Visit(Paragraph const& VisitedParagraph) override;
+        void Visit(MediaInclude const& VisitedMedia) override;
+        void Visit(CodeBlock const& CodeBlock) override;
+
+        void Visit(RegularText const& VisitedText)override;
+        void Visit(DocReference const& VisitedText) override;
+
+        void Visit(FileReference const& FileRef) override;
+        void Visit(URLReference const& URLRef) override;
+        void Visit(UnresolvedReference const& UnresolvedRef) override;
+
+        DocumentVisitor* m_AssociatedVisitor;
+    public:     
+        void Traverse(DocumentSource const& SourceToTraverse,DocumentVisitor& Vistor);
     };
     typedef MBUtility::LineRetriever LineRetriever;
     //class LineRetriever
@@ -339,34 +443,6 @@ namespace MBDoc
         DocumentSource ParseSource(MBUtility::MBOctetInputStream& InputStream,std::string FileName,MBError& OutError);
         DocumentSource ParseSource(std::filesystem::path const& InputFile,MBError& OutError);
         DocumentSource ParseSource(const void* Data,size_t DataSize,std::string FileName,MBError& OutError);
-    };
-    class DocumentPath
-    {
-    private:
-        bool m_IsAbsolute = false;
-        std::vector<std::string> m_PathComponents;
-        std::string m_PartIdentifier;
-    public:
-        //Requires that both files are relative
-        static DocumentPath GetRelativePath(DocumentPath const& TargetObject, DocumentPath const& CurrentObject);
-        bool IsSubPath(DocumentPath const& PathToCompare) const;
-        std::string GetString() const;
-        size_t ComponentCount() const;
-
-        std::string operator[](size_t ComponentIndex) const;
-        bool operator<(DocumentPath const& OtherPath) const;
-
-        bool operator==(DocumentPath const& PathToCompare) const;
-        bool operator!=(DocumentPath const& PathToCompare) const;
-
-        static DocumentPath ParsePath(std::string const& PathToParse, MBError& OutError);
-
-        void AddDirectory(std::string StringToAdd);
-        void PopDirectory();
-        void SetPartIdentifier(std::string PartSpecifier);
-        std::string const& GetPartIdentifier() const;
-
-        bool Empty() const;
     };
 
     class DocumentBuild
@@ -540,10 +616,15 @@ namespace MBDoc
         DocumentDirectoryInfo p_UpdateOverDirectory(DocumentBuild const& Directory,IndexType FileIndexBegin,IndexType DirectoryIndex);
 
         void __PrintDirectoryStructure(DocumentDirectoryInfo const& CurrentDir,int Depth) const;
+
+
+
+        void p_ResolveReferences();
     public: 
         DocumentFilesystemIterator begin() const;
         DocumentPath ResolveReference(DocumentPath const& DocumentPath,std::string const& PathIdentifier,MBError& OutResult) const;
-        static MBError CreateDocumentFilesystem(DocumentBuild const& BuildToParse,DocumentFilesystem* OutBuild);
+        [[nodiscard]] 
+        static MBError CreateDocumentFilesystem(DocumentBuild const& BuildToParse,DocumentFilesystem& OutBuild);
 
         void __PrintDirectoryStructure() const;
     };

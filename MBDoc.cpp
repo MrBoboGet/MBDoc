@@ -1575,7 +1575,68 @@ ParseOffset--;
     }
    
     //END DocumentPathFileIterator
+    void DocumentTraverser::Visit(BlockElement const& BlockToVisit)
+    {
+        m_AssociatedVisitor->EnterBlock(BlockToVisit); 
+        BlockToVisit.Accept(*this); 
+        m_AssociatedVisitor->LeaveBlock(BlockToVisit);
+    }
+    void DocumentTraverser::Visit(Directive const& DirectiveToVisit)
+    {
 
+    }
+    void DocumentTraverser::Visit(FormatElement const& FormatToVisit)
+    {
+        m_AssociatedVisitor->EnterFormat(FormatToVisit);
+        for(auto const& Element : FormatToVisit.Contents)
+        {
+            Element.Accept(*this);
+        }
+        m_AssociatedVisitor->LeaveFormat(FormatToVisit); 
+    }
+
+    void DocumentTraverser::Visit(Paragraph const& VisitedParagraph)
+    {
+        m_AssociatedVisitor->Visit(VisitedParagraph);
+    }
+    void DocumentTraverser::Visit(MediaInclude const& VisitedMedia) 
+    {
+        m_AssociatedVisitor->Visit(VisitedMedia);
+    }
+    void DocumentTraverser::Visit(CodeBlock const& VisitedBlock) 
+    { 
+        m_AssociatedVisitor->Visit(VisitedBlock);
+    }
+
+    void DocumentTraverser::Visit(RegularText const& VisitedText)
+    {
+           
+    }
+    void DocumentTraverser::Visit(DocReference const& VisitedText) 
+    {
+           
+    }
+
+    void DocumentTraverser::Visit(FileReference const& FileRef) 
+    {
+           
+    }
+    void DocumentTraverser::Visit(URLReference const& URLRef) 
+    {
+           
+    }
+    void DocumentTraverser::Visit(UnresolvedReference const& UnresolvedRef) 
+    {
+           
+    }
+    void DocumentTraverser::Traverse(DocumentSource const& SourceToTraverse,DocumentVisitor& Vistor)
+    {
+        m_AssociatedVisitor = &Vistor; 
+        for(auto const& Format : SourceToTraverse.Contents)
+        {
+            Visit(Format);
+        }
+    }
     //BEGIN DocumentFilesystem
     DocumentFilesystem::FSSearchResult DocumentFilesystem::p_ResolveDirectorySpecifier(IndexType RootDirectoryIndex,DocumentReference const& ReferenceToResolve,IndexType SpecifierOffset) const
     {
@@ -2277,7 +2338,7 @@ ParseOffset--;
         DocumentDirectoryInfo const& CurrentInfo = m_DirectoryInfos[0];
         __PrintDirectoryStructure(CurrentInfo, 0);
     }
-    MBError DocumentFilesystem::CreateDocumentFilesystem(DocumentBuild const& BuildToParse,DocumentFilesystem* OutFilesystem)
+    MBError DocumentFilesystem::CreateDocumentFilesystem(DocumentBuild const& BuildToParse,DocumentFilesystem& OutFilesystem)
     {
         MBError ReturnValue = true;
         try 
@@ -2290,10 +2351,14 @@ ParseOffset--;
             Result.m_DirectoryInfos[0] = TopInfo;
             Result.m_DirectoryInfos[0].Name = "/";
             assert(std::is_sorted(Result.m_DirectoryInfos.begin(), Result.m_DirectoryInfos.end(), h_DirectoryOrder));
+            
+            
+            Result.p_ResolveReferences(); 
             if (ReturnValue)
             {
-                *OutFilesystem = std::move(Result);
+                OutFilesystem = std::move(Result);
             }
+
         }
         catch (std::exception const& e) 
         {
@@ -2301,6 +2366,10 @@ ParseOffset--;
             ReturnValue.ErrorMessage = e.what();
         }
         return(ReturnValue);  
+    }
+    void DocumentFilesystem::p_ResolveReferences()
+    {
+        
     }
     //END DocumentFilesystem
 
