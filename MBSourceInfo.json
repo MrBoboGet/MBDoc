@@ -19,7 +19,6 @@
             "OutputName":"mbdoc",
             "Sources": 
             [
-                "/Compilers/RawTerminal.cpp",
                 "/MBDoc.cpp",
                 "/MBDocCLI.cpp",
                 "/MBDocMain.cpp"
@@ -31,7 +30,6 @@
             "OutputName":"MBDoc",
             "Sources": 
             [
-                "/Compilers/RawTerminal.cpp",
                 "/MBDoc.cpp",
                 "/MBDocCLI.cpp"
             ],
@@ -42,7 +40,6 @@
             "OutputName":"mbdoc_test",
             "Sources": 
             [
-                "/Compilers/RawTerminal.cpp",
                 "/MBDoc.cpp",
                 "/MBDocCLI.cpp",
                 "/MBDocTestMain.cpp"

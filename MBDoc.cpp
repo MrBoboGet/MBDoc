@@ -18,6 +18,18 @@
 #include <numeric>
 namespace MBDoc
 {
+    void URLReference::Accept(ReferenceVisitor& Visitor) const
+    {
+        Visitor.Visit(*this);
+    }
+    void UnresolvedReference::Accept(ReferenceVisitor& Visitor) const
+    {
+        Visitor.Visit(*this);
+    }
+    void FileReference::Accept(ReferenceVisitor& Visitor) const
+    {
+        Visitor.Visit(*this);
+    }
     //BEGIN TextElement
     void TextElement::Accept(TextVisitor& Visitor) const
     {
@@ -102,6 +114,12 @@ namespace MBDoc
         std::swap(ElementToSteal.m_Data, m_Data);
         std::swap(ElementToSteal.m_Type, m_Type);
     }
+    FormatElementComponent& FormatElementComponent::operator=(FormatElementComponent FormatToCopy)
+    {
+        std::swap(m_Type,FormatToCopy.m_Type);    
+        std::swap(m_Data,FormatToCopy.m_Data);
+        return(*this);
+    }
     FormatElementComponent::FormatElementComponent(std::unique_ptr<BlockElement> BlockData)
     {
         m_Type = FormatComponentType::Block;
@@ -121,6 +139,22 @@ namespace MBDoc
     FormatComponentType FormatElementComponent::GetType() const
     {
         return(m_Type);
+    }
+    void FormatElementComponent::SetAttributes(AttributeList NewAttributes)
+    {
+        if(m_Type == FormatComponentType::Block)
+        {
+            GetFormatData().Attributes = std::move(NewAttributes); 
+        } 
+        else if(m_Type == FormatComponentType::Format)
+        {
+            GetFormatData().Attributes = std::move(NewAttributes); 
+        }
+        else
+        {
+            throw std::runtime_error("Can't set attributes for directive or empty format type");    
+        }
+
     }
     BlockElement& FormatElementComponent::GetBlockData()
     {
@@ -201,14 +235,16 @@ namespace MBDoc
         }
     }
     //END FormatElementComponent
-    DocReference DocumentParsingContext::p_ParseReference(void const* Data,size_t DataSize,size_t ParseOffset,size_t* OutParseOffset)
+    std::unique_ptr<TextElement> DocumentParsingContext::p_ParseReference(void const* Data,size_t DataSize,size_t ParseOffset,size_t* OutParseOffset)
     {
-        DocReference ReturnValue;
+        std::unique_ptr<TextElement> ReturnValue;
         //ASSUMPTION reference is not escaped 
         if(!(ParseOffset + 1 < DataSize))
         {
             throw std::runtime_error("Invalid reference, empty name");   
         }
+        std::string VisibleText;
+        std::string ReferenceString;
         const char* CharData = (const char*)Data;
         if(CharData[ParseOffset+1] == '[')
         {
@@ -217,7 +253,7 @@ namespace MBDoc
             {
                 throw std::runtime_error("Unexpected end of visible text in reference");   
             }
-            ReturnValue.VisibleText = std::string(CharData+ParseOffset+2,CharData+TextEnd);
+            VisibleText = std::string(CharData+ParseOffset+2,CharData+TextEnd);
             ParseOffset = TextEnd+1;
             if(ParseOffset >= DataSize)
             {
@@ -232,7 +268,7 @@ namespace MBDoc
             {
                 throw std::runtime_error("Unexpected end of reference identifier");   
             }
-            ReturnValue.Identifier = std::string(CharData+ParseOffset+1,CharData+ReferenceIDEnd);
+            ReferenceString = std::string(CharData+ParseOffset+1,CharData+ReferenceIDEnd);
             ParseOffset = ReferenceIDEnd + 1;
         }
         else
@@ -240,7 +276,7 @@ namespace MBDoc
             if (CharData[ParseOffset + 1] != '(') 
             {
                 size_t DelimiterPosition = MBParsing::GetNextDelimiterPosition({ '\t',' ','\n',',','.' }, Data, DataSize, ParseOffset, nullptr);
-                ReturnValue.Identifier = std::string(CharData + ParseOffset + 1, CharData + DelimiterPosition);
+                ReferenceString = std::string(CharData + ParseOffset + 1, CharData + DelimiterPosition);
                 ParseOffset = DelimiterPosition;
             }
             else 
@@ -250,9 +286,24 @@ namespace MBDoc
                 {
                     throw std::runtime_error("Unexpected end of reference identifier, missing )");
                 }
-                ReturnValue.Identifier = std::string(CharData + ParseOffset + 2, CharData + IdentifierEnd);
+                ReferenceString = std::string(CharData + ParseOffset + 2, CharData + IdentifierEnd);
                 ParseOffset = IdentifierEnd + 1;
             }
+        }
+        if(ReferenceString.find("://") == ReferenceString.npos)
+        {
+             UnresolvedReference NewRef;
+             NewRef.ReferenceString = ReferenceString;
+             NewRef.VisibleText = VisibleText;
+             ReturnValue = std::unique_ptr<TextElement>(new UnresolvedReference(std::move(NewRef)));
+        }
+        else
+        {
+             URLReference NewRef;
+             NewRef.VisibleText = VisibleText;
+             NewRef.URL = ReferenceString;
+             ReturnValue = std::unique_ptr<TextElement>(new URLReference(std::move(NewRef)));
+               
         }
         *OutParseOffset = ParseOffset;
         return(ReturnValue);    
@@ -380,10 +431,10 @@ ParseOffset--;
             }
             if (NextReferenceDeclaration < NextTextModifier)
             {
-                DocReference NewReference = p_ParseReference(Data, DataSize, ParseOffset, &ParseOffset);
-                NewReference.Color = CurrentTextColor;
-                NewReference.Modifiers = CurrentTextModifier;
-                ReturnValue.push_back(std::unique_ptr<TextElement>(new DocReference(std::move(NewReference))));
+                std::unique_ptr<TextElement> NewReference = p_ParseReference(Data, DataSize, ParseOffset, &ParseOffset);
+                NewReference->Color = CurrentTextColor;
+                NewReference->Modifiers = CurrentTextModifier;
+                ReturnValue.push_back(std::unique_ptr<TextElement>(std::move(NewReference)));
             }
             if (NextTextModifier < NextReferenceDeclaration)
             {
@@ -656,9 +707,11 @@ ParseOffset--;
         }
         return(ReturnValue);   
     }
-    FormatElement DocumentParsingContext::p_ParseFormatElement(LineRetriever& Retriever,AttributeList* OutAttributes)
+    FormatElementComponent DocumentParsingContext::p_ParseFormatElement(LineRetriever& Retriever,AttributeList* OutAttributes)
     {
-        FormatElement ReturnValue;
+        bool IsFormat = false;
+        FormatElement TopFormat;
+        FormatElementComponent ReturnValue;
         size_t CurrentElementCount = 0;
         bool IsTopElement = false;
         //Determine which kind of format element
@@ -692,24 +745,23 @@ ParseOffset--;
                     }
                     size_t FirstNameCharacter = 0;
                     MBParsing::SkipWhitespace(CurrentLine, FirstNonEmptyCharacter + 1, &FirstNameCharacter);
-                    ReturnValue.Name = h_NormalizeName(CurrentLine.substr(FirstNameCharacter));
-                    if(ReturnValue.Name.size() > 0 && ReturnValue.Name[0] == '.')
+                    TopFormat.Name = h_NormalizeName(CurrentLine.substr(FirstNameCharacter));
+                    if(TopFormat.Name.size() > 0 && TopFormat.Name[0] == '.')
                     {
-                        std::string NewName = ReturnValue.Name.substr(1);   
-                        ReturnValue.Name = NewName;
-                        ReturnValue.Attributes.AddAttribute(NewName);
+                        std::string NewName = TopFormat.Name.substr(1);   
+                        TopFormat.Name = NewName;
+                        TopFormat.Attributes.AddAttribute(NewName);
                     }
-                    if(ReturnValue.Name == "")
+                    if(TopFormat.Name == "")
                     {
                         throw std::runtime_error("Invalid format element name, empty string not allowed");   
                     }
-                    ReturnValue.Type = FormatElementType::Section;
                     Retriever.DiscardLine();
+                    IsFormat = true;
                     break;
                 }
                 else
                 {
-                    ReturnValue.Type = FormatElementType::Default;   
                     break;
                 }
             }
@@ -778,13 +830,13 @@ ParseOffset--;
             if (ParseChildFormat)
             {
                 AttributeList NewAttributes;
-                FormatElement NewFormat = p_ParseFormatElement(Retriever,&NewAttributes);
+                FormatElementComponent NewFormat = p_ParseFormatElement(Retriever,&NewAttributes);
                 if (CurrentAttributes.IsEmpty() == false)
                 {
-                    NewFormat.Attributes = CurrentAttributes;
+                    NewFormat.SetAttributes(CurrentAttributes);
                     CurrentAttributes.Clear();
                 }
-                ReturnValue.Contents.push_back(std::move(NewFormat));
+                TopFormat.Contents.push_back(std::move(NewFormat));
                 if (NewAttributes.IsEmpty() == false)
                 {
                     CurrentAttributes = NewAttributes;
@@ -798,7 +850,7 @@ ParseOffset--;
                 {
                     throw std::runtime_error("Attribute list not allowed for directives");   
                 }
-                ReturnValue.Contents.push_back(FormatElementComponent(p_ParseDirective(Retriever)));
+                TopFormat.Contents.push_back(FormatElementComponent(p_ParseDirective(Retriever)));
                 CurrentElementCount += 1;
                 continue;
             }
@@ -808,15 +860,33 @@ ParseOffset--;
                 NewBlockElement->Attributes = CurrentAttributes; 
                 CurrentAttributes.Clear();
             }
-            ReturnValue.Contents.push_back(FormatElementComponent(std::move(NewBlockElement)));
-            CurrentElementCount += 1; 
+            if(IsFormat)
+            {
+                TopFormat.Contents.push_back(FormatElementComponent(std::move(NewBlockElement)));
+                CurrentElementCount += 1; 
+            }
+            else
+            {
+                ReturnValue = FormatElementComponent(std::move(NewBlockElement));
+                break;
+            }
         }
         *OutAttributes = CurrentAttributes;
+
+        if(IsFormat)
+        {
+            return(TopFormat);    
+        }
+
+        else
+        {
+            return(ReturnValue);    
+        }
         return(ReturnValue);   
     }
-    std::vector<FormatElement> DocumentParsingContext::p_ParseFormatElements(LineRetriever& Retriever)
+    std::vector<FormatElementComponent> DocumentParsingContext::p_ParseFormatElements(LineRetriever& Retriever)
     {
-        std::vector<FormatElement> ReturnValue;
+        std::vector<FormatElementComponent> ReturnValue;
         AttributeList CurrentAttributes;
         while(!Retriever.Finished())
         {
@@ -836,7 +906,7 @@ ParseOffset--;
             }
             if(CurrentAttributes.IsEmpty() == false)
             {
-                ReturnValue.back().Attributes = CurrentAttributes;
+                ReturnValue.back().SetAttributes(CurrentAttributes);
                 CurrentAttributes.Clear();   
             }
             if(NewAttributes.IsEmpty() == false)
@@ -846,46 +916,21 @@ ParseOffset--;
         } 
         return(ReturnValue);   
     }
-    void h_UpdateReferences(DocumentSource& SourceToModify,BlockElement const& BlockComponent)
+    void DocumentParsingContext::ReferenceExtractor::EnterFormat(FormatElement const& Format)
     {
-        if(BlockComponent.Type == BlockElementType::Paragraph)
-        {
-            Paragraph const& ParagraphComponent = static_cast<Paragraph const&>(BlockComponent);  
-            for(std::unique_ptr<TextElement> const& Text : ParagraphComponent.TextElements)
-            {
-                if(Text->Type == TextElementType::Reference)
-                {
-                    DocReference const& Reference = static_cast<DocReference const&>(*Text);
-                    SourceToModify.References.insert(Reference.Identifier);
-                }   
-            }
-        } 
+        Targets.insert(Format.Name); 
     }
-    void h_UpdateReferences(DocumentSource& SourceToModify,FormatElement const& FormatComponent)
+    void DocumentParsingContext::ReferenceExtractor::Visit(UnresolvedReference const& Ref)
     {
-        if (FormatComponent.Name != "")
-        {
-            SourceToModify.ReferenceTargets.insert(FormatComponent.Name);
-        }
-        SourceToModify.ReferenceTargets.insert(FormatComponent.Name);
-        for(FormatElementComponent const& Element : FormatComponent.Contents)
-        {
-            if(Element.GetType() == FormatComponentType::Format)
-            {
-                h_UpdateReferences(SourceToModify,Element.GetFormatData());            
-            }
-            else if(Element.GetType() == FormatComponentType::Block)
-            {
-                h_UpdateReferences(SourceToModify,Element.GetBlockData());
-            } 
-        }
+        References.insert(Ref.ReferenceString); 
     }
     void DocumentParsingContext::p_UpdateReferences(DocumentSource& SourceToModify)
     {
-        for(FormatElement const& Format : SourceToModify.Contents)
-        {
-            h_UpdateReferences(SourceToModify, Format);
-        } 
+        DocumentTraverser Traverser;
+        ReferenceExtractor Extractor;
+        Traverser.Traverse(SourceToModify,Extractor);
+        SourceToModify.References = std::move(Extractor.References);
+        SourceToModify.ReferenceTargets = Extractor.Targets;
     }
     DocumentSource DocumentParsingContext::ParseSource(MBUtility::MBOctetInputStream& InputStream,std::string FileName,MBError& OutError)
     {
@@ -1583,7 +1628,7 @@ ParseOffset--;
     }
     void DocumentTraverser::Visit(Directive const& DirectiveToVisit)
     {
-
+        m_AssociatedVisitor->Visit(DirectiveToVisit);
     }
     void DocumentTraverser::Visit(FormatElement const& FormatToVisit)
     {
@@ -1598,6 +1643,16 @@ ParseOffset--;
     void DocumentTraverser::Visit(Paragraph const& VisitedParagraph)
     {
         m_AssociatedVisitor->Visit(VisitedParagraph);
+        for(auto const& TextPart : VisitedParagraph.TextElements)
+        {
+            if(TextPart->Type == TextElementType::Reference)
+            {
+                m_AssociatedVisitor->ResolveReference(const_cast<std::unique_ptr<TextElement>&>(TextPart));
+            }
+            m_AssociatedVisitor->EnterText(*TextPart);
+            TextPart->Accept(*this);
+            m_AssociatedVisitor->LeaveText(*TextPart);
+        }
     }
     void DocumentTraverser::Visit(MediaInclude const& VisitedMedia) 
     {
@@ -1610,31 +1665,31 @@ ParseOffset--;
 
     void DocumentTraverser::Visit(RegularText const& VisitedText)
     {
-           
+        m_AssociatedVisitor->Visit(VisitedText);
     }
     void DocumentTraverser::Visit(DocReference const& VisitedText) 
     {
-           
+        VisitedText.Accept(*this);
     }
 
     void DocumentTraverser::Visit(FileReference const& FileRef) 
     {
-           
+        m_AssociatedVisitor->Visit(FileRef);
     }
     void DocumentTraverser::Visit(URLReference const& URLRef) 
     {
-           
+        m_AssociatedVisitor->Visit(URLRef);
     }
     void DocumentTraverser::Visit(UnresolvedReference const& UnresolvedRef) 
     {
-           
+        m_AssociatedVisitor->Visit(UnresolvedRef);
     }
     void DocumentTraverser::Traverse(DocumentSource const& SourceToTraverse,DocumentVisitor& Vistor)
     {
         m_AssociatedVisitor = &Vistor; 
         for(auto const& Format : SourceToTraverse.Contents)
         {
-            Visit(Format);
+            Format.Accept(*this);
         }
     }
     //BEGIN DocumentFilesystem
@@ -2367,230 +2422,59 @@ ParseOffset--;
         }
         return(ReturnValue);  
     }
+    DocumentFilesystem::DocumentFilesystemReferenceResolver::DocumentFilesystemReferenceResolver(DocumentFilesystem* AssociatedFilesystem,DocumentPath CurrentPath)
+    {
+        m_AssociatedFilesystem = AssociatedFilesystem;
+        m_CurrentPath = CurrentPath;
+    }
+    void DocumentFilesystem::DocumentFilesystemReferenceResolver::Visit(UnresolvedReference const& Ref)
+    {
+        MBError Result = true;
+        DocumentPath NewPath = m_AssociatedFilesystem->ResolveReference(m_CurrentPath,Ref.ReferenceString,Result);
+        if(Result)
+        {
+            FileReference NewRef;
+            NewRef.Color = Ref.Color;
+            NewRef.Modifiers = Ref.Modifiers;
+            NewRef.VisibleText = Ref.VisibleText;
+            NewRef.Path = NewPath;
+            m_Result = std::unique_ptr<TextElement>(new FileReference(std::move(NewRef)));
+        }
+        m_ShouldUpdate = Result;
+    }
+    void DocumentFilesystem::DocumentFilesystemReferenceResolver::ResolveReference(std::unique_ptr<TextElement>& ReferenceToResolve)
+    {
+        m_ShouldUpdate = false;
+        DocReference& Ref = static_cast<DocReference&>(*ReferenceToResolve);
+        Ref.Accept(*this);
+        if(m_ShouldUpdate)
+        {
+           ReferenceToResolve = std::move(m_Result); 
+        } 
+    }
     void DocumentFilesystem::p_ResolveReferences()
     {
-        
+        DocumentFilesystemIterator Iterator(0); 
+        Iterator.m_AssociatedFilesystem = this;
+        DocumentTraverser Traverser; 
+        while(Iterator.HasEnded() == false)
+        {
+            if(!Iterator.EntryIsDirectory())
+            {
+                DocumentPath CurrentPath = Iterator.GetCurrentPath();
+                DocumentSource const& CurrentDoc = Iterator.GetDocumentInfo();
+                DocumentFilesystemReferenceResolver Resolver(this,CurrentPath);
+                Traverser.Traverse(CurrentDoc,Resolver);
+            }
+            Iterator++; 
+        }
     }
     //END DocumentFilesystem
 
     
     
 
-    //BEGIN MarkdownCompiler
-    void MarkdownCompiler::p_CompileText(std::vector<std::unique_ptr<TextElement>> const& ElementsToCompile, MarkdownReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream)
-    {
-        for(std::unique_ptr<TextElement> const& Text : ElementsToCompile)
-        {
-            std::string ModifierString = "";
-            if((Text->Modifiers & TextModifier::Italic) != TextModifier::Null)
-            {
-                ModifierString += '*';
-            }
-            if((Text->Modifiers & TextModifier::Bold) != TextModifier::Null)
-            {
-                ModifierString += "**";
-            }
-            OutStream.Write(ModifierString.data(),ModifierString.size());
-            if(Text->Type == TextElementType::Regular)
-            {
-                
-                OutStream.Write(static_cast<RegularText const&>(*Text.get()).Text.data(),static_cast<RegularText const&>(*Text.get()).Text.size());
-            }
-            if(Text->Type == TextElementType::Reference)
-            {
-                DocReference const& CurrentElement = static_cast<DocReference const&>(*Text.get());
-                std::string TextToWrite = ReferenceSolver.GetReferenceString(CurrentElement);
-                OutStream.Write(TextToWrite.data(), TextToWrite.size());
-            }
-            OutStream.Write(ModifierString.data(),ModifierString.size());
-        }   
-    }
-    void MarkdownCompiler::p_CompileBlock(BlockElement const* BlockToCompile, MarkdownReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream)
-    {
-        if(BlockToCompile->Type != BlockElementType::Paragraph)
-        {
-            throw std::runtime_error("Unsupported block type");  
-        } 
-        Paragraph const& ParagraphToCompile = static_cast<Paragraph const&>(*BlockToCompile);
-        p_CompileText(ParagraphToCompile.TextElements, ReferenceSolver,OutStream);
-        OutStream.Write("\n\n",2);
-    }
-    void MarkdownCompiler::p_CompileDirective(Directive const& DirectiveToCompile, MarkdownReferenceSolver const& ReferenceSolver, MBUtility::MBOctetOutputStream& OutStream)
-    {
-        if (DirectiveToCompile.DirectiveName == "toc")
-        {
-            ReferenceSolver.CreateTOC(OutStream);
-        }
-    }
-    enum class i_CompileType
-    {
-        Block,
-        Format,
-        Directive
-    };
-    void MarkdownCompiler::p_CompileFormat(FormatElement const& FormatToCompile, MarkdownReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream,int Depth)
-    {
-        if(FormatToCompile.Type != FormatElementType::Default)
-        {
-            std::string StringToWrite = "#";
-            for(int i = 0; i < Depth;i++)
-            {
-                StringToWrite += "#";  
-            } 
-            StringToWrite += " "+FormatToCompile.Name+"\n\n";
-            OutStream.Write(StringToWrite.data(),StringToWrite.size());
-        }
-        for(FormatElementComponent const& Component : FormatToCompile.Contents)
-        {
-            if(Component.GetType() == FormatComponentType::Directive)
-            {
-                p_CompileDirective(Component.GetDirectiveData(),ReferenceSolver,OutStream); 
-            }  
-            else if(Component.GetType() == FormatComponentType::Block)
-            {
-                p_CompileBlock(&Component.GetBlockData(),ReferenceSolver,OutStream);
-            }
-            else if(Component.GetType() == FormatComponentType::Format)
-            {
-                p_CompileFormat(Component.GetFormatData(),ReferenceSolver,OutStream,Depth+1);
-            }
-        }
-    }
-    void MarkdownCompiler::p_CompileSource(DocumentSource const& SourceToCompile, MarkdownReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream)
-    {
-        //Joint iterator, a bit ugly         
-        for(FormatElement const& Format : SourceToCompile.Contents)
-        {
-            p_CompileFormat(Format,ReferenceSolver,OutStream,0);        
-        }
-        OutStream.Flush();
-    }
-    class Printer : public MBUtility::MBOctetOutputStream
-    {
-    public:
-        size_t Write(const void* DataToWrite,size_t DataSize)
-        {
-            std::cout.write((const char*)DataToWrite,DataSize); 
-            return(0);
-        } 
-    };
-    MarkdownReferenceSolver MarkdownCompiler::p_CreateReferenceSolver(DocumentSource const& Source)
-    {
-        MarkdownReferenceSolver ReturnValue;
-        ReturnValue.Initialize(Source);
-        return(ReturnValue);
-    }
-    //void MarkdownCompiler::Compile(DocumentFilesystem const& BuildToCompile, CommonCompilationOptions const& Options)
-    //{
-    //    std::cout << "Not implemented B)" << std::endl;
-    //}
-    void MarkdownCompiler::Compile(std::vector<DocumentSource> const& Sources)
-    {
-        Printer OutStream;
-        for(DocumentSource const& Source : Sources)
-        {
-            MarkdownReferenceSolver Solver = p_CreateReferenceSolver(Source);
-            //MBUtility::MBFileOutputStream OutStream = MBUtility::MBFileOutputStream("README.md");
-            p_CompileSource(Source,Solver,OutStream); 
-        }    
-    }
-    //
-    //END MarkdownCompiler
 
-    //BEGIN MarkdownReferenceSolver
-    std::string h_CreateHeadingReference(std::string const& HeadingName)
-    {
-        std::string ReturnValue = MBUtility::ReplaceAll(HeadingName, " ", "-");
-        ReturnValue = "#"+MBUnicode::UnicodeStringToLower(ReturnValue);
-        return(ReturnValue);
-    }
-    std::string MarkdownReferenceSolver::GetReferenceString(DocReference const& ReferenceIdentifier) const
-    {
-        //std::string ReturnValue = ReferenceIdentifier;
-        std::string ReturnValue;
-        std::string IdentifierURL = ReferenceIdentifier.Identifier;
-        std::string VisibleText = ReferenceIdentifier.VisibleText;
-        if (m_HeadingNames.find(ReferenceIdentifier.Identifier) != m_HeadingNames.end())
-        {
-            IdentifierURL = h_CreateHeadingReference(ReferenceIdentifier.Identifier);
-            if (VisibleText == "")
-            {
-                VisibleText = ReferenceIdentifier.Identifier;
-            }
-        }
-        else
-        {
-            size_t NamespaceDelimiterPosition = ReferenceIdentifier.Identifier.find("::");
-            if (NamespaceDelimiterPosition != ReferenceIdentifier.Identifier.npos && NamespaceDelimiterPosition + 2 < ReferenceIdentifier.Identifier.size())
-            {
-                //assumes github markdown
-                std::string User = ReferenceIdentifier.Identifier.substr(0, NamespaceDelimiterPosition);
-                std::string Repository = ReferenceIdentifier.Identifier.substr(NamespaceDelimiterPosition + 2);
-                IdentifierURL = "https://github.com/" + User + "/" + Repository;
-                if(VisibleText == "")
-                {
-                    VisibleText = Repository;
-                }
-            }
-        }
-        if (VisibleText != "")
-        {
-            ReturnValue = "[" + VisibleText + "](" + IdentifierURL + ")";
-        }
-        else
-        {
-            ReturnValue = "<" + IdentifierURL+ ">";
-        }
-        return(ReturnValue);
-    }
-    void MarkdownReferenceSolver::p_WriteToc(Heading const& CurrentHeading,MBUtility::MBOctetOutputStream& OutStream , size_t Depth) const
-    {
-        std::string Indent = std::string(Depth * 4, ' ');
-        OutStream.Write(Indent.data(), Indent.size());
-        std::string HeaderName = "- [" + CurrentHeading.Name + "]" + "(" + h_CreateHeadingReference(CurrentHeading.Name)+")\n";
-        OutStream.Write(HeaderName.data(), HeaderName.size());
-        for (Heading const& SubHeading : CurrentHeading.SubHeaders)
-        {
-            p_WriteToc(SubHeading, OutStream, Depth + 1);
-        }
-    }
-    void MarkdownReferenceSolver::CreateTOC(MBUtility::MBOctetOutputStream& OutStream) const
-    {
-        for (Heading const& CurrentHeading : m_Headings)
-        {
-            p_WriteToc(CurrentHeading,OutStream, 0);
-        }
-        OutStream.Flush();
-    }
-    MarkdownReferenceSolver::Heading MarkdownReferenceSolver::p_CreateHeading(FormatElement const& Format)
-    {
-        Heading ReturnValue;
-        ReturnValue.Name = Format.Name;
-        m_HeadingNames.insert(ReturnValue.Name);
-        for (auto const& Element : Format.Contents)
-        {
-            if(Element.GetType() != FormatComponentType::Format)
-            {
-                continue;   
-            }
-            if (Element.GetFormatData().Type != FormatElementType::Default)
-            {
-                ReturnValue.SubHeaders.push_back(p_CreateHeading(Element.GetFormatData()));
-            }
-        }
-        return(ReturnValue);
-    }
-    void MarkdownReferenceSolver::Initialize(DocumentSource const& Documents)
-    {
-        for (FormatElement const& Element : Documents.Contents)
-        {
-            if (Element.Type != FormatElementType::Default)
-            {
-                m_Headings.push_back(p_CreateHeading(Element));
-            }
-        }
-    }
-    //END MarkdownReferenceSolver
     
     //TODO optimize
     std::string h_EscapeHTMLText(std::string const& TextToEscape)
@@ -2607,7 +2491,7 @@ ParseOffset--;
     {
         m_CurrentPath = std::move(CurrentPath);
     }
-    std::string HTMLReferenceSolver::GetDocumentPathURL(DocumentPath const& PathToConvert) const
+    std::string HTMLReferenceSolver::GetDocumentPathURL(DocumentPath const& PathToConvert) 
     {
         std::string ReturnValue = DocumentPath::GetRelativePath(PathToConvert, m_CurrentPath).GetString();
         ReturnValue = MBUtility::ReplaceAll(ReturnValue, ".mbd", ".html");
@@ -2617,28 +2501,34 @@ ParseOffset--;
         }
         return(ReturnValue);
     }
-    std::string HTMLReferenceSolver::GetReferenceString(DocReference const& ReferenceIdentifier) const
+    void HTMLReferenceSolver::Visit(URLReference const& Ref)
+    {
+        m_VisitResultProperties += Ref.URL;
+        m_VisitResultText = m_VisitResultProperties;
+    }
+    void HTMLReferenceSolver::Visit(FileReference const& Ref)
+    {
+       m_VisitResultProperties = GetDocumentPathURL(Ref.Path);
+       m_VisitResultText = m_VisitResultProperties;
+    }
+    void HTMLReferenceSolver::Visit(UnresolvedReference const& Ref)
+    {
+       m_VisitResultProperties = "#\" style=\"color: red;";
+       m_VisitResultText = Ref.ReferenceString;
+    }
+    std::string HTMLReferenceSolver::GetReferenceString(DocReference const& ReferenceIdentifier)
     {
         std::string ReturnValue = "<a href=\"";
-        MBError OutResult = true; 
-        DocumentPath ReferencePath = m_AssociatedBuild->ResolveReference(m_CurrentPath, ReferenceIdentifier.Identifier, OutResult);
-        if (OutResult)
+        ReferenceIdentifier.Accept(*this);
+        ReturnValue += m_VisitResultProperties;
+        ReturnValue += "\">";
+        if(ReferenceIdentifier.VisibleText != "")
         {
-            std::string Path = GetDocumentPathURL(ReferencePath);
-            ReturnValue += Path;
-            ReturnValue += "\">";
-            if (ReferenceIdentifier.VisibleText == "")
-            {
-                ReturnValue += ReferencePath.GetString();
-            }
-            else
-            {
-                ReturnValue += ReferenceIdentifier.VisibleText;
-            }
+            ReturnValue += h_EscapeHTMLText(ReferenceIdentifier.VisibleText);    
         }
         else
         {
-            ReturnValue += "#\" style=\"color: red;\">"+h_EscapeHTMLText(ReferenceIdentifier.VisibleText);
+            ReturnValue += h_EscapeHTMLText(m_VisitResultText);    
         }
         ReturnValue += "</a>";
         return(ReturnValue);
@@ -2718,7 +2608,7 @@ ParseOffset--;
         p_ToggleOpen(NewPath);
         m_PreviousOpen = NewPath;
     }
-    void HTMLNavigationCreator::p_WriteDirectory(MBUtility::MBOctetOutputStream& OutStream, HTMLReferenceSolver const& ReferenceSolver,Directory const& DirectoryToWrite) const
+    void HTMLNavigationCreator::p_WriteDirectory(MBUtility::MBOctetOutputStream& OutStream, HTMLReferenceSolver& ReferenceSolver,Directory const& DirectoryToWrite) const
     {
         std::string ElementHeader = "<details";
         if(DirectoryToWrite.Open)
@@ -2757,7 +2647,7 @@ ParseOffset--;
         OutStream.Write("</ul>", 5);
         OutStream.Write("</details>",10);
     }
-    void HTMLNavigationCreator::p_WriteFile(MBUtility::MBOctetOutputStream& OutStream, HTMLReferenceSolver const& ReferenceSolver,File const& FileToWrite) const
+    void HTMLNavigationCreator::p_WriteFile(MBUtility::MBOctetOutputStream& OutStream, HTMLReferenceSolver& ReferenceSolver,File const& FileToWrite) const
     {
         std::string ElementData = "<a href=\""+ ReferenceSolver.GetDocumentPathURL(FileToWrite.Path) +"\" ";
         ElementData += ">";
@@ -2787,7 +2677,7 @@ ParseOffset--;
 
         std::cout.flush();
     }
-    void HTMLNavigationCreator::WriteTableDiv(MBUtility::MBOctetOutputStream& OutStream, HTMLReferenceSolver const& ReferenceSolver) const
+    void HTMLNavigationCreator::WriteTableDiv(MBUtility::MBOctetOutputStream& OutStream, HTMLReferenceSolver& ReferenceSolver) const
     {
         std::string ElementHeader = "<div style=\"width: 30%; display: inline-block\">";
         OutStream.Write(ElementHeader.data(),ElementHeader.size()); 
@@ -2817,7 +2707,7 @@ ParseOffset--;
         }
         return(ReturnValue);
     }
-    void HTMLCompiler::p_EnterText(TextElement const& ElementToEnter)
+    void HTMLCompiler::EnterText(TextElement const& ElementToEnter)
     {
         TextModifier Modifiers = ElementToEnter.Modifiers;
         if ((Modifiers & TextModifier::Bold) != TextModifier::Null)
@@ -2829,7 +2719,7 @@ ParseOffset--;
             m_OutStream->Write("<i>", 3);
         }
     }
-    void HTMLCompiler::p_LeaveText(TextElement const& ElementToLeave)
+    void HTMLCompiler::LeaveText(TextElement const& ElementToLeave)
     {
         if ((ElementToLeave.Modifiers & TextModifier::Bold) != TextModifier::Null)
         {
@@ -2838,41 +2728,6 @@ ParseOffset--;
         if ((ElementToLeave.Modifiers & TextModifier::Italic) != TextModifier::Null)
         {
             m_OutStream->Write("</i>", 4);
-        }
-    }
-    void HTMLCompiler::p_CompileText(std::vector<std::unique_ptr<TextElement>> const& ElementsToCompile,HTMLReferenceSolver const& HTMLReferenceSolverReferenceSolver,MBUtility::MBOctetOutputStream& OutStream)
-    {
-        for(std::unique_ptr<TextElement> const& Text : ElementsToCompile)
-        {
-            TextModifier Modifiers = Text->Modifiers;
-            if ((Modifiers & TextModifier::Bold) != TextModifier::Null)
-            {
-                OutStream.Write("<b>", 3);
-            }
-            if ((Modifiers & TextModifier::Italic) != TextModifier::Null)
-            {
-                OutStream.Write("<i>", 3);
-            }
-            if(Text->Type == TextElementType::Regular)
-            {
-                RegularText const& RegularTextElement= static_cast<RegularText const&>(*Text);
-                std::string TextToWrite = h_EscapeHTMLText(RegularTextElement.Text);
-                OutStream.Write(TextToWrite.data(),TextToWrite.size());
-            }
-            if (Text->Type == TextElementType::Reference)
-            {
-                DocReference const& ReferenceToWrite = static_cast<DocReference const&>(*Text);
-                std::string StringToWrite = HTMLReferenceSolverReferenceSolver.GetReferenceString(ReferenceToWrite);
-                OutStream.Write(StringToWrite.data(), StringToWrite.size());
-            }
-            if ((Modifiers & TextModifier::Bold) != TextModifier::Null)
-            {
-                OutStream.Write("</b>", 4);
-            }
-            if ((Modifiers & TextModifier::Italic) != TextModifier::Null)
-            {
-                OutStream.Write("</i>", 4);
-            }
         }
     }
     DocumentPath HTMLCompiler::p_GetUniquePath(std::string const& Extension)
@@ -2884,159 +2739,7 @@ ParseOffset--;
         m_ExportedElementsCount += 1;
         return(ReturnValue);
     }
-    void HTMLCompiler::p_CompileBlock(BlockElement const* BlockToCompile,std::filesystem::path const& SourcePath, HTMLReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream)
-    {
-        if(BlockToCompile->Type == BlockElementType::Paragraph)
-        {
-            if (BlockToCompile->Attributes.HasAttribute("Note"))
-            {
-                OutStream.Write("<mark>Note: </mark>", 19);
-            }
-            Paragraph const& ParagraphToWrite = static_cast<Paragraph const&>(*BlockToCompile);    
-            p_CompileText(ParagraphToWrite.TextElements,ReferenceSolver,OutStream); 
-            OutStream.Write("<br><br>\n\n", 10);
-        }
-        else if(BlockToCompile->Type == BlockElementType::CodeBlock)
-        {
-            OutStream.Write("<pre>", 5);
-            CodeBlock const& BlockToWrite = static_cast<CodeBlock const&>(*BlockToCompile);
-            OutStream.Write(BlockToWrite.RawText.data(), BlockToWrite.RawText.size());
-            OutStream.Write("</pre>", 6);
-        }
-        else if (BlockToCompile->Type == BlockElementType::MediaInclude)
-        {
-            MediaInclude const& MediaToInclude = (MediaInclude const&)*BlockToCompile;
-            std::filesystem::path MediaToIncludePath = SourcePath.parent_path()/MediaToInclude.MediaPath;
-            std::string CanonicalString = MBUnicode::PathToUTF8(std::filesystem::canonical(MediaToIncludePath));
-            DocumentPath& OutPath = m_MovedResources[CanonicalString];
-            std::string Extension;
-            size_t DotPosition = MediaToInclude.MediaPath.find_last_of('.');
-            if (DotPosition != MediaToInclude.MediaPath.npos)
-            {
-                Extension = MediaToInclude.MediaPath.substr(DotPosition + 1);
-            }
-            if (OutPath.Empty())
-            {
-                //need to actually move the path
-                OutPath = p_GetUniquePath(Extension);
-                if (!std::filesystem::exists(MediaToIncludePath))
-                {
-                    throw std::runtime_error("Can't find media to include: "+MediaToInclude.MediaPath);
-                }
-                std::filesystem::copy_options Options = std::filesystem::copy_options::overwrite_existing;
-                //innefficent, but / gets wacky with the std::filesystem 
-                //std::filesystem::copy(MediaToIncludePath, m_OutputDirectory / OutPath.GetString().substr(1),Options);
-            }
-            MBMIME::MediaType TypeToInclude = MBMIME::GetMediaTypeFromExtension(Extension);
-            if (TypeToInclude == MBMIME::MediaType::Video)
-            {
-                std::string TotalElementData = "<video src=\"" + ReferenceSolver.GetDocumentPathURL(OutPath) + "\" controls style=\"display: block; margin: auto\"></video>";
-                OutStream.Write(TotalElementData.data(), TotalElementData.size());
-            }
-            else if (TypeToInclude == MBMIME::MediaType::Image)
-            {
-                std::string TotalElementData = "<img src=\"" + ReferenceSolver.GetDocumentPathURL(OutPath) + "\" style=\"display: block; margin: auto\">";
-                OutStream.Write(TotalElementData.data(), TotalElementData.size());
-            }
-            else
-            {
-                throw std::runtime_error("Can't deduce valid media type from extension \"" + Extension + "\"");
-            }
-        }
-    }
-    void HTMLCompiler::p_CompileDirective(Directive const& DirectiveToCompile, HTMLReferenceSolver const& ReferenceSolver, MBUtility::MBOctetOutputStream& OutStream)
-    {
-        if (DirectiveToCompile.DirectiveName == "title")
-        {
-            if (DirectiveToCompile.Arguments.PositionalArgumentsCount() > 0)
-            {
-                std::string StringToWrite = "<h1 style=\"text-align: center;\">" + DirectiveToCompile.Arguments[0] + "</h1>\n";
-                OutStream.Write(StringToWrite.data(), StringToWrite.size());
-            }
-        }
-    }
-    void HTMLCompiler::p_CompileFormat(FormatElement const& FormatToCompile,std::filesystem::path const& SourcePath,
-        HTMLReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream,int Depth,
-        std::string const& NamePrefix)
-    {
-        std::string HeadingTag = "h"+std::to_string(Depth+2);
-        if(FormatToCompile.Type != FormatElementType::Default)
-        {
-            std::string StringToWrite = "<" + HeadingTag + " id=\"" + FormatToCompile.Name+"\" ";
-            if (Depth == 0)
-            {
-                StringToWrite += "style = \"text-align: center;\"";
-            }
-            StringToWrite += ">";
-            
-            StringToWrite += NamePrefix +" "+ FormatToCompile.Name + "</" + HeadingTag + "><br>\n";
-            
-            OutStream.Write(StringToWrite.data(),StringToWrite.size());
-        }
-        size_t FormatOffset = 1;
-        for(FormatElementComponent const& Component : FormatToCompile.Contents)
-        {
-            if(Component.GetType() == FormatComponentType::Directive)
-            {
-                p_CompileDirective(Component.GetDirectiveData(),ReferenceSolver,OutStream); 
-            }  
-            else if(Component.GetType() == FormatComponentType::Block)
-            {
-                p_CompileBlock(&Component.GetBlockData(),SourcePath,ReferenceSolver,OutStream);
-            }
-            else if(Component.GetType() == FormatComponentType::Format)
-            {
-                p_CompileFormat(Component.GetFormatData(),SourcePath,ReferenceSolver,OutStream,Depth+1,NamePrefix+"."+std::to_string(FormatOffset));
-                FormatOffset++;
-            }
-        } 
-    }
 
-
-    void HTMLCompiler::p_CompileSource(std::string const& OutPath, DocumentSource const& SourceToCompile, HTMLReferenceSolver const& ReferenceSolver,HTMLNavigationCreator const& NavigationCreator)
-    {
-        std::string OutFile = OutPath;
-        size_t FirstDot = OutFile.find_last_of('.');
-        if (FirstDot == OutFile.npos)
-        {
-            OutFile += ".html";
-        }
-        else
-        {
-            OutFile.replace(FirstDot, 5, ".html");
-        }
-        std::filesystem::path FilePath = OutPath;
-        if (!std::filesystem::exists(FilePath.parent_path()))
-        {
-            std::filesystem::create_directories(FilePath.parent_path());
-        }
-        std::ofstream OutStream = std::ofstream(OutFile);
-        if (!OutStream.is_open())
-        {
-            throw std::runtime_error("File not open");
-        }
-        MBUtility::MBFileOutputStream FileStream(&OutStream);
-        //std::string TopInfo = "<!DOCTYPE html><html><head><style>body{background-color: black; color: #00FF00;}</style></head><body><div style=\"width: 50%;margin: auto\">";
-        std::string TopInfo = "<!DOCTYPE html><html><head><style>body{background-color: black; color: #00FF00;}</style></head><body>";
-        OutStream.write(TopInfo.data(), TopInfo.size());
-        std::string TopFlex = "<div style=\"display: flex\">";
-        OutStream.write(TopFlex.data(), TopFlex.size());
-        NavigationCreator.WriteTableDiv(FileStream,ReferenceSolver);
-        
-        std::string ContentTop = "<div style=\"width: 80ch; display: inline-block; position: absolute; top: 0; left: 0; right: 0; bottom: 0; margin: auto;\">";
-        OutStream.write(ContentTop.data(),ContentTop.size());
-        size_t ElementIndex = 1;
-        for (FormatElement const& Format : SourceToCompile.Contents)
-        {
-            p_CompileFormat(Format,SourceToCompile.Path, ReferenceSolver, FileStream, 0, std::to_string(ElementIndex));
-            if (Format.Type != FormatElementType::Default)
-            {
-                ElementIndex++;
-            }
-        }
-        OutStream.write("</div></div></body></html>", 26);
-        OutStream.flush();
-    }
     void HTMLCompiler::CompileDocument(DocumentPath const& Path,DocumentSource const& Document)
     {
         m_NavigationCreator.SetOpen(Path);
@@ -3076,10 +2779,10 @@ ParseOffset--;
 
         m_FormatDepth = 0;
         m_FormatCounts.resize(0);
-        for (FormatElement const& Format : Document.Contents)
-        {
-            Visit(Format);
-        }
+
+        DocumentTraverser Traverser;
+        Traverser.Traverse(Document,*this);
+
         OutStream.write("</div></div></body></html>", 26);
         OutStream.flush();
     }
@@ -3147,25 +2850,29 @@ ParseOffset--;
         }
         m_OutStream->Write("<br><br>\n\n", 10);
     }
-    void HTMLCompiler::Visit(DocReference const& ReferenceToWrite)
+    void HTMLCompiler::Visit(URLReference const& BlockToVisit)
     {
-        p_EnterText(ReferenceToWrite);
-        std::string StringToWrite = m_ReferenceSolver.GetReferenceString(ReferenceToWrite);
+        std::string StringToWrite = m_ReferenceSolver.GetReferenceString(BlockToVisit);
         m_OutStream->Write(StringToWrite.data(), StringToWrite.size());
-        p_LeaveText(ReferenceToWrite);
+        
+    }
+    void HTMLCompiler::Visit(FileReference const& BlockToVisit)
+    {
+        std::string StringToWrite = m_ReferenceSolver.GetReferenceString(BlockToVisit);
+        m_OutStream->Write(StringToWrite.data(), StringToWrite.size());
+           
+    }
+    void HTMLCompiler::Visit(UnresolvedReference const& BlockToVisit)
+    {
+        std::string StringToWrite = m_ReferenceSolver.GetReferenceString(BlockToVisit);
+        m_OutStream->Write(StringToWrite.data(), StringToWrite.size());
     }
     void HTMLCompiler::Visit(RegularText const& RegularTextElement)
     {
-        p_EnterText(RegularTextElement);
         std::string TextToWrite = h_EscapeHTMLText(RegularTextElement.Text);
         m_OutStream->Write(TextToWrite.data(),TextToWrite.size());
-        p_LeaveText(RegularTextElement);
     }
-    void HTMLCompiler::Visit(BlockElement const& BlockToVisit)
-    {
-        BlockToVisit.Accept(*this);
-    }
-    void HTMLCompiler::Visit(FormatElement const& FormatToCompile)
+    void HTMLCompiler::EnterFormat(FormatElement const& FormatToCompile)
     {
         m_FormatDepth += 1;
         if(m_FormatCounts.size() < m_FormatDepth)
@@ -3187,15 +2894,14 @@ ParseOffset--;
 
             m_OutStream->Write(StringToWrite.data(),StringToWrite.size());
         }
-        for(FormatElementComponent const& Component : FormatToCompile.Contents)
-        {
-            Component.Accept(*this);
-        } 
-        m_FormatDepth += -1;
+    }
+    void HTMLCompiler::LeaveFormat(FormatElement const& ElementToEnter)
+    {
         if(m_FormatDepth + 1 < m_FormatCounts.size())
         {
             m_FormatCounts.pop_back();    
         }
+        m_FormatDepth += -1;
     }
     void HTMLCompiler::Visit(Directive const& DirectiveToCompile)
     {

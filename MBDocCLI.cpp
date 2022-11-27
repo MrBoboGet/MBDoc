@@ -115,7 +115,7 @@ namespace MBDoc
     {
         DocumentFilesystem ReturnValue; 
         MBError ParseResult = true;
-        ParseResult = DocumentFilesystem::CreateDocumentFilesystem(Build,&ReturnValue);
+        ParseResult = DocumentFilesystem::CreateDocumentFilesystem(Build,ReturnValue);
         if(!ParseResult)
         {
             m_AssociatedTerminal.PrintLine("Error creating build document filesystem: "+ParseResult.ErrorMessage);   

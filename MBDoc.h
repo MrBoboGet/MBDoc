@@ -58,17 +58,6 @@ namespace MBDoc
     //Implicit whitespace normalization, extra spaces and newlines aren't preserved, which means that a sequence of text elements are not ambigous   
 
     
-    enum class ReferenceType
-    {
-        Null,
-        URL,
-        MBDocIdentifier   
-    };
-    struct MBDocIdentifier
-    {
-        std::string LinkText;//Temp     
-    };
-    
     //Text elements
     enum class TextModifier
     {
@@ -116,6 +105,7 @@ namespace MBDoc
         TextModifier Modifiers;
         TextColor Color;
         void Accept(TextVisitor& Visitor) const;
+        virtual ~TextElement() {};
     };
     
     class ReferenceVisitor;
@@ -158,6 +148,8 @@ namespace MBDoc
         virtual void Visit(FileReference const& FileRef){};
         virtual void Visit(URLReference const& URLRef){};
         virtual void Visit(UnresolvedReference const& UnresolvedRef){};
+
+        virtual ~ReferenceVisitor() {};
     };
 
 
@@ -175,6 +167,9 @@ namespace MBDoc
     public:
         virtual void Visit(RegularText const& VisitedText){};
         virtual void Visit(DocReference const& VisitedText) {};
+
+
+        virtual ~TextVisitor() {};
     };
     //Text elements
     class AttributeList
@@ -202,6 +197,8 @@ namespace MBDoc
         BlockElementType Type = BlockElementType::Null;
         AttributeList Attributes;
         void Accept(BlockVisitor& Visitor) const;
+
+        virtual ~BlockElement(){};
     };
 
     struct Paragraph : BlockElement
@@ -236,6 +233,8 @@ namespace MBDoc
         virtual void Visit(Paragraph const& VisitedParagraph) {};
         virtual void Visit(MediaInclude const& VisitedMedia) {};
         virtual void Visit(CodeBlock const& CodeBlock) {};
+
+        virtual ~BlockVisitor() {};
     };
     //Block elements
    
@@ -290,12 +289,16 @@ namespace MBDoc
         FormatElementComponent() {};
 
         FormatElementComponent(FormatElementComponent&& ElementToSteal) noexcept;
+
         FormatElementComponent(FormatElementComponent const&) = delete;
-        FormatElementComponent& operator=(FormatElementComponent const&) = delete;
         
         FormatElementComponent(std::unique_ptr<BlockElement> BlockData);
         FormatElementComponent(Directive DirectiveData);
         FormatElementComponent(FormatElement DirectieData);
+
+        FormatElementComponent& operator=(FormatElementComponent FormatToCopy);
+
+        void SetAttributes(AttributeList NewAttributes);
         
         FormatComponentType GetType() const;
         BlockElement& GetBlockData();
@@ -318,13 +321,18 @@ namespace MBDoc
         AttributeList  Attributes;
         std::vector<FormatElementComponent> Contents;    
     };
+    
+    class DirectiveVisitor
+    {
+    public:
+        virtual void Visit(Directive const& DirectiveToVisit){};
+    };
 
-
-    class FormatVisitor
+    class FormatVisitor : public DirectiveVisitor
     {
     public: 
+        using DirectiveVisitor::Visit;
         virtual void Visit(BlockElement const& BlockToVisit) {};
-        virtual void Visit(Directive const& DirectiveToVisit){};
         virtual void Visit(FormatElement const& FormatToVisit){};
     };
 
@@ -360,29 +368,41 @@ namespace MBDoc
         std::unordered_set<std::string> ReferenceTargets;
         std::unordered_set<std::string> References;
         //TODO replace with FormatElementComponent
-        std::vector<FormatElement> Contents;
+        std::vector<FormatElementComponent> Contents;
+    };
+
+    class ReferenceResolver
+    {
+    public: 
+        virtual void ResolveReference(std::unique_ptr<TextElement>& ReferenceToResolve) {};
+
+        virtual ~ReferenceResolver(){};
     };
 
 
-
-    class DocumentVisitor : public BlockVisitor, public TextVisitor, public ReferenceVisitor
+    class DocumentVisitor : public BlockVisitor, public TextVisitor, public ReferenceVisitor,public DirectiveVisitor,public ReferenceResolver
     {
     public:
         using BlockVisitor::Visit;
         using TextVisitor::Visit;
         using ReferenceVisitor::Visit;
+        using DirectiveVisitor::Visit;
         virtual void EnterFormat(FormatElement const& FormatToEnter) {};
         virtual void LeaveFormat(FormatElement const& FormatToLeave) {};
 
         virtual void EnterBlock(BlockElement const& BlockToEnter) {};
         virtual void LeaveBlock(BlockElement const& BlockToLeave) {};
 
-        virtual void EnterText(TextVisitor const& TextToEnter) {};
+        virtual void EnterText(TextElement const& TextToEnter) {};
         virtual void LeaveText(TextElement const& TextToLeave) {};
+
+        virtual ~DocumentVisitor(){};
     };
     
     class DocumentTraverser : DocumentVisitor, FormatVisitor
     {
+    private:
+
         void Visit(BlockElement const& BlockToVisit) override;
         void Visit(Directive const& DirectiveToVisit)override;
         void Visit(FormatElement const& FormatToVisit)override;
@@ -397,8 +417,8 @@ namespace MBDoc
         void Visit(FileReference const& FileRef) override;
         void Visit(URLReference const& URLRef) override;
         void Visit(UnresolvedReference const& UnresolvedRef) override;
-
-        DocumentVisitor* m_AssociatedVisitor;
+        
+        DocumentVisitor* m_AssociatedVisitor = nullptr;
     public:     
         void Traverse(DocumentSource const& SourceToTraverse,DocumentVisitor& Vistor);
     };
@@ -425,7 +445,7 @@ namespace MBDoc
     class DocumentParsingContext
     {
     private:
-        DocReference p_ParseReference(void const* Data,size_t DataSize,size_t ParseOffset,size_t* OutParseOffset);
+        std::unique_ptr<TextElement> p_ParseReference(void const* Data,size_t DataSize,size_t ParseOffset,size_t* OutParseOffset);
         std::vector<std::unique_ptr<TextElement>> p_ParseTextElements(void const* Data,size_t DataSize,size_t ParseOffset,size_t* OutParseOffset);
         std::unique_ptr<BlockElement> p_ParseCodeBlock(LineRetriever& Retriever);
         std::unique_ptr<BlockElement> p_ParseMediaInclude(LineRetriever& Retriever);
@@ -435,9 +455,17 @@ namespace MBDoc
         ArgumentList p_ParseArgumentList(void const* Data,size_t DataSize,size_t InOffset);
         Directive p_ParseDirective(LineRetriever& Retriever);
         //Incredibly ugly, but the alternative for the current syntax is to include 2 lines look ahead
-        FormatElement p_ParseFormatElement(LineRetriever& Retriever,AttributeList* OutCurrentList);
-        std::vector<FormatElement> p_ParseFormatElements(LineRetriever& Retriever);
+        FormatElementComponent p_ParseFormatElement(LineRetriever& Retriever,AttributeList* OutCurrentList);
+        std::vector<FormatElementComponent> p_ParseFormatElements(LineRetriever& Retriever);
         
+        class ReferenceExtractor : public MBDoc::DocumentVisitor
+        {
+        public:
+            std::unordered_set<std::string> Targets;
+            std::unordered_set<std::string> References;
+            void EnterFormat(FormatElement const& Format) override;
+            void Visit(UnresolvedReference const& Ref) override;
+        };
         static void p_UpdateReferences(DocumentSource& SourceToModify);
     public:
         DocumentSource ParseSource(MBUtility::MBOctetInputStream& InputStream,std::string FileName,MBError& OutError);
@@ -571,7 +599,7 @@ namespace MBDoc
         void NextDirectory(); 
     };
 
-    class DocumentFilesystem
+    class DocumentFilesystem 
     {
     public:
         //struct BuildDirectory
@@ -582,6 +610,7 @@ namespace MBDoc
         //};
     private:
         friend class DocumentFilesystemIterator;
+        friend class DocumentFilesystemReferenceResolver;
 
         std::unordered_map<std::string,DocumentPath> m_CachedPathsConversions;
 
@@ -594,7 +623,18 @@ namespace MBDoc
             IndexType Index = -1;
         };
         
-        
+        class DocumentFilesystemReferenceResolver : public MBDoc::DocumentVisitor
+        {
+        private:
+            DocumentFilesystem* m_AssociatedFilesystem = nullptr;
+            DocumentPath m_CurrentPath;
+            std::unique_ptr<TextElement> m_Result;
+            bool m_ShouldUpdate = false;
+        public:
+            void Visit(UnresolvedReference const& Ref) override;
+            DocumentFilesystemReferenceResolver(DocumentFilesystem* AssociatedFilesystem,DocumentPath CurrentPath);
+            void ResolveReference(std::unique_ptr<TextElement>& ReferenceToResolve) override;
+        };
         
         IndexType p_DirectorySubdirectoryIndex(IndexType DirectoryIndex,std::string const& SubdirectoryName) const;
         IndexType p_DirectoryFileIndex(IndexType DirectoryIndex,std::string const& FileName) const;
@@ -616,7 +656,6 @@ namespace MBDoc
         DocumentDirectoryInfo p_UpdateOverDirectory(DocumentBuild const& Directory,IndexType FileIndexBegin,IndexType DirectoryIndex);
 
         void __PrintDirectoryStructure(DocumentDirectoryInfo const& CurrentDir,int Depth) const;
-
 
 
         void p_ResolveReferences();
@@ -647,50 +686,19 @@ namespace MBDoc
 
     
 
-    class MarkdownReferenceSolver 
+    class HTMLReferenceSolver : public ReferenceVisitor
     {
     private:
-        struct Heading 
-        {
-            std::string Name;
-            std::vector<Heading> SubHeaders;
-        };
-        std::vector<Heading> m_Headings;
-        std::unordered_set<std::string> m_HeadingNames;
-
-        void p_WriteToc(Heading const& CurrentHeading,MBUtility::MBOctetOutputStream& OutStream, size_t Depth) const;
-        Heading p_CreateHeading(FormatElement const& Format);
-    public:
-        std::string GetReferenceString(DocReference const& ReferenceIdentifier) const;
-        void CreateTOC(MBUtility::MBOctetOutputStream& OutStream) const;
-        
-        void Initialize(DocumentSource const& Documents);
-    };
-
-    class MarkdownCompiler
-    {
-    private:
-        
-
-        void p_CompileText(std::vector<std::unique_ptr<TextElement>> const& ElementsToCompile,MarkdownReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream);
-        void p_CompileBlock(BlockElement const* BlockToCompile, MarkdownReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream);
-        void p_CompileDirective(Directive const& DirectiveToCompile, MarkdownReferenceSolver const& ReferenceSolver, MBUtility::MBOctetOutputStream& OutStream);
-        void p_CompileFormat(FormatElement const& SourceToCompile, MarkdownReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream,int Depth);
-        void p_CompileSource(DocumentSource const& SourceToCompile, MarkdownReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream);
-
-        MarkdownReferenceSolver p_CreateReferenceSolver(DocumentSource const& Source);
-    public:
-        virtual void Compile(std::vector<DocumentSource> const& Sources);
-        //void Compile(DocumentFilesystem const& BuildToCompile,CommonCompilationOptions const& Options) override; 
-    };
-    class HTMLReferenceSolver
-    {
-    private:
+        std::string m_VisitResultProperties;
+        std::string m_VisitResultText;
         DocumentFilesystem const* m_AssociatedBuild = nullptr;
         DocumentPath m_CurrentPath;
     public:
-        std::string GetReferenceString(DocReference const& ReferenceIdentifier) const;
-        std::string GetDocumentPathURL(DocumentPath const& PathToConvert) const;
+        void Visit(URLReference const& Ref) override;
+        void Visit(FileReference const& Ref) override;
+        void Visit(UnresolvedReference const& Ref) override;
+        std::string GetReferenceString(DocReference const& ReferenceIdentifier);
+        std::string GetDocumentPathURL(DocumentPath const& PathToConvert);
         //Holds a reference to the build for the duration
         void SetCurrentPath(DocumentPath CurrentPath);
         void Initialize(DocumentFilesystem const* Build);
@@ -725,8 +733,8 @@ namespace MBDoc
         Directory m_TopDirectory;
         
         static Directory p_CreateDirectory(DocumentFilesystemIterator& FileIterator); 
-        void p_WriteDirectory(MBUtility::MBOctetOutputStream& OutStream,HTMLReferenceSolver const& ReferenceSolver,Directory const& DirectoryToWrite) const; 
-        void p_WriteFile(MBUtility::MBOctetOutputStream& OutStream, HTMLReferenceSolver const& ReferenceSolver,File const& DirectoryToWrite) const;
+        void p_WriteDirectory(MBUtility::MBOctetOutputStream& OutStream,HTMLReferenceSolver& ReferenceSolver,Directory const& DirectoryToWrite) const; 
+        void p_WriteFile(MBUtility::MBOctetOutputStream& OutStream, HTMLReferenceSolver& ReferenceSolver,File const& DirectoryToWrite) const;
         //void p_WriteTopDirectory(
         void p_ToggleOpen(DocumentPath const& PathToToggle);
 
@@ -736,13 +744,13 @@ namespace MBDoc
         HTMLNavigationCreator(DocumentFilesystem const& FilesystemToInspect);
         void SetOpen(DocumentPath NewPath);
         void SetCurrentPath(DocumentPath CurrentPath);
-        void WriteTableDiv(MBUtility::MBOctetOutputStream& OutStream, HTMLReferenceSolver const& ReferenceSolver) const;
+        void WriteTableDiv(MBUtility::MBOctetOutputStream& OutStream, HTMLReferenceSolver& ReferenceSolver) const;
 
         void __PrintDirectoryStructure() const;
     };
 
     //Share common data, pointless to move every time
-    class HTMLCompiler : public DocumentCompiler, public BlockVisitor, public TextVisitor, public FormatVisitor
+    class HTMLCompiler : public DocumentVisitor, public DocumentCompiler
     {
     private:
         
@@ -759,28 +767,25 @@ namespace MBDoc
         std::string p_GetNumberLabel(int FormatDepth);
         std::unique_ptr<MBUtility::MBOctetOutputStream> m_OutStream;
         
-        void p_CompileText(std::vector<std::unique_ptr<TextElement>> const& ElementsToCompile,HTMLReferenceSolver const& HTMLReferenceSolverReferenceSolver,MBUtility::MBOctetOutputStream& OutStream);
-        void p_CompileBlock(BlockElement const* BlockToCompile,std::filesystem::path const& SourcePath, HTMLReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream);
-        void p_CompileDirective(Directive const& DirectiveToCompile, HTMLReferenceSolver const& ReferenceSolver, MBUtility::MBOctetOutputStream& OutStream);
-        void p_CompileFormat(FormatElement const& SourceToCompile,std::filesystem::path const& SourcePath, HTMLReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream,int Depth
-            ,std::string const& NamePrefix);
-        void p_CompileSource(std::string const& OutPath,DocumentSource const& SourceToCompile, HTMLReferenceSolver const&  ReferenceSolver,HTMLNavigationCreator const& NavigationCreator);
-
-         
-        void p_EnterText(TextElement const& ElementToEnter); 
-        void p_LeaveText(TextElement const& ElementToEnter); 
     public:
         HTMLCompiler();
         
+        void EnterText(TextElement const& ElementToEnter) override; 
+        void LeaveText(TextElement const& ElementToEnter) override; 
+
+        void EnterFormat(FormatElement const& ElementToEnter) override; 
+        void LeaveFormat(FormatElement const& ElementToEnter) override; 
+
         void Visit(CodeBlock const& BlockToVisit) override;
         void Visit(MediaInclude const& BlockToVisit) override;
         void Visit(Paragraph const& BlockToVisit) override;
 
-        void Visit(DocReference const& BlockToVisit) override;
+        void Visit(URLReference const& BlockToVisit) override;
+        void Visit(FileReference const& BlockToVisit) override;
+        void Visit(UnresolvedReference const& BlockToVisit) override;
+
         void Visit(RegularText const& BlockToVisit) override;
 
-        void Visit(BlockElement const& BlockToVisit) override;
-        void Visit(FormatElement const& BlockToVisit) override;
         void Visit(Directive const& BlockToVisit) override;
         //void Compile(DocumentFilesystem const& BuildToCompile,CommonCompilationOptions const& Options) override; 
         void AddOptions(CommonCompilationOptions const& Options) override;
