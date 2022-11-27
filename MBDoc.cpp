@@ -144,7 +144,7 @@ namespace MBDoc
     {
         if(m_Type == FormatComponentType::Block)
         {
-            GetFormatData().Attributes = std::move(NewAttributes); 
+            GetBlockData().Attributes = std::move(NewAttributes); 
         } 
         else if(m_Type == FormatComponentType::Format)
         {
@@ -2844,11 +2844,13 @@ ParseOffset--;
         {
             m_OutStream->Write("<mark>Note: </mark>", 19);
         }
-        for(auto const& Text : ParagraphToWrite.TextElements)
+    }
+    void HTMLCompiler::LeaveBlock(BlockElement const& BlockToLeave)
+    {
+        if(BlockToLeave.Type == BlockElementType::Paragraph)
         {
-            Text->Accept(*this);
+            m_OutStream->Write("<br><br>\n\n", 10);
         }
-        m_OutStream->Write("<br><br>\n\n", 10);
     }
     void HTMLCompiler::Visit(URLReference const& BlockToVisit)
     {

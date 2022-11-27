@@ -681,6 +681,8 @@ namespace MBDoc
         virtual void AddOptions(CommonCompilationOptions const& CurrentOptions) = 0;
         virtual void PeekDocumentFilesystem(DocumentFilesystem const& FilesystemToCompile) = 0;
         virtual void CompileDocument(DocumentPath const& DocumentPath,DocumentSource const& DocumentToCompile) = 0;
+
+        virtual ~DocumentCompiler() {};
         //virtual void Compile(DocumentFilesystem const& FilesystemToCompile,CommonCompilationOptions const& Options) = 0;
     };
 
@@ -775,6 +777,8 @@ namespace MBDoc
 
         void EnterFormat(FormatElement const& ElementToEnter) override; 
         void LeaveFormat(FormatElement const& ElementToEnter) override; 
+
+        void LeaveBlock(BlockElement const& BlockToLeave) override;
 
         void Visit(CodeBlock const& BlockToVisit) override;
         void Visit(MediaInclude const& BlockToVisit) override;
