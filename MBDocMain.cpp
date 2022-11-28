@@ -81,9 +81,9 @@ int Test()
 
 int main(int argc,const char** argv)
 {
-    //const char* NewArgv[] = { "mbdoc","C:\\Users\\emanu\\Desktop\\Program\\C++\\MBPM_INSTALL_DIRECTORY\\Extensions\\MBDoc\\MBDocBuild.json","-f:html","-o:../../OutTraverse" };
-    //argc = sizeof(NewArgv) / sizeof(const char*);
-    //argv = NewArgv;
+    const char* NewArgv[] = { "mbdoc","C:\\Users\\emanu\\Desktop\\Program\\C++\\MBPM_INSTALL_DIRECTORY\\Extensions\\MBDoc\\MBDocBuild.json","-f:html","-o:../../OutTraverse" };
+    argc = sizeof(NewArgv) / sizeof(const char*);
+    argv = NewArgv;
     MBDoc::DocCLI CLI;
     CLI.Run(argv, argc);
 }

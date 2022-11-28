@@ -1774,6 +1774,10 @@ ParseOffset--;
     IndexType DocumentFilesystem::p_DirectorySubdirectoryIndex(IndexType DirectoryIndex,std::string const& SubdirectoryName) const
     {
         IndexType ReturnValue = 0; 
+        if(SubdirectoryName == "..")
+        {
+            return(m_DirectoryInfos[DirectoryIndex].ParentDirectoryIndex);
+        }
         DocumentDirectoryInfo const& DirectoryInfo = m_DirectoryInfos[DirectoryIndex];
         if(DirectoryInfo.DirectoryIndexEnd - DirectoryInfo.DirectoryIndexBegin== 0)
         {
@@ -1795,7 +1799,7 @@ ParseOffset--;
                 ReturnValue = Index;
             }
         }
-        return(ReturnValue); return(ReturnValue);
+        return(ReturnValue);
     }
     IndexType DocumentFilesystem::p_DirectoryFileIndex(IndexType DirectoryIndex,std::string const& FileName) const
     {
@@ -2944,7 +2948,11 @@ ParseOffset--;
         {
             m_FormatCounts.pop_back();    
         }
-        m_FormatDepth += -1;
+        if(m_FormatDepth < m_FormatCounts.size())
+        {
+            m_FormatCounts[m_FormatDepth] = 0;   
+        }
+        m_FormatDepth -= 1;
     }
     void HTMLCompiler::Visit(Directive const& DirectiveToCompile)
     {
