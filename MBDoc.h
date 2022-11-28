@@ -263,13 +263,6 @@ namespace MBDoc
     //Format elements 
     //Starts with #, default new section name
     //optionally ends with /#
-    enum class FormatElementType
-    {
-        Null,
-        Section,
-        Default,
-        Anchor
-    };
 
     enum class FormatComponentType
     {
@@ -316,7 +309,6 @@ namespace MBDoc
         FormatElement(FormatElement &&) = default;
         FormatElement(FormatElement const&) = delete;
         FormatElement() {};
-        FormatElementType Type = FormatElementType::Null;
         std::string Name;
         AttributeList  Attributes;
         std::vector<FormatElementComponent> Contents;    

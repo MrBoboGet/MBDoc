@@ -707,13 +707,19 @@ ParseOffset--;
         }
         return(ReturnValue);   
     }
+    enum class i_FormatType
+    {
+        Null,
+        Regular,
+        SubFormat,
+        TopSubFormat      
+    };
     FormatElementComponent DocumentParsingContext::p_ParseFormatElement(LineRetriever& Retriever,AttributeList* OutAttributes)
     {
-        bool IsFormat = false;
         FormatElement TopFormat;
         FormatElementComponent ReturnValue;
         size_t CurrentElementCount = 0;
-        bool IsTopElement = false;
+        i_FormatType Type = i_FormatType::Null;
         //Determine which kind of format element
         while(!Retriever.Finished())
         {
@@ -731,12 +737,30 @@ ParseOffset--;
                     Retriever.DiscardLine();
                     continue;   
                 }
+                if(FirstNonEmptyCharacter+1 < CurrentLine.size() && 
+                    (std::memcmp(&CurrentLine[FirstNonEmptyCharacter],"/_",2) == 0 || 
+                     std::memcmp(&CurrentLine[FirstNonEmptyCharacter],"/#",2) == 0))
+                {
+                    if(std::memcmp(&CurrentLine[FirstNonEmptyCharacter],"/_",2) == 0)
+                    {
+                        throw std::runtime_error("Missmatched #_ /_ pair");
+                    }
+                    if(std::memcmp(&CurrentLine[FirstNonEmptyCharacter],"/#",2) == 0)
+                    {
+                        throw std::runtime_error("Missmatched _# /# pair");
+                    }
+                }
                 if(CurrentLine[FirstNonEmptyCharacter] == '#' || CurrentLine[FirstNonEmptyCharacter] == '_')
                 {
                     //Is a specified format    
-                    if(FirstNonEmptyCharacter+1 < CurrentLine.size() && CurrentLine[FirstNonEmptyCharacter+1] == '_')
+                    Type = i_FormatType::Regular;
+                    if(CurrentLine[FirstNonEmptyCharacter] == '_')
                     {
-                        IsTopElement = true;
+                        Type = i_FormatType::SubFormat; 
+                    }
+                    else if(FirstNonEmptyCharacter+1 < CurrentLine.size() && CurrentLine[FirstNonEmptyCharacter+1] == '_')
+                    {
+                        Type = i_FormatType::TopSubFormat;
                         FirstNonEmptyCharacter+=1; 
                     }
                     if (CurrentLine[FirstNonEmptyCharacter] == '_')
@@ -757,7 +781,6 @@ ParseOffset--;
                         throw std::runtime_error("Invalid format element name, empty string not allowed");   
                     }
                     Retriever.DiscardLine();
-                    IsFormat = true;
                     break;
                 }
                 else
@@ -782,12 +805,13 @@ ParseOffset--;
                 Retriever.DiscardLine();
                 continue;     
             }
+            //Kinda ugly, this whole function deserve a complete overhaul
             bool ParseChildFormat = false;
-            if(CurrentLine[ParseOffset] == '#' && !IsTopElement)
+            if(CurrentLine[ParseOffset] == '#' && Type == i_FormatType::Regular)
             {
                 break;   
             }
-            if (CurrentLine[ParseOffset] == '#' && IsTopElement)
+            if (CurrentLine[ParseOffset] == '#')
             {
                 ParseChildFormat = true;
             }
@@ -795,8 +819,29 @@ ParseOffset--;
             {
                 if(std::memcmp(CurrentLine.data()+ParseOffset,"/#",2) == 0)
                 {
+                    if(Type == i_FormatType::Regular)
+                    {
+                        break;
+                    }
+                    if(Type != i_FormatType::SubFormat)
+                    {
+                        throw std::runtime_error("Missmatched _# /# pair");    
+                    }
                     Retriever.DiscardLine();
                     break;   
+                }
+                if (std::memcmp(CurrentLine.data() + ParseOffset, "/_", 2) == 0)
+                {
+                    if(Type == i_FormatType::Regular)
+                    {
+                        break;
+                    }
+                    if (Type != i_FormatType::TopSubFormat)
+                    {
+                        throw std::runtime_error("Missmatched #_ /_ pair");    
+                    }
+                    Retriever.DiscardLine();
+                    break;
                 }
                 if(std::memcmp(CurrentLine.data()+ParseOffset,"[[",2) == 0)
                 {
@@ -809,22 +854,12 @@ ParseOffset--;
                 }
                 if (std::memcmp(CurrentLine.data() + ParseOffset, "#_", 2) == 0)
                 {
-                    if (IsTopElement)
+                    //#_ break for regular # sections
+                    if(Type == i_FormatType::Regular)
                     {
-                        ParseChildFormat = true;
+                        break;   
                     }
-                    else 
-                    {
-                        break;
-                    }
-                }
-                if (std::memcmp(CurrentLine.data() + ParseOffset, "/_", 2) == 0)
-                {
-                    if (IsTopElement)
-                    {
-                        Retriever.DiscardLine();
-                    }
-                    break;
+                    ParseChildFormat = true;
                 }
             }
             if (ParseChildFormat)
@@ -860,7 +895,7 @@ ParseOffset--;
                 NewBlockElement->Attributes = CurrentAttributes; 
                 CurrentAttributes.Clear();
             }
-            if(IsFormat)
+            if(Type != i_FormatType::Null)
             {
                 TopFormat.Contents.push_back(FormatElementComponent(std::move(NewBlockElement)));
                 CurrentElementCount += 1; 
@@ -873,7 +908,7 @@ ParseOffset--;
         }
         *OutAttributes = CurrentAttributes;
 
-        if(IsFormat)
+        if(Type != i_FormatType::Null)
         {
             return(TopFormat);    
         }
@@ -892,18 +927,6 @@ ParseOffset--;
         {
             AttributeList NewAttributes;
             ReturnValue.push_back(p_ParseFormatElement(Retriever,&NewAttributes));
-            std::string const& CurrentLine = Retriever.PeekLine();
-            size_t FirstCharacter = 0;
-            MBParsing::SkipWhitespace(CurrentLine, 0, &FirstCharacter);
-            bool IsInvalidBeginning = false;
-            if (FirstCharacter + 1 < CurrentLine.size())
-            {
-                IsInvalidBeginning = std::memcmp(CurrentLine.data() + FirstCharacter, "/_", 2) == 0;
-            }
-            if (Retriever.Finished() == false && IsInvalidBeginning)
-            {
-                throw std::runtime_error("Missmatched #_ and  /_ pair");
-            }
             if(CurrentAttributes.IsEmpty() == false)
             {
                 ReturnValue.back().SetAttributes(CurrentAttributes);
@@ -2883,8 +2906,8 @@ ParseOffset--;
         }
         m_FormatCounts[m_FormatDepth-1] += 1;
         std::string HeadingTag = "h"+std::to_string(m_FormatDepth);
-        if(FormatToCompile.Type != FormatElementType::Default)
-        {
+        //if(FormatToCompile.Type != FormatElementType::Default)
+        //{
             std::string StringToWrite = "<" + HeadingTag + " id=\"" + FormatToCompile.Name+"\" ";
             if (m_FormatDepth == 1)
             {
@@ -2895,7 +2918,7 @@ ParseOffset--;
             StringToWrite += p_GetNumberLabel(m_FormatDepth) +" "+ FormatToCompile.Name + "</" + HeadingTag + "><br>\n";
 
             m_OutStream->Write(StringToWrite.data(),StringToWrite.size());
-        }
+        //}
     }
     void HTMLCompiler::LeaveFormat(FormatElement const& ElementToEnter)
     {
