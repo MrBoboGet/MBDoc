@@ -218,6 +218,10 @@ namespace MBDoc
         {
             Visitor.Visit(GetDirectiveData());
         }
+        else 
+        {
+            assert(false);
+        }
     }
     FormatElementComponent::~FormatElementComponent()
     {
@@ -885,9 +889,17 @@ ParseOffset--;
                 {
                     throw std::runtime_error("Attribute list not allowed for directives");   
                 }
-                TopFormat.Contents.push_back(FormatElementComponent(p_ParseDirective(Retriever)));
-                CurrentElementCount += 1;
-                continue;
+                if (Type != i_FormatType::Null)
+                {
+                    TopFormat.Contents.push_back(FormatElementComponent(p_ParseDirective(Retriever)));
+                    CurrentElementCount += 1;
+                    continue;
+                }
+                else 
+                {
+                    ReturnValue = FormatElementComponent(p_ParseDirective(Retriever));
+                    break;
+                }
             }
             std::unique_ptr<BlockElement> NewBlockElement = p_ParseBlockElement(Retriever);
             if(CurrentAttributes.IsEmpty() == false)
@@ -927,6 +939,12 @@ ParseOffset--;
         {
             AttributeList NewAttributes;
             ReturnValue.push_back(p_ParseFormatElement(Retriever,&NewAttributes));
+            //ASSUMPTION the only situation where no rule matches is when the remaining data is whitespace
+            if (ReturnValue.back().GetType() == FormatComponentType::Null)
+            {
+                ReturnValue.pop_back();
+                break;
+            }
             if(CurrentAttributes.IsEmpty() == false)
             {
                 ReturnValue.back().SetAttributes(CurrentAttributes);
