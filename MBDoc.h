@@ -11,10 +11,12 @@
 #include <MBUtility/MBInterfaces.h>
 #include <unordered_set>
 #include <variant>
-
+#include <assert.h>
 
 #include "MBCLI/MBCLI.h"
 #include "MBDoc.h"
+
+#include <MBUtility/Iterator.h>
 namespace MBDoc
 {
 
@@ -99,48 +101,57 @@ namespace MBDoc
         Custom,
     };
     class TextVisitor;
-    struct TextElement
+    struct TextElement_Base
     {
-        TextElementType Type;
         TextModifier Modifiers;
         TextColor Color;
-        void Accept(TextVisitor& Visitor) const;
-        virtual ~TextElement() {};
     };
-    
-    class ReferenceVisitor;
-    struct DocReference : TextElement
+
+    struct RegularText : TextElement_Base
     {
-        DocReference()
-        {
-            Type = TextElementType::Reference;
-        }
+        std::string Text;   
+    };
+
+    class ReferenceVisitor;
+    struct DocReference : public TextElement_Base
+    {
         //all references can be overriden with visible text, but may 
         //not neccesarilly be neccessary for references
         std::string VisibleText;
         virtual void Accept(ReferenceVisitor& Visitor) const = 0;
+        virtual ~DocReference()
+        {
+               
+        }
     };
 
     struct FileReference : public DocReference
     {
         DocumentPath Path;
         virtual void Accept(ReferenceVisitor& Visitor) const;
+        ~FileReference()
+        {
+               
+        }
     };
     struct URLReference : public DocReference
     {
         std::string URL; 
         virtual void Accept(ReferenceVisitor& Visitor) const;
+        ~URLReference()
+        {
+               
+        }
     };
     struct UnresolvedReference : public DocReference
     {
         std::string ReferenceString;         
         virtual void Accept(ReferenceVisitor& Visitor) const;
+        ~UnresolvedReference()
+        {
+               
+        }
     };
-    //Reference type suitable for parsing "scientific" references
-    //does require actually knowing how they are made in turn...
-    //struct BibTex : public DocReference
-    //{
-    //};
     
     class ReferenceVisitor
     {
@@ -152,15 +163,82 @@ namespace MBDoc
         virtual ~ReferenceVisitor() {};
     };
 
-
-    struct RegularText : TextElement
+    struct TextElement
     {
-        RegularText()
+
+    private:
+        std::variant<RegularText,std::unique_ptr<DocReference>> m_Content;
+    public:
+        template<typename T>
+        TextElement(T ValueToStore)
         {
-            Type = TextElementType::Regular;
+            m_Content = std::move(ValueToStore);
         }
-        std::string Text;   
+        template<typename T>
+        bool IsType() const
+        {
+            return(std::holds_alternative<T>(m_Content)); 
+        }
+        template<>
+        bool IsType<DocReference>() const
+        {
+            return(std::holds_alternative<std::unique_ptr<DocReference>>(m_Content)); 
+        }
+
+        template<typename T>
+        T const& GetType() const
+        {
+            return(std::get<T>(m_Content));    
+        }
+        template<>
+        DocReference const& GetType() const
+        {
+            return(*std::get<std::unique_ptr<DocReference>>(m_Content));    
+        }
+
+        template<typename T>
+        T& GetType() 
+        {
+            return(std::get<T>(m_Content));    
+        }
+        template<>
+        DocReference& GetType() 
+        {
+            return(*std::get<std::unique_ptr<DocReference>>(m_Content));    
+        }
+
+        TextElement_Base const& GetBase() const
+        {
+            if(IsType<DocReference>())
+            {
+                return(GetType<DocReference>());
+            } 
+            else if(IsType<RegularText>())
+            {
+                return(GetType<RegularText>());
+            }
+            assert(false && "GetBase doesn't cover all cases");
+            throw std::runtime_error("Invalid element stored in TextElement");
+        }
+        TextElement_Base& GetBase() 
+        {
+            if(IsType<DocReference>())
+            {
+                return(GetType<DocReference>());
+            } 
+            else if(IsType<RegularText>())
+            {
+                return(GetType<RegularText>());
+            }
+            assert(false && "GetBase doesn't cover all cases");
+            throw std::runtime_error("Invalid element stored in TextElement");
+        }
+        void Accept(TextVisitor& Visitor) const;
+        TextElement() {};
     };
+    
+
+
 
     class TextVisitor
     {
@@ -207,7 +285,7 @@ namespace MBDoc
         {
             Type = BlockElementType::Paragraph; 
         };
-        std::vector<std::unique_ptr<TextElement>> TextElements;//Can be sentences, text, inline references etc
+        std::vector<TextElement> TextElements;//Can be sentences, text, inline references etc
     };
     struct MediaInclude : BlockElement
     {
@@ -217,6 +295,57 @@ namespace MBDoc
         };
         std::string MediaPath;
     };
+    class DocumentParsingContext;
+    class ResolvedCodeText
+    {
+    private:
+        std::vector<std::vector<TextElement>> m_Rows;
+    protected:
+        friend DocumentParsingContext;
+        ResolvedCodeText(std::vector<std::vector<TextElement>> Content)
+        {
+            m_Rows = std::move(Content);   
+        }
+    public:     
+        ResolvedCodeText()
+        {
+               
+        }
+        //do not depend on the returned class, other than to use as an iterator
+        class RowIterator : public MBUtility::Iterator_Base<RowIterator,const std::vector<TextElement>>
+        {
+        private:
+            std::vector<std::vector<TextElement>>::const_iterator m_CurrentValue;
+            std::vector<std::vector<TextElement>>::const_iterator m_End;
+        public:
+            RowIterator(std::vector<std::vector<TextElement>>::const_iterator Begin,std::vector<std::vector<TextElement>>::const_iterator  End)
+            {
+                m_CurrentValue = std::move(Begin);    
+                m_End = std::move(End);
+            }
+            void Increment()
+            {
+                ++m_CurrentValue;
+            }
+            std::vector<TextElement> const& GetRef()
+            {
+                return(*m_CurrentValue);    
+            }
+            bool IsEqual(RowIterator const& RHS) const
+            {
+                return(m_CurrentValue == RHS.m_CurrentValue);
+            }
+        };
+        RowIterator begin() const
+        {
+            return(RowIterator(m_Rows.begin(),m_Rows.end()));    
+        }
+        RowIterator end() const
+        {
+            return(RowIterator(m_Rows.end(),m_Rows.end()));    
+        }
+    };
+
     struct CodeBlock : BlockElement 
     {
         CodeBlock() 
@@ -224,7 +353,7 @@ namespace MBDoc
             Type = BlockElementType::CodeBlock;
         }
         std::string CodeType;
-        std::string RawText;
+        std::variant<std::string,ResolvedCodeText> Content;
     };
 
     class BlockVisitor
@@ -366,7 +495,7 @@ namespace MBDoc
     class ReferenceResolver
     {
     public: 
-        virtual void ResolveReference(std::unique_ptr<TextElement>& ReferenceToResolve) {};
+        virtual void ResolveReference(TextElement& ReferenceToResolve) {};
 
         virtual ~ReferenceResolver(){};
     };
@@ -385,8 +514,8 @@ namespace MBDoc
         virtual void EnterBlock(BlockElement const& BlockToEnter) {};
         virtual void LeaveBlock(BlockElement const& BlockToLeave) {};
 
-        virtual void EnterText(TextElement const& TextToEnter) {};
-        virtual void LeaveText(TextElement const& TextToLeave) {};
+        virtual void EnterText(TextElement_Base const& TextToEnter) {};
+        virtual void LeaveText(TextElement_Base const& TextToLeave) {};
 
         virtual ~DocumentVisitor(){};
     };
@@ -437,8 +566,8 @@ namespace MBDoc
     class DocumentParsingContext
     {
     private:
-        std::unique_ptr<TextElement> p_ParseReference(void const* Data,size_t DataSize,size_t ParseOffset,size_t* OutParseOffset);
-        std::vector<std::unique_ptr<TextElement>> p_ParseTextElements(void const* Data,size_t DataSize,size_t ParseOffset,size_t* OutParseOffset);
+        TextElement p_ParseReference(void const* Data,size_t DataSize,size_t ParseOffset,size_t* OutParseOffset);
+        std::vector<TextElement> p_ParseTextElements(void const* Data,size_t DataSize,size_t ParseOffset,size_t* OutParseOffset);
         std::unique_ptr<BlockElement> p_ParseCodeBlock(LineRetriever& Retriever);
         std::unique_ptr<BlockElement> p_ParseMediaInclude(LineRetriever& Retriever);
         std::unique_ptr<BlockElement> p_ParseBlockElement(LineRetriever& Retriever);
@@ -620,12 +749,12 @@ namespace MBDoc
         private:
             DocumentFilesystem* m_AssociatedFilesystem = nullptr;
             DocumentPath m_CurrentPath;
-            std::unique_ptr<TextElement> m_Result;
+            TextElement m_Result;
             bool m_ShouldUpdate = false;
         public:
             void Visit(UnresolvedReference const& Ref) override;
             DocumentFilesystemReferenceResolver(DocumentFilesystem* AssociatedFilesystem,DocumentPath CurrentPath);
-            void ResolveReference(std::unique_ptr<TextElement>& ReferenceToResolve) override;
+            void ResolveReference(TextElement& ReferenceToResolve) override;
         };
         
         IndexType p_DirectorySubdirectoryIndex(IndexType DirectoryIndex,std::string const& SubdirectoryName) const;
@@ -676,116 +805,5 @@ namespace MBDoc
 
         virtual ~DocumentCompiler() {};
         //virtual void Compile(DocumentFilesystem const& FilesystemToCompile,CommonCompilationOptions const& Options) = 0;
-    };
-
-    
-
-    class HTMLReferenceSolver : public ReferenceVisitor
-    {
-    private:
-        std::string m_VisitResultProperties;
-        std::string m_VisitResultText;
-        DocumentFilesystem const* m_AssociatedBuild = nullptr;
-        DocumentPath m_CurrentPath;
-    public:
-        void Visit(URLReference const& Ref) override;
-        void Visit(FileReference const& Ref) override;
-        void Visit(UnresolvedReference const& Ref) override;
-        std::string GetReferenceString(DocReference const& ReferenceIdentifier);
-        std::string GetDocumentPathURL(DocumentPath const& PathToConvert);
-        //Holds a reference to the build for the duration
-        void SetCurrentPath(DocumentPath CurrentPath);
-        void Initialize(DocumentFilesystem const* Build);
-
-    };
-
-    class HTTPTocCreator
-    {
-    private:
-
-    public:
-        void Initialize(DocReference const& Document);   
-        void WriteTOC(MBUtility::MBOctetOutputStream& OutStream);
-    };
-    class HTMLNavigationCreator
-    {
-        struct File
-        {
-            std::string Name; 
-            DocumentPath Path;
-        };
-        struct Directory
-        {
-            std::string Name;
-            DocumentPath Path;
-            std::vector<File> Files;
-            std::vector<Directory> SubDirectories;
-            bool Open = false;
-        };
-        DocumentPath m_CurrentPath;
-        DocumentPath m_PreviousOpen;
-        Directory m_TopDirectory;
-        
-        static Directory p_CreateDirectory(DocumentFilesystemIterator& FileIterator); 
-        void p_WriteDirectory(MBUtility::MBOctetOutputStream& OutStream,HTMLReferenceSolver& ReferenceSolver,Directory const& DirectoryToWrite) const; 
-        void p_WriteFile(MBUtility::MBOctetOutputStream& OutStream, HTMLReferenceSolver& ReferenceSolver,File const& DirectoryToWrite) const;
-        //void p_WriteTopDirectory(
-        void p_ToggleOpen(DocumentPath const& PathToToggle);
-
-        void __PrintDirectoryStructure(Directory const& DirectoryToPrint,int Depth) const;
-    public:
-        HTMLNavigationCreator() {};
-        HTMLNavigationCreator(DocumentFilesystem const& FilesystemToInspect);
-        void SetOpen(DocumentPath NewPath);
-        void SetCurrentPath(DocumentPath CurrentPath);
-        void WriteTableDiv(MBUtility::MBOctetOutputStream& OutStream, HTMLReferenceSolver& ReferenceSolver) const;
-
-        void __PrintDirectoryStructure() const;
-    };
-
-    //Share common data, pointless to move every time
-    class HTMLCompiler : public DocumentVisitor, public DocumentCompiler
-    {
-    private:
-        
-        int m_ExportedElementsCount = 0;
-        DocumentPath p_GetUniquePath(std::string const& Extension);
-
-        std::unordered_map<std::string, DocumentPath> m_MovedResources = {};
-        CommonCompilationOptions m_CommonOptions;
-        HTMLReferenceSolver m_ReferenceSolver;        
-        HTMLNavigationCreator m_NavigationCreator;
-        int m_FormatDepth = 0;
-        std::vector<int> m_FormatCounts;
-        std::filesystem::path m_SourcePath;
-        std::string p_GetNumberLabel(int FormatDepth);
-        std::unique_ptr<MBUtility::MBOctetOutputStream> m_OutStream;
-        
-    public:
-        HTMLCompiler();
-        
-        void EnterText(TextElement const& ElementToEnter) override; 
-        void LeaveText(TextElement const& ElementToEnter) override; 
-
-        void EnterFormat(FormatElement const& ElementToEnter) override; 
-        void LeaveFormat(FormatElement const& ElementToEnter) override; 
-
-        void LeaveBlock(BlockElement const& BlockToLeave) override;
-
-        void Visit(CodeBlock const& BlockToVisit) override;
-        void Visit(MediaInclude const& BlockToVisit) override;
-        void Visit(Paragraph const& BlockToVisit) override;
-
-        void Visit(URLReference const& BlockToVisit) override;
-        void Visit(FileReference const& BlockToVisit) override;
-        void Visit(UnresolvedReference const& BlockToVisit) override;
-
-        void Visit(RegularText const& BlockToVisit) override;
-
-        void Visit(Directive const& BlockToVisit) override;
-        //void Compile(DocumentFilesystem const& BuildToCompile,CommonCompilationOptions const& Options) override; 
-        void AddOptions(CommonCompilationOptions const& Options) override;
-        void PeekDocumentFilesystem(DocumentFilesystem const& FilesystemToCompile) override;
-        void CompileDocument(DocumentPath const& Path,DocumentSource const& Document) override;
     };
 }

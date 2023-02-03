@@ -21,7 +21,8 @@
             [
                 "/MBDoc.cpp",
                 "/MBDocCLI.cpp",
-                "/MBDocMain.cpp"
+                "/MBDocMain.cpp",
+                "/Compilers/HTML.cpp"
             ],
             "TargetType":"Executable"
         },
@@ -31,7 +32,8 @@
             "Sources": 
             [
                 "/MBDoc.cpp",
-                "/MBDocCLI.cpp"
+                "/MBDocCLI.cpp",
+                "/Compilers/HTML.cpp"
             ],
             "TargetType":"Library"
         },
@@ -42,7 +44,8 @@
             [
                 "/MBDoc.cpp",
                 "/MBDocCLI.cpp",
-                "/MBDocTestMain.cpp"
+                "/MBDocTestMain.cpp",
+                "/Compilers/HTML.cpp"
             ],
             "TargetType":"Executable"
         }

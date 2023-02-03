@@ -9,6 +9,7 @@
 #include <cstring>
 
 #include "Compilers/RawTerminal.h"
+#include "Compilers/HTML.h"
 namespace MBDoc
 {
     bool DocCLI::p_VerifyArguments(MBCLI::ArgumentListCLIInput const& ArgumentsToVerfiy)

@@ -2,7 +2,7 @@
 #include "MBDoc.h"
 
 #include "MBDocCLI.h"
-
+#include "Compilers/HTML.h"
 int Test()
 {
     std::filesystem::current_path(std::filesystem::current_path().parent_path().parent_path());
