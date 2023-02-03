@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <filesystem>
+#include <stdint.h>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -85,8 +86,25 @@ namespace MBDoc
     {
         return(TextModifier(~uint64_t(Left)));
     }
+    //sligthly hacky, but probably fine as these elements should only be read by compilers
     struct TextColor
     {
+
+    private:
+        bool m_Default = true;
+    public:
+        TextColor(){};
+        TextColor(uint8_t NR,uint8_t  NG,uint8_t NB)
+        {
+            R = NR;   
+            G = NG;   
+            B = NB;   
+            m_Default = false;
+        }
+        bool IsDefault()
+        {
+            return(m_Default);   
+        }
         uint8_t R = 0;   
         uint8_t G = 0;   
         uint8_t B = 0;   
@@ -519,7 +537,8 @@ namespace MBDoc
 
         virtual ~DocumentVisitor(){};
     };
-    
+   
+
     class DocumentTraverser : DocumentVisitor, FormatVisitor
     {
     private:
@@ -543,25 +562,26 @@ namespace MBDoc
     public:     
         void Traverse(DocumentSource const& SourceToTraverse,DocumentVisitor& Vistor);
     };
-    typedef MBUtility::LineRetriever LineRetriever;
-    //class LineRetriever
-    //{
-    //private:
-    //    MBUtility::MBOctetInputStream* m_InputStream = nullptr;
-    //    std::string m_CurrentLine;
-    //    std::string m_Buffer;
-    //    size_t m_BufferOffset = 0;
-    //    bool m_Finished = false;
-    //    bool m_StreamFinished = false;
-    //    bool m_LineBuffered = false;
-    //public:
-    //    LineRetriever(MBUtility::MBOctetInputStream* InputStream);
-    //    bool Finished();
-    //    bool GetLine(std::string& OutLine);
-    //    void DiscardLine();
-    //    std::string& PeekLine();
 
-    //};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    typedef MBUtility::LineRetriever LineRetriever;
 
     class DocumentParsingContext
     {
@@ -780,6 +800,7 @@ namespace MBDoc
 
 
         void p_ResolveReferences();
+        void p_ColorizeLSP();
     public: 
         DocumentFilesystemIterator begin() const;
         DocumentPath ResolveReference(DocumentPath const& DocumentPath,std::string const& PathIdentifier,MBError& OutResult) const;

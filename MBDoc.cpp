@@ -15,6 +15,8 @@
 #include <MBCLI/MBCLI.h>
 
 #include <MBMime/MBMime.h>
+
+#include <MBLSP/MBLSP.h>
 #include <numeric>
 namespace MBDoc
 {
@@ -499,6 +501,7 @@ ParseOffset--;
                 NewCodeBlock.CodeType = CodeBlockHeader.substr(ParseOffset + 3, LastCodeName - (ParseOffset + 2));
             }
         }
+        NewCodeBlock.Content = std::string();
         while (!Retriever.Finished())
         {
             std::string NewLine;
@@ -508,11 +511,11 @@ ParseOffset--;
             {
                 break;
             }
-            NewCodeBlock.RawText += NewLine;
-            NewCodeBlock.RawText.insert(NewCodeBlock.RawText.end(), '\n');
+            std::get<std::string>(NewCodeBlock.Content) += NewLine;
+            std::get<std::string>(NewCodeBlock.Content).insert(std::get<std::string>(NewCodeBlock.Content).end(), '\n');
         }
         //there is always 1 extra newline
-        NewCodeBlock.RawText.resize(NewCodeBlock.RawText.size() - 1);
+        std::get<std::string>(NewCodeBlock.Content).resize(std::get<std::string>(NewCodeBlock.Content).size() - 1);
         return(ReturnValue);
     }
     std::unique_ptr<BlockElement> DocumentParsingContext::p_ParseBlockElement(LineRetriever& Retriever)
@@ -2514,11 +2517,14 @@ ParseOffset--;
             Iterator++; 
         }
     }
+    void DocumentFilesystem::p_ColorizeLSP()
+    {
+        //how to create these is not completelty obvious
+        std::unordered_map<std::string,std::unique_ptr<MBLSP::LSP_Client>> InitialziedLSPs;
+        
+        for(auto const& Entry : m_TotalSources)
+        {
+        }
+    }
     //END DocumentFilesystem
-
-    
-    
-
-
-    
 }

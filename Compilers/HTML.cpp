@@ -322,7 +322,10 @@ namespace MBDoc
     void HTMLCompiler::Visit(CodeBlock const& BlockToWrite)
     {
         m_OutStream->Write("<pre>", 5);
-        m_OutStream->Write(BlockToWrite.RawText.data(), BlockToWrite.RawText.size());
+        if(std::holds_alternative<std::string>(BlockToWrite.Content))
+        {
+            m_OutStream->Write(std::get<std::string>(BlockToWrite.Content).data(), std::get<std::string>(BlockToWrite.Content).size());
+        }
         m_OutStream->Write("</pre>", 6);
     }
     void HTMLCompiler::Visit(MediaInclude const& MediaToInclude)
