@@ -1,4 +1,5 @@
 #include "MBDoc.h"
+#include "MBLSP/LSP_Structs.h"
 #include <MBUtility/MBErrorHandling.h>
 #include <MBUtility/MBInterfaces.h>
 #include <cstring>
@@ -17,10 +18,18 @@
 #include <MBMime/MBMime.h>
 
 #include <MBLSP/MBLSP.h>
+#include <MBSystem/BiDirectionalSubProcess.h>
 #include <numeric>
+
+
+#include <MBUtility/InterfaceAdaptors.h>
 namespace MBDoc
 {
     void URLReference::Accept(ReferenceVisitor& Visitor) const
+    {
+        Visitor.Visit(*this);
+    }
+    void URLReference::Accept(ReferenceVisitor& Visitor)
     {
         Visitor.Visit(*this);
     }
@@ -28,12 +37,31 @@ namespace MBDoc
     {
         Visitor.Visit(*this);
     }
+    void UnresolvedReference::Accept(ReferenceVisitor& Visitor) 
+    {
+        Visitor.Visit(*this);
+    }
     void FileReference::Accept(ReferenceVisitor& Visitor) const
+    {
+        Visitor.Visit(*this);
+    }
+    void FileReference::Accept(ReferenceVisitor& Visitor) 
     {
         Visitor.Visit(*this);
     }
     //BEGIN TextElement
     void TextElement::Accept(TextVisitor& Visitor) const
+    {
+        if(IsType<DocReference>())
+        {
+            Visitor.Visit(GetType<DocReference>());
+        } 
+        else if(IsType<RegularText>())
+        {
+            Visitor.Visit(GetType<RegularText>());
+        }
+    }
+    void TextElement::Accept(TextVisitor& Visitor) 
     {
         if(IsType<DocReference>())
         {
@@ -59,6 +87,21 @@ namespace MBDoc
         else if(Type == BlockElementType::Paragraph)
         {
             Visitor.Visit(static_cast<Paragraph const&>(*this));
+        }
+    }
+    void BlockElement::Accept(BlockVisitor& Visitor) 
+    {
+        if(Type == BlockElementType::CodeBlock)
+        {
+            Visitor.Visit(static_cast<CodeBlock&>(*this));
+        }       
+        else if(Type == BlockElementType::MediaInclude)
+        {
+            Visitor.Visit(static_cast<MediaInclude&>(*this));
+        }
+        else if(Type == BlockElementType::Paragraph)
+        {
+            Visitor.Visit(static_cast<Paragraph&>(*this));
         }
     }
     //BEGIN AttributeList
@@ -207,6 +250,25 @@ namespace MBDoc
         return(*(FormatElement const*)m_Data);
     }
     void FormatElementComponent::Accept(FormatVisitor& Visitor) const
+    {
+        if(m_Type == FormatComponentType::Block)
+        {
+            Visitor.Visit(GetBlockData());
+        } 
+        else if(m_Type == FormatComponentType::Format)
+        {
+            Visitor.Visit(GetFormatData());
+        }
+        else if(m_Type == FormatComponentType::Directive)
+        {
+            Visitor.Visit(GetDirectiveData());
+        }
+        else 
+        {
+            assert(false);
+        }
+    }
+    void FormatElementComponent::Accept(FormatVisitor& Visitor) 
     {
         if(m_Type == FormatComponentType::Block)
         {
@@ -1670,11 +1732,30 @@ ParseOffset--;
         BlockToVisit.Accept(*this); 
         m_AssociatedVisitor->LeaveBlock(BlockToVisit);
     }
+    void DocumentTraverser::Visit(BlockElement& BlockToVisit)
+    {
+        m_AssociatedVisitor->EnterBlock(BlockToVisit); 
+        BlockToVisit.Accept(*this); 
+        m_AssociatedVisitor->LeaveBlock(BlockToVisit);
+    }
     void DocumentTraverser::Visit(Directive const& DirectiveToVisit)
     {
         m_AssociatedVisitor->Visit(DirectiveToVisit);
     }
+    void DocumentTraverser::Visit(Directive& DirectiveToVisit)
+    {
+        m_AssociatedVisitor->Visit(DirectiveToVisit);
+    }
     void DocumentTraverser::Visit(FormatElement const& FormatToVisit)
+    {
+        m_AssociatedVisitor->EnterFormat(FormatToVisit);
+        for(auto& Element : FormatToVisit.Contents)
+        {
+            Element.Accept(*this);
+        }
+        m_AssociatedVisitor->LeaveFormat(FormatToVisit); 
+    }
+    void DocumentTraverser::Visit(FormatElement& FormatToVisit)
     {
         m_AssociatedVisitor->EnterFormat(FormatToVisit);
         for(auto const& Element : FormatToVisit.Contents)
@@ -1689,9 +1770,23 @@ ParseOffset--;
         m_AssociatedVisitor->Visit(VisitedParagraph);
         for(auto const& TextPart : VisitedParagraph.TextElements)
         {
+            //if(TextPart.IsType<DocReference>())
+            //{
+            //    m_AssociatedVisitor->ResolveReference(const_cast<TextElement&>(TextPart));
+            //}
+            m_AssociatedVisitor->EnterText(TextPart.GetBase());
+            TextPart.Accept(*this);
+            m_AssociatedVisitor->LeaveText(TextPart.GetBase());
+        }
+    }
+    void DocumentTraverser::Visit(Paragraph& VisitedParagraph)
+    {
+        m_AssociatedVisitor->Visit(VisitedParagraph);
+        for(auto& TextPart : VisitedParagraph.TextElements)
+        {
             if(TextPart.IsType<DocReference>())
             {
-                m_AssociatedVisitor->ResolveReference(const_cast<TextElement&>(TextPart));
+                m_AssociatedVisitor->ResolveReference(TextPart);
             }
             m_AssociatedVisitor->EnterText(TextPart.GetBase());
             TextPart.Accept(*this);
@@ -1702,7 +1797,15 @@ ParseOffset--;
     {
         m_AssociatedVisitor->Visit(VisitedMedia);
     }
+    void DocumentTraverser::Visit(MediaInclude& VisitedMedia) 
+    {
+        m_AssociatedVisitor->Visit(VisitedMedia);
+    }
     void DocumentTraverser::Visit(CodeBlock const& VisitedBlock) 
+    { 
+        m_AssociatedVisitor->Visit(VisitedBlock);
+    }
+    void DocumentTraverser::Visit(CodeBlock& VisitedBlock) 
     { 
         m_AssociatedVisitor->Visit(VisitedBlock);
     }
@@ -1711,7 +1814,15 @@ ParseOffset--;
     {
         m_AssociatedVisitor->Visit(VisitedText);
     }
+    void DocumentTraverser::Visit(RegularText& VisitedText)
+    {
+        m_AssociatedVisitor->Visit(VisitedText);
+    }
     void DocumentTraverser::Visit(DocReference const& VisitedText) 
+    {
+        VisitedText.Accept(*this);
+    }
+    void DocumentTraverser::Visit(DocReference& VisitedText) 
     {
         VisitedText.Accept(*this);
     }
@@ -1720,7 +1831,15 @@ ParseOffset--;
     {
         m_AssociatedVisitor->Visit(FileRef);
     }
+    void DocumentTraverser::Visit(FileReference& FileRef) 
+    {
+        m_AssociatedVisitor->Visit(FileRef);
+    }
     void DocumentTraverser::Visit(URLReference const& URLRef) 
+    {
+        m_AssociatedVisitor->Visit(URLRef);
+    }
+    void DocumentTraverser::Visit(URLReference& URLRef) 
     {
         m_AssociatedVisitor->Visit(URLRef);
     }
@@ -1728,10 +1847,22 @@ ParseOffset--;
     {
         m_AssociatedVisitor->Visit(UnresolvedRef);
     }
+    void DocumentTraverser::Visit(UnresolvedReference& UnresolvedRef) 
+    {
+        m_AssociatedVisitor->Visit(UnresolvedRef);
+    }
     void DocumentTraverser::Traverse(DocumentSource const& SourceToTraverse,DocumentVisitor& Vistor)
     {
         m_AssociatedVisitor = &Vistor; 
         for(auto const& Format : SourceToTraverse.Contents)
+        {
+            Format.Accept(*this);
+        }
+    }
+    void DocumentTraverser::Traverse(DocumentSource& SourceToTraverse,DocumentVisitor& Vistor)
+    {
+        m_AssociatedVisitor = &Vistor; 
+        for(auto& Format : SourceToTraverse.Contents)
         {
             Format.Accept(*this);
         }
@@ -2457,6 +2588,7 @@ ParseOffset--;
             
             
             Result.p_ResolveReferences(); 
+            Result.p_ColorizeLSP();
             if (ReturnValue)
             {
                 OutFilesystem = std::move(Result);
@@ -2510,20 +2642,203 @@ ParseOffset--;
             if(!Iterator.EntryIsDirectory())
             {
                 DocumentPath CurrentPath = Iterator.GetCurrentPath();
-                DocumentSource const& CurrentDoc = Iterator.GetDocumentInfo();
+                //yikes
+                DocumentSource& CurrentDoc = const_cast<DocumentSource&>(Iterator.GetDocumentInfo());
+                
                 DocumentFilesystemReferenceResolver Resolver(this,CurrentPath);
                 Traverser.Traverse(CurrentDoc,Resolver);
             }
             Iterator++; 
         }
     }
+
+    class i_LineIndex
+    {
+        std::vector<int> m_LineToOffset; 
+    public:
+        i_LineIndex(std::string const& DocumentData)
+        {
+            m_LineToOffset.push_back(0);
+            for(int i = 0; i < DocumentData.size();i++)
+            {
+                if(DocumentData[i] == '\n')
+                {
+                    m_LineToOffset .push_back(i);
+                }  
+            } 
+        }     
+        int LineCount() const
+        {
+            return(m_LineToOffset.size());
+        }
+        int operator[](int Index)
+        {
+            if(Index > m_LineToOffset.size())
+            {
+                throw std::runtime_error("Invalid line index");
+            }   
+            return(m_LineToOffset[Index]);
+        }
+    };
+
+    void DocumentFilesystem::p_ColorizeCodeBlock(MBLSP::LSP_Client& ClientToUse,CodeBlock& BlockToColorize)
+    {
+        std::vector<std::vector<TextElement>> Result;
+        DidOpenTextDocument_Notification OpenNotification;
+        OpenNotification.params.textDocument.text = std::get<std::string>(BlockToColorize.Content);
+        OpenNotification.params.textDocument.uri = MBLSP::URLEncodePath(std::filesystem::current_path()/"asdasdasdasd.cpp");
+        ClientToUse.SendNotification(OpenNotification);
+
+        SemanticToken_Request TokenRequest;
+        TokenRequest.params.textDocument.uri = OpenNotification.params.textDocument.uri;
+        SemanticToken_Response Tokens = ClientToUse.SendRequest(TokenRequest);
+        try
+        {
+            if(Tokens.result)
+            {
+                std::string const& Text = OpenNotification.params.textDocument.text;
+                i_LineIndex Index(OpenNotification.params.textDocument.text);
+                std::vector<int> const& TokenData = Tokens.result->data;
+                if(TokenData.size() % 5 != 0)
+                {
+                    throw std::runtime_error("Invalid token count, must be divisible by 5");
+                }
+                int CurrentLineIndex = 0;
+                int CurrentTokensOffset = 0;
+                int TokenOffset = 0;
+                
+                int LatestTokenEnd = 0;
+                std::vector<TextElement> CurrentLine;
+                while(CurrentTokensOffset < TokenData.size())
+                {
+                    int Line = TokenData[TokenOffset];
+                    int Offset = TokenData[TokenOffset+1];
+                    int Length = TokenData[TokenOffset+2];
+                    int Type = TokenData[TokenOffset+3];
+                    if(Line < 0 || Offset < 0 || Length < 0 || Type < 0)
+                    {
+                        throw std::runtime_error("Only positive integers are allowed in semantic tokens");   
+                    }
+                    if(Line > 0)
+                    {
+                        CurrentTokensOffset = 0;   
+                    }
+                    CurrentLineIndex += Line;
+                    CurrentTokensOffset += Offset;
+
+                    int CurrentTokenBegin = Index[CurrentLineIndex]+1+CurrentTokensOffset;
+                    int CurrentTokenEnd = CurrentTokenBegin + Length;
+                   
+                    std::string StringToAdd; 
+                    while(LatestTokenEnd < CurrentTokenBegin)
+                    {
+                        if(Text[LatestTokenEnd] != '\n')
+                        {
+                            StringToAdd += Text[LatestTokenEnd];  
+                        } 
+                        else
+                        {
+                            if(StringToAdd.size() > 0)
+                            {
+                                RegularText TextToAdd;   
+                                TextToAdd.Text = std::move(StringToAdd);
+                                StringToAdd.clear();
+                                CurrentLine.push_back(std::move(TextToAdd));
+                                Result.push_back(std::move(CurrentLine));
+                                CurrentLine.clear();
+                            } 
+                        }
+                        LatestTokenEnd++;
+                    }
+                    if(StringToAdd.size() > 0)
+                    {
+                        RegularText TextToAdd;   
+                        TextToAdd.Text = std::move(StringToAdd);
+                        StringToAdd.clear();
+                        CurrentLine.push_back(std::move(TextToAdd));
+                    } 
+                    
+                    RegularText TextToAdd;   
+                    TextToAdd.Text = std::string(Text.begin()+CurrentTokenBegin,Text.begin()+CurrentTokenEnd);
+                    TextToAdd.Color = TextColor(0, 0, 255);
+                    CurrentLine.push_back(std::move(TextToAdd));
+                    LatestTokenEnd = CurrentTokenEnd;
+                    TokenOffset += 5;
+                }
+                std::string StringToAdd;
+                while (LatestTokenEnd < Text.size())
+                {
+                    if (Text[LatestTokenEnd] != '\n')
+                    {
+                        StringToAdd += Text[LatestTokenEnd];
+                    }
+                    else
+                    {
+                        if (StringToAdd.size() > 0)
+                        {
+                            RegularText TextToAdd;
+                            TextToAdd.Text = std::move(StringToAdd);
+                            StringToAdd.clear();
+                            CurrentLine.push_back(std::move(TextToAdd));
+                            Result.push_back(std::move(CurrentLine));
+                            CurrentLine.clear();
+                        }
+                    }
+                    LatestTokenEnd++;
+                }
+                if (StringToAdd.size() > 0)
+                {
+                    RegularText TextToAdd;
+                    TextToAdd.Text = std::move(StringToAdd);
+                    StringToAdd.clear();
+                    CurrentLine.push_back(std::move(TextToAdd));
+                }
+                if(CurrentLine.size() > 0)
+                {
+                    Result.push_back(std::move(CurrentLine));   
+                }
+            }
+        } 
+        catch(std::exception const& e)
+        {
+
+        }
+        DidCloseTextDocument_Notification CloseNotification;
+        CloseNotification.params.textDocument.uri = OpenNotification.params.textDocument.uri;
+        ClientToUse.SendNotification(CloseNotification);
+
+        BlockToColorize.Content = ResolvedCodeText(std::move(Result));
+    }
     void DocumentFilesystem::p_ColorizeLSP()
     {
         //how to create these is not completelty obvious
         std::unordered_map<std::string,std::unique_ptr<MBLSP::LSP_Client>> InitialziedLSPs;
-        
-        for(auto const& Entry : m_TotalSources)
+       
+        //DEBUG AF, hardcodec LSP
+        MBSystem::BiDirectionalSubProcess SubProcess("clangd",{});
+        InitializeRequest Init;
+        Init.params.rootUri = MBLSP::URLEncodePath(std::filesystem::current_path());
+        InitialziedLSPs["cpp"] = std::make_unique<MBLSP::LSP_Client>(
+                std::make_unique<MBUtility::NonOwningIndeterminateInputStream>(&SubProcess),
+                std::make_unique<MBUtility::NonOwningOutputStream>(&SubProcess));
+        InitialziedLSPs["cpp"]->InitializeServer(Init);
+        for(auto& Entry : m_TotalSources)
         {
+            auto Lambda = [&](CodeBlock& BlockToModify) -> void
+                    {
+                        auto ItHandler = InitialziedLSPs.find(BlockToModify.CodeType); 
+                        if(ItHandler != InitialziedLSPs.end())
+                        {
+                            p_ColorizeCodeBlock(*ItHandler->second,BlockToModify);
+                        }
+                    };
+            auto CodeBlockModifier = LambdaVisitor<decltype(Lambda)>(&Lambda);
+            DocumentTraverser Traverser;
+            Traverser.Traverse(Entry.Document,CodeBlockModifier);
+        }
+        for(auto const& Server : InitialziedLSPs)
+        {
+            Server.second->QuitServer(); 
         }
     }
     //END DocumentFilesystem

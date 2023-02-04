@@ -2,5 +2,6 @@
     "PacketName": "MBDoc",
     "Attributes":[],
     "SubPackets": ["/Docs"],
-    "Dependancies": [ "MBUtility","MBParsing","MBMime","MBUnicode","MBCLI"]
+    "Dependancies": [
+    "MBUtility","MBParsing","MBMime","MBUnicode","MBCLI","MBLSP","MBSystem"]
 }

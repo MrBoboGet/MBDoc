@@ -18,6 +18,8 @@
 #include "MBDoc.h"
 
 #include <MBUtility/Iterator.h>
+
+#include <MBLSP/MBLSP.h>
 namespace MBDoc
 {
 
@@ -101,7 +103,7 @@ namespace MBDoc
             B = NB;   
             m_Default = false;
         }
-        bool IsDefault()
+        bool IsDefault() const
         {
             return(m_Default);   
         }
@@ -137,6 +139,7 @@ namespace MBDoc
         //not neccesarilly be neccessary for references
         std::string VisibleText;
         virtual void Accept(ReferenceVisitor& Visitor) const = 0;
+        virtual void Accept(ReferenceVisitor& Visitor) = 0;
         virtual ~DocReference()
         {
                
@@ -147,6 +150,7 @@ namespace MBDoc
     {
         DocumentPath Path;
         virtual void Accept(ReferenceVisitor& Visitor) const;
+        virtual void Accept(ReferenceVisitor& Visitor);
         ~FileReference()
         {
                
@@ -156,6 +160,7 @@ namespace MBDoc
     {
         std::string URL; 
         virtual void Accept(ReferenceVisitor& Visitor) const;
+        virtual void Accept(ReferenceVisitor& Visitor);
         ~URLReference()
         {
                
@@ -165,6 +170,7 @@ namespace MBDoc
     {
         std::string ReferenceString;         
         virtual void Accept(ReferenceVisitor& Visitor) const;
+        virtual void Accept(ReferenceVisitor& Visitor);
         ~UnresolvedReference()
         {
                
@@ -177,6 +183,11 @@ namespace MBDoc
         virtual void Visit(FileReference const& FileRef){};
         virtual void Visit(URLReference const& URLRef){};
         virtual void Visit(UnresolvedReference const& UnresolvedRef){};
+
+        virtual void Visit(FileReference& FileRef){};
+        virtual void Visit(URLReference& URLRef){};
+        virtual void Visit(UnresolvedReference& UnresolvedRef){};
+
 
         virtual ~ReferenceVisitor() {};
     };
@@ -252,6 +263,7 @@ namespace MBDoc
             throw std::runtime_error("Invalid element stored in TextElement");
         }
         void Accept(TextVisitor& Visitor) const;
+        void Accept(TextVisitor& Visitor);
         TextElement() {};
     };
     
@@ -264,6 +276,8 @@ namespace MBDoc
         virtual void Visit(RegularText const& VisitedText){};
         virtual void Visit(DocReference const& VisitedText) {};
 
+        virtual void Visit(RegularText& VisitedText){};
+        virtual void Visit(DocReference& VisitedText) {};
 
         virtual ~TextVisitor() {};
     };
@@ -293,6 +307,7 @@ namespace MBDoc
         BlockElementType Type = BlockElementType::Null;
         AttributeList Attributes;
         void Accept(BlockVisitor& Visitor) const;
+        void Accept(BlockVisitor& Visitor);
 
         virtual ~BlockElement(){};
     };
@@ -314,12 +329,14 @@ namespace MBDoc
         std::string MediaPath;
     };
     class DocumentParsingContext;
+    class DocumentFilesystem;
     class ResolvedCodeText
     {
     private:
         std::vector<std::vector<TextElement>> m_Rows;
     protected:
         friend DocumentParsingContext;
+        friend DocumentFilesystem;
         ResolvedCodeText(std::vector<std::vector<TextElement>> Content)
         {
             m_Rows = std::move(Content);   
@@ -381,6 +398,9 @@ namespace MBDoc
         virtual void Visit(MediaInclude const& VisitedMedia) {};
         virtual void Visit(CodeBlock const& CodeBlock) {};
 
+        virtual void Visit(Paragraph& VisitedParagraph) {};
+        virtual void Visit(MediaInclude& VisitedMedia) {};
+        virtual void Visit(CodeBlock& CodeBlock) {};
         virtual ~BlockVisitor() {};
     };
     //Block elements
@@ -450,6 +470,7 @@ namespace MBDoc
         ~FormatElementComponent();
 
         void Accept(FormatVisitor& Visitor) const;
+        void Accept(FormatVisitor& Visitor);
     };
     struct FormatElement
     {
@@ -465,6 +486,7 @@ namespace MBDoc
     {
     public:
         virtual void Visit(Directive const& DirectiveToVisit){};
+        virtual void Visit(Directive& DirectiveToVisit){};
     };
 
     class FormatVisitor : public DirectiveVisitor
@@ -473,6 +495,8 @@ namespace MBDoc
         using DirectiveVisitor::Visit;
         virtual void Visit(BlockElement const& BlockToVisit) {};
         virtual void Visit(FormatElement const& FormatToVisit){};
+        virtual void Visit(BlockElement& BlockToVisit) {};
+        virtual void Visit(FormatElement& FormatToVisit){};
     };
 
     //Preprocessors, starts with $
@@ -538,29 +562,186 @@ namespace MBDoc
         virtual ~DocumentVisitor(){};
     };
    
+    //kinda bloaty, maybe should use tempalte operator() all the way... 
+    template<typename T>
+    class LambdaVisitor : public DocumentVisitor
+    {
+    private:
+        T& m_Ref;
+    public:
+
+        LambdaVisitor(T* Ref)
+            : m_Ref(*Ref)
+        {
+        }
+        void Visit(Directive const& DirectiveToVisit)override
+        {
+            if constexpr(std::is_invocable<T,Directive const&>::value)
+            {
+                m_Ref(DirectiveToVisit);  
+            }       
+        }
+        void Visit(Paragraph const& VisitedParagraph) override
+        {
+            if constexpr(std::is_invocable<T,Paragraph const>::value)
+            {
+                m_Ref(VisitedParagraph);  
+            }       
+        }
+        void Visit(MediaInclude const& VisitedMedia) override
+        {
+            if constexpr(std::is_invocable<T,MediaInclude const>::value)
+            {
+                m_Ref(VisitedMedia);  
+            }       
+        }
+        void Visit(CodeBlock const& Block) override
+        {
+            if constexpr(std::is_invocable<T,const CodeBlock >::value)
+            {
+                m_Ref(Block);  
+            }  
+        }
+        void Visit(RegularText const& VisitedText)override
+        {
+            if constexpr(std::is_invocable<T,RegularText const>::value)
+            {
+                m_Ref(VisitedText);  
+            } 
+        }
+        void Visit(DocReference const& VisitedText) override
+        {
+            if constexpr(std::is_invocable<T,DocReference const>::value)
+            {
+                m_Ref(VisitedText);  
+            } 
+        }
+        void Visit(FileReference const& FileRef) override
+        {
+            if constexpr(std::is_invocable<T,FileReference const>::value)
+            {
+                m_Ref(FileRef);  
+            } 
+        }
+        void Visit(URLReference const& URLRef) override
+        {
+            if constexpr(std::is_invocable<T,URLReference const>::value)
+            {
+                m_Ref(URLRef);  
+            } 
+        }
+        void Visit(UnresolvedReference const& UnresolvedRef) override
+        {
+            if constexpr(std::is_invocable<T,UnresolvedReference const>::value)
+            {
+                m_Ref(UnresolvedRef);  
+            } 
+        }
+        void Visit(Directive& DirectiveToVisit)override
+        {
+                   
+            if constexpr(std::is_invocable<T,Directive>::value)
+            {
+                m_Ref(DirectiveToVisit);  
+            } 
+        }
+
+        void Visit(Paragraph& VisitedParagraph) override
+        {
+                 
+            if constexpr(std::is_invocable<T,Paragraph>::value)
+            {
+                m_Ref(VisitedParagraph);  
+            } 
+        }
+        void Visit(MediaInclude& VisitedMedia) override
+        {
+            if constexpr(std::is_invocable<T,MediaInclude>::value)
+            {
+                m_Ref(VisitedMedia);  
+            } 
+        }
+        void Visit(CodeBlock& Block) override
+        {
+            if constexpr(std::is_invocable<T,CodeBlock>::value)
+            {
+                m_Ref(Block);  
+            } 
+        }
+        void Visit(RegularText& VisitedText)override
+        {
+            if constexpr(std::is_invocable<T,RegularText>::value)
+            {
+                m_Ref(VisitedText);  
+            } 
+        }
+        void Visit(DocReference& VisitedText) override
+        {
+            if constexpr(std::is_invocable<T,DocReference>::value)
+            {
+                m_Ref(VisitedText);  
+            } 
+        }
+        void Visit(FileReference& FileRef) override
+        {
+            if constexpr(std::is_invocable<T,FileReference>::value)
+            {
+                m_Ref(FileRef);  
+            } 
+        }
+        void Visit(URLReference & URLRef) override
+        {
+            if constexpr(std::is_invocable<T,URLReference>::value)
+            {
+                m_Ref(URLRef);  
+            } 
+        }
+        void Visit(UnresolvedReference& UnresolvedRef) override
+        {
+            if constexpr(std::is_invocable<T,UnresolvedReference>::value)
+            {
+                m_Ref(UnresolvedRef);  
+            } 
+        }
+    };
 
     class DocumentTraverser : DocumentVisitor, FormatVisitor
     {
     private:
 
         void Visit(BlockElement const& BlockToVisit) override;
+        void Visit(BlockElement& BlockToVisit) override;
+
         void Visit(Directive const& DirectiveToVisit)override;
+        void Visit(Directive& DirectiveToVisit)override;
+
         void Visit(FormatElement const& FormatToVisit)override;
+        void Visit(FormatElement& FormatToVisit)override;
 
         void Visit(Paragraph const& VisitedParagraph) override;
-        void Visit(MediaInclude const& VisitedMedia) override;
-        void Visit(CodeBlock const& CodeBlock) override;
+        void Visit(Paragraph& VisitedParagraph) override;
 
+        void Visit(MediaInclude const& VisitedMedia) override;
+        void Visit(MediaInclude& VisitedMedia) override;
+        void Visit(CodeBlock const& CodeBlock) override;
+        void Visit(CodeBlock& CodeBlock) override;
+
+        void Visit(RegularText& VisitedText)override;
         void Visit(RegularText const& VisitedText)override;
+        void Visit(DocReference& VisitedText) override;
         void Visit(DocReference const& VisitedText) override;
 
+        void Visit(FileReference& FileRef) override;
         void Visit(FileReference const& FileRef) override;
+        void Visit(URLReference& URLRef) override;
         void Visit(URLReference const& URLRef) override;
+        void Visit(UnresolvedReference& UnresolvedRef) override;
         void Visit(UnresolvedReference const& UnresolvedRef) override;
         
         DocumentVisitor* m_AssociatedVisitor = nullptr;
     public:     
-        void Traverse(DocumentSource const& SourceToTraverse,DocumentVisitor& Vistor);
+        void Traverse(DocumentSource const& SourceToTraverse,DocumentVisitor& Visitor);
+        void Traverse(DocumentSource& SourceToTraverse,DocumentVisitor& Visitor);
     };
 
 
@@ -800,6 +981,9 @@ namespace MBDoc
 
 
         void p_ResolveReferences();
+
+
+        static void p_ColorizeCodeBlock(MBLSP::LSP_Client& ClientToUse,CodeBlock& BlockToColorize);
         void p_ColorizeLSP();
     public: 
         DocumentFilesystemIterator begin() const;

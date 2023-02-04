@@ -11,7 +11,8 @@
             "Attributes.mbd",
             "LinkResolving.mbd",
             "CodeIndex.mbd",
-            "CLI.mbd"
+            "CLI.mbd",
+            "LSP.mbd"
         ],
         "SubDirectories":
         {

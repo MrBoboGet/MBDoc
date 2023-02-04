@@ -244,6 +244,12 @@ namespace MBDoc
         {
             m_OutStream->Write("<i>", 3);
         }
+        if(!ElementToEnter.Color.IsDefault())
+        {
+            *m_OutStream<<"<span style=\"color: #"<<
+                MBUtility::HexEncodeByte(ElementToEnter.Color.R)<<MBUtility::HexEncodeByte(ElementToEnter.Color.G)
+                <<MBUtility::HexEncodeByte(ElementToEnter.Color.B)<<";\">";
+        }
     }
     void HTMLCompiler::LeaveText(TextElement_Base const& ElementToLeave)
     {
@@ -254,6 +260,10 @@ namespace MBDoc
         if ((ElementToLeave.Modifiers & TextModifier::Italic) != TextModifier::Null)
         {
             m_OutStream->Write("</i>", 4);
+        }
+        if(!ElementToLeave.Color.IsDefault())
+        {
+            *m_OutStream<<"</span>";
         }
     }
     DocumentPath HTMLCompiler::p_GetUniquePath(std::string const& Extension)
@@ -325,6 +335,19 @@ namespace MBDoc
         if(std::holds_alternative<std::string>(BlockToWrite.Content))
         {
             m_OutStream->Write(std::get<std::string>(BlockToWrite.Content).data(), std::get<std::string>(BlockToWrite.Content).size());
+        }
+        else if(std::holds_alternative<ResolvedCodeText>(BlockToWrite.Content))
+        {
+            for(auto const& Row : std::get<ResolvedCodeText>(BlockToWrite.Content))
+            {
+                for(auto const& Text : Row)
+                {
+                    EnterText(Text.GetBase());
+                    Text.Accept(*this);
+                    LeaveText(Text.GetBase());
+                }
+                *m_OutStream<<"<br>";
+            } 
         }
         m_OutStream->Write("</pre>", 6);
     }

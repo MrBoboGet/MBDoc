@@ -5,7 +5,8 @@
         "MBUnicode",
         "MBParsing",
         "MBUtility",
-        "MBLSP"
+        "MBLSP",
+        "MBSystem"
     ],
     "ExtraIncludes": 
     [
