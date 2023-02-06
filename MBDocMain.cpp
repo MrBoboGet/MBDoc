@@ -3,6 +3,9 @@
 
 #include "MBDocCLI.h"
 #include "Compilers/HTML.h"
+
+#include "ColorConf.h"
+#include <MBUtility/MBFiles.h>
 int Test()
 {
     std::filesystem::current_path(std::filesystem::current_path().parent_path().parent_path());
@@ -84,9 +87,27 @@ int main(int argc,const char** argv)
     //auto Lambda = [](MBDoc::CodeBlock const&) {};
     //std::cout << std::is_invocable<decltype(Lambda), const MBDoc::CodeBlock>::value << std::endl;
     //return 0;
-    const char* NewArgv[] = { "mbdoc","../../Docs/MBDocBuild.json","-f:html","-o:../../TestOut" };
-    argc = sizeof(NewArgv) / sizeof(const char*);
-    argv = NewArgv;
+    //const char* NewArgv[] = { "mbdoc","../../Docs/MBDocBuild.json","-f:html","-o:../../TestOut" };
+    //argc = sizeof(NewArgv) / sizeof(const char*);
+    //argv = NewArgv;
+    
+    //ColorConfTest 
+    try
+    {
+        std::string Data = MBUtility::ReadWholeFile("ColorConf.json");
+        std::cout<<Data<<std::endl;
+        MBParsing::JSONObject JSON = MBParsing::ParseJSONObject(Data,0,nullptr,nullptr);
+        MBDoc::ColorConfiguation ConfigToParse; 
+        ConfigToParse.FillObject(JSON);
+        std::cout<<ConfigToParse.LanguageColorings["cpp"].LSP;
+        std::cout<<ConfigToParse.GetJSON().ToPrettyString()<<std::endl;
+    }
+    catch(std::exception const& e)
+    {
+        std::cout<<e.what()<<std::endl;   
+    }
+    return(0);    
+
     MBDoc::DocCLI CLI;
     CLI.Run(argv, argc);
 }

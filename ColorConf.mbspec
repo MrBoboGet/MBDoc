@@ -1,0 +1,11 @@
+struct LanguageConfig
+{
+    [string LSP = ""];
+    Map<string,List<string>> Regexes;
+       
+}
+struct ColorConfiguation
+{
+    Map<string,string> ColorMap;
+    Map<string,LanguageConfig> LanguageColorings;
+}

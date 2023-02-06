@@ -1,0 +1,19 @@
+{
+    "ColorMap":
+    {
+        "function":"00FFBB",
+        "class":"00FF00",
+        "struct":"0000BB"
+    },
+    "LanguageColorings":
+    {
+        "cpp":
+        {
+            "Regexes":
+            {
+                "struct":[""]    
+            },
+            "LSP":"clangd"
+        }    
+    }
+}

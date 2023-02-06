@@ -24,7 +24,8 @@
                 "/MBDoc.cpp",
                 "/MBDocCLI.cpp",
                 "/MBDocMain.cpp",
-                "/Compilers/HTML.cpp"
+                "/Compilers/HTML.cpp",
+                "/ColorConf.cpp"
             ],
             "TargetType":"Executable"
         },

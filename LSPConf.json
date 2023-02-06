@@ -1,0 +1,10 @@
+{
+    "clangd":
+    {
+        "Command":
+        {
+            "ProgramName":"clangd",
+            "Arguments":["asdasdasd","asdasdasd"]
+        }
+    }    
+}
