@@ -7,6 +7,12 @@ namespace MBDoc
     {
     private:
         MBCLI::MBTerminal m_AssociatedTerminal;
+        LSPInfo m_LSPConf;
+        ProcessedColorConfiguration m_ColorConfiguration;
+        
+        LSPInfo p_ParseLSPConfig(std::filesystem::path const& PathToParse);
+        ProcessedColorConfiguration p_ParseColorConfiguration(std::filesystem::path const& PathToParse);
+        
       
         bool p_VerifyArguments(MBCLI::ArgumentListCLIInput const& ArgumentsToVerfiy);
         CommonCompilationOptions p_GetOptions(std::vector<MBCLI::ArgumentListCLIInput> const& Inputs);

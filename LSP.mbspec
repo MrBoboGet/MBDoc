@@ -1,0 +1,11 @@
+struct LSPServer
+{
+    string CommandName;
+    List<string> CommandArguments;
+}
+
+
+struct LSPInfo
+{
+    Map<string,LSPServer> Servers;
+}

@@ -22,13 +22,24 @@ struct LanguageConfig
     MBParsing::JSONObject GetJSON() const;
     
 };
-struct ColorConfiguation
+struct ColorInfo
 {
     private:
     public:
+    std::string DefaultColor;
     std::unordered_map<std::string,std::string> ColorMap;
+    static ColorInfo Parse(MBParsing::JSONObject const& ObjectToParse);
+    void FillObject(MBParsing::JSONObject const& ObjectToParse);
+    MBParsing::JSONObject GetJSON() const;
+    
+};
+struct ColorConfiguration
+{
+    private:
+    public:
+    ColorInfo Coloring;
     std::unordered_map<std::string,LanguageConfig> LanguageColorings;
-    static ColorConfiguation Parse(MBParsing::JSONObject const& ObjectToParse);
+    static ColorConfiguration Parse(MBParsing::JSONObject const& ObjectToParse);
     void FillObject(MBParsing::JSONObject const& ObjectToParse);
     MBParsing::JSONObject GetJSON() const;
     
@@ -37,9 +48,13 @@ template<> inline int GetTypeIndex<LanguageConfig>()
 {
 return 0;
 }
-template<> inline int GetTypeIndex<ColorConfiguation>()
+template<> inline int GetTypeIndex<ColorInfo>()
 {
 return 1;
+}
+template<> inline int GetTypeIndex<ColorConfiguration>()
+{
+return 2;
 }
 
 }

@@ -1,5 +1,6 @@
 #include "MBDocCLI.h"
 #include <MBCLI/MBCLI.h>
+#include "ColorConf.h"
 #include "MBDoc.h"
 
 #include <iostream>
@@ -10,6 +11,10 @@
 
 #include "Compilers/RawTerminal.h"
 #include "Compilers/HTML.h"
+#include "MBUnicode/MBUnicode.h"
+
+#include <MBSystem/MBSystem.h>
+#include <MBUtility/MBFiles.h>
 namespace MBDoc
 {
     bool DocCLI::p_VerifyArguments(MBCLI::ArgumentListCLIInput const& ArgumentsToVerfiy)
@@ -116,7 +121,7 @@ namespace MBDoc
     {
         DocumentFilesystem ReturnValue; 
         MBError ParseResult = true;
-        ParseResult = DocumentFilesystem::CreateDocumentFilesystem(Build,ReturnValue);
+        ParseResult = DocumentFilesystem::CreateDocumentFilesystem(Build,m_LSPConf,m_ColorConfiguration,ReturnValue);
         if(!ParseResult)
         {
             m_AssociatedTerminal.PrintLine("Error creating build document filesystem: "+ParseResult.ErrorMessage);   
@@ -220,10 +225,62 @@ namespace MBDoc
         }
 
     }
+    LSPInfo DocCLI::p_ParseLSPConfig(std::filesystem::path const& PathToParse)
+    {
+        LSPInfo ReturnValue;
+        std::string Data = MBUtility::ReadWholeFile(MBUnicode::PathToUTF8(PathToParse));
+        MBError ParseResult = true;
+        MBParsing::JSONObject JSONData = MBParsing::ParseJSONObject(Data,0,nullptr,&ParseResult);
+        if(!ParseResult)
+        {
+            throw std::runtime_error("Error parsing LSPConf.json as json file: "+ParseResult.ErrorMessage);
+        }
+        try
+        {
+            ReturnValue.FillObject(JSONData);
+        }
+        catch(std::exception const& e)
+        {
+            throw std::runtime_error("Error parsing LSPConf.json: "+std::string(e.what())); 
+        }
+        return(ReturnValue);
+    }
+    ProcessedColorConfiguration DocCLI::p_ParseColorConfiguration(std::filesystem::path const& PathToParse)
+    {
+        ProcessedColorConfiguration ReturnValue;
+        std::string Data = MBUtility::ReadWholeFile(MBUnicode::PathToUTF8(PathToParse));
+        MBError ParseResult = true;
+        MBParsing::JSONObject JSONData = MBParsing::ParseJSONObject(Data,0,nullptr,&ParseResult);
+        if(!ParseResult)
+        {
+            throw std::runtime_error("Error parsing ColorConfig.json as json file: "+ParseResult.ErrorMessage);
+        }
+        try
+        {
+            ColorConfiguration DefaultConf;
+            DefaultConf.FillObject(JSONData);
+            ReturnValue = ProcessColorConfig(DefaultConf);
+        }
+        catch(std::exception const& e)
+        {
+            throw std::runtime_error("Error parsing LSPConf.json: "+std::string(e.what())); 
+        }
+        return(ReturnValue);
+    }
     int DocCLI::Run(const char** argv,int argc)
     {
         try 
         {
+            std::filesystem::path HomeDir = MBSystem::GetUserHomeDirectory()/".mbdoc";
+            if(std::filesystem::is_regular_file(HomeDir/"LSPConfig.json"))
+            {
+                m_LSPConf = p_ParseLSPConfig(HomeDir/"LSPConfig.json");
+            }
+            if(std::filesystem::is_regular_file(HomeDir/"ColorConfig.json"))
+            {
+                m_ColorConfiguration = p_ParseColorConfiguration(HomeDir/"ColorConfig.json");
+            }
+
             std::vector<MBCLI::ArgumentListCLIInput> CommandInputs = p_GetInputs(argv, argc);
             if (!p_VerifyArguments(CommandInputs[0]))
             {

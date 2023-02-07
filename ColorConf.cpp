@@ -50,20 +50,29 @@ MBParsing::JSONObject LanguageConfig::GetJSON() const
     }
     return ReturnValue;
 }
-ColorConfiguation ColorConfiguation::Parse(MBParsing::JSONObject const& ObjectToParse)
+ColorInfo ColorInfo::Parse(MBParsing::JSONObject const& ObjectToParse)
 {
-    ColorConfiguation ReturnValue;
+    ColorInfo ReturnValue;
     ReturnValue.FillObject(ObjectToParse);return ReturnValue;
 }
-void ColorConfiguation::FillObject(MBParsing::JSONObject const& ObjectToParse)
+void ColorInfo::FillObject(MBParsing::JSONObject const& ObjectToParse)
 {
     if(ObjectToParse.GetType() != MBParsing::JSONObjectType::Aggregate)
     {
-        throw std::runtime_error("Error parsing ColorConfiguation: Object is not of aggregate type");
+        throw std::runtime_error("Error parsing ColorInfo: Object is not of aggregate type");
     }
+    if(!ObjectToParse.HasAttribute("DefaultColor"))
+    {
+        throw std::runtime_error("Error parsing object of type ColorInfo: missing mandatory field DefaultColor");
+    }
+    if(ObjectToParse["DefaultColor"].GetType() != MBParsing::JSONObjectType::String)
+    {
+        throw std::runtime_error("Error parsing object of type ColorInfo: member DefaultColor isn't of type string");
+    }
+    DefaultColor = ObjectToParse["DefaultColor"].GetStringData();
     if(!ObjectToParse.HasAttribute("ColorMap"))
     {
-        throw std::runtime_error("Error parsing object of type ColorConfiguation: missing mandatory field ColorMap");
+        throw std::runtime_error("Error parsing object of type ColorInfo: missing mandatory field ColorMap");
     }
     {
         auto& i_MapMember = ColorMap;
@@ -72,22 +81,12 @@ void ColorConfiguation::FillObject(MBParsing::JSONObject const& ObjectToParse)
             i_MapMember[i_Pair.first] = i_Pair.second.GetStringData();
         }
     }
-    if(!ObjectToParse.HasAttribute("LanguageColorings"))
-    {
-        throw std::runtime_error("Error parsing object of type ColorConfiguation: missing mandatory field LanguageColorings");
-    }
-    {
-        auto& i_MapMember = LanguageColorings;
-        for(auto const& i_Pair : ObjectToParse["LanguageColorings"].GetMapData())
-        {
-            i_MapMember[i_Pair.first] = LanguageConfig::Parse(i_Pair.second);
-        }
-    }
     
 }
-MBParsing::JSONObject ColorConfiguation::GetJSON() const
+MBParsing::JSONObject ColorInfo::GetJSON() const
 {
     MBParsing::JSONObject ReturnValue(MBParsing::JSONObjectType::Aggregate);
+    ReturnValue["DefaultColor"] = MBParsing::JSONObject(DefaultColor);
     {
         auto const& i_MapMember = ColorMap;
         MBParsing::JSONObject i_MapObject(MBParsing::JSONObjectType::Aggregate);
@@ -98,6 +97,45 @@ MBParsing::JSONObject ColorConfiguation::GetJSON() const
         ReturnValue["ColorMap"] = std::move(i_MapObject);
         
     }
+    return ReturnValue;
+}
+ColorConfiguration ColorConfiguration::Parse(MBParsing::JSONObject const& ObjectToParse)
+{
+    ColorConfiguration ReturnValue;
+    ReturnValue.FillObject(ObjectToParse);return ReturnValue;
+}
+void ColorConfiguration::FillObject(MBParsing::JSONObject const& ObjectToParse)
+{
+    if(ObjectToParse.GetType() != MBParsing::JSONObjectType::Aggregate)
+    {
+        throw std::runtime_error("Error parsing ColorConfiguration: Object is not of aggregate type");
+    }
+    if(!ObjectToParse.HasAttribute("Coloring"))
+    {
+        throw std::runtime_error("Error parsing object of type ColorConfiguration: missing mandatory field Coloring");
+    }
+    if(ObjectToParse["Coloring"].GetType() != MBParsing::JSONObjectType::Aggregate)
+    {
+        throw std::runtime_error("Error parsing object of type ColorConfiguration: member Coloring isn't of type aggregate");
+    }
+    Coloring = ColorInfo::Parse(ObjectToParse["Coloring"]);
+    if(!ObjectToParse.HasAttribute("LanguageColorings"))
+    {
+        throw std::runtime_error("Error parsing object of type ColorConfiguration: missing mandatory field LanguageColorings");
+    }
+    {
+        auto& i_MapMember = LanguageColorings;
+        for(auto const& i_Pair : ObjectToParse["LanguageColorings"].GetMapData())
+        {
+            i_MapMember[i_Pair.first] = LanguageConfig::Parse(i_Pair.second);
+        }
+    }
+    
+}
+MBParsing::JSONObject ColorConfiguration::GetJSON() const
+{
+    MBParsing::JSONObject ReturnValue(MBParsing::JSONObjectType::Aggregate);
+    ReturnValue["Coloring"] = Coloring.GetJSON();
     {
         auto const& i_MapMember = LanguageColorings;
         MBParsing::JSONObject i_MapObject(MBParsing::JSONObjectType::Aggregate);
@@ -110,6 +148,6 @@ MBParsing::JSONObject ColorConfiguation::GetJSON() const
     }
     return ReturnValue;
 }
-const int i_TypeIndexEnd[] = {1,2,};
+const int i_TypeIndexEnd[] = {1,2,3,};
 
 }

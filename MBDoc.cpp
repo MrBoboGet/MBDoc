@@ -23,8 +23,71 @@
 
 
 #include <MBUtility/InterfaceAdaptors.h>
+
+#include <regex>
 namespace MBDoc
 {
+    TextColor h_ParseTextColor(std::string const& TextString)
+    {
+        TextColor ReturnValue;    
+        if(TextString.size() != 6)
+        {
+            throw std::runtime_error("Error parsing color: unrecognized color \""+TextString+"\"");
+        }
+        bool Result = true;
+        char Data[3];
+        for(int i = 0; i < 3;i++)
+        {
+            Data[i] = MBUtility::HexValueToByte(TextString[i*2],TextString[i*2+1],&Result);
+            if(!Result)
+            {
+                throw std::runtime_error("Error parsing color: unrecognized color \""+TextString+"\"");
+            }
+        }
+        ReturnValue = TextColor(Data[0],Data[1],Data[2]);
+        return(ReturnValue);
+    }
+    ProcessedColorConfiguration ProcessColorConfig(ColorConfiguration const& Config)
+    {
+        ProcessedColorConfiguration ReturnValue;
+        ReturnValue.ColorInfo.DefaultColor = h_ParseTextColor(Config.Coloring.DefaultColor); 
+        ReturnValue.ColorInfo.ColoringNameToIndex["Default"] = 0;
+        ReturnValue.ColorInfo.ColorMap.push_back(ReturnValue.ColorInfo.DefaultColor);
+        for(auto const& LangConf : Config.LanguageColorings)
+        {
+            ProcessedLanguageColorConfig NewConf;
+            NewConf.LSP = LangConf.second.LSP;
+            for(auto const& RegexList : LangConf.second.Regexes)
+            {
+                ColorTypeIndex& RegexColorType = ReturnValue.ColorInfo.ColoringNameToIndex[RegexList.first]; 
+                if(RegexColorType == 0)
+                {
+                    RegexColorType = ReturnValue.ColorInfo.ColorMap.size();
+                    ReturnValue.ColorInfo.ColorMap.push_back(TextColor());
+                }
+                auto& Regexes = NewConf.RegexColoring.Regexes[RegexColorType];
+                for(auto const& Regex : RegexList.second)
+                {
+                    Regexes.push_back(std::regex(Regex,std::regex_constants::ECMAScript|std::regex_constants::nosubs));
+                }
+            }
+        }
+        for(auto const& Color : Config.Coloring.ColorMap)
+        {
+            ColorTypeIndex& Index = ReturnValue.ColorInfo.ColoringNameToIndex[Color.first];
+            if(Index == 0)
+            {
+                Index = ReturnValue.ColorInfo.ColorMap.size();   
+                ReturnValue.ColorInfo.ColorMap.push_back(TextColor());
+            }
+            ReturnValue.ColorInfo.ColorMap[Index] = h_ParseTextColor(Color.second);
+        }
+        return(ReturnValue);
+    }
+
+
+
+
     void URLReference::Accept(ReferenceVisitor& Visitor) const
     {
         Visitor.Visit(*this);
@@ -2572,7 +2635,8 @@ ParseOffset--;
         DocumentDirectoryInfo const& CurrentInfo = m_DirectoryInfos[0];
         __PrintDirectoryStructure(CurrentInfo, 0);
     }
-    MBError DocumentFilesystem::CreateDocumentFilesystem(DocumentBuild const& BuildToParse,DocumentFilesystem& OutFilesystem)
+    MBError DocumentFilesystem::CreateDocumentFilesystem(DocumentBuild const& BuildToParse,LSPInfo const& LSPConf,ProcessedColorConfiguration const& 
+                ColorConf,DocumentFilesystem& OutFilesystem)
     {
         MBError ReturnValue = true;
         try 
@@ -2588,7 +2652,7 @@ ParseOffset--;
             
             
             Result.p_ResolveReferences(); 
-            Result.p_ColorizeLSP();
+            Result.p_ColorizeLSP(ColorConf,LSPConf);
             if (ReturnValue)
             {
                 OutFilesystem = std::move(Result);
@@ -2809,28 +2873,106 @@ ParseOffset--;
 
         BlockToColorize.Content = ResolvedCodeText(std::move(Result));
     }
-    void DocumentFilesystem::p_ColorizeLSP()
+    std::vector<Coloring> DocumentFilesystem::p_GetRegexColorings(std::vector<Coloring> const& PreviousColorings,
+            ProcessedRegexColoring const& RegexesToUse,
+            std::vector<TextColor> const& ColorMap,
+            std::string const& DocumentContent)
+    {
+        std::vector<Coloring> ReturnValue;
+        size_t ParseOffset = 0;
+        size_t PreviousColorIndex = 0;
+        while(ParseOffset < DocumentContent.size())
+        {
+            size_t TextToInspectEnd = DocumentContent.size();
+            if(PreviousColorIndex < PreviousColorings.size())
+            {
+                if(ParseOffset < PreviousColorings[PreviousColorIndex].ByteOffset)
+                {
+                    TextToInspectEnd = PreviousColorings[PreviousColorIndex].ByteOffset;
+                }
+                else if(ParseOffset >= PreviousColorings[PreviousColorIndex].ByteOffset && 
+                        ParseOffset < PreviousColorings[PreviousColorIndex].ByteOffset+PreviousColorings[PreviousColorIndex].Content.size())
+                {
+                    //in previous coloring, skip
+                    ParseOffset = PreviousColorings[PreviousColorIndex].ByteOffset+PreviousColorings[PreviousColorIndex].Content.size();
+                    PreviousColorIndex++;
+                    continue;
+                }
+                else
+                {
+                    PreviousColorIndex++;
+                    continue;
+                }
+            }
+            while(ParseOffset < TextToInspectEnd)
+            {
+                for(auto const& RegexCategory : RegexesToUse.Regexes)
+                {
+                    TextColor CurrentColor = ColorMap[RegexCategory.first];
+                    for(auto const& Regex : RegexCategory.second)
+                    {
+                        std::sregex_iterator Begin = std::sregex_iterator(DocumentContent.begin()+ParseOffset,
+                                DocumentContent.begin()+TextToInspectEnd, Regex);
+                        std::sregex_iterator End;
+                        while(Begin != End)
+                        {
+                            assert(Begin->size() == 1);
+                            Coloring NewColoring;
+                            NewColoring.ByteOffset = ParseOffset+Begin->position();
+                            NewColoring.Color = CurrentColor;
+                            NewColoring.Content = Begin->str();
+                            ReturnValue.push_back(NewColoring);
+                        }
+                    }
+                }
+            }
+            ParseOffset = TextToInspectEnd;
+        }
+        return(ReturnValue);
+    }
+    void DocumentFilesystem::p_ColorizeLSP(ProcessedColorConfiguration const& ColorConig,LSPInfo const& LSPConfig)
     {
         //how to create these is not completelty obvious
         std::unordered_map<std::string,std::unique_ptr<MBLSP::LSP_Client>> InitialziedLSPs;
        
         //DEBUG AF, hardcodec LSP
-        MBSystem::BiDirectionalSubProcess SubProcess("clangd",{});
+        //MBSystem::BiDirectionalSubProcess SubProcess("clangd",{});
         InitializeRequest Init;
         Init.params.rootUri = MBLSP::URLEncodePath(std::filesystem::current_path());
-        InitialziedLSPs["cpp"] = std::make_unique<MBLSP::LSP_Client>(
-                std::make_unique<MBUtility::NonOwningIndeterminateInputStream>(&SubProcess),
-                std::make_unique<MBUtility::NonOwningOutputStream>(&SubProcess));
-        InitialziedLSPs["cpp"]->InitializeServer(Init);
+        //InitialziedLSPs["clangd"] = std::make_unique<MBLSP::LSP_Client>(
+        //        std::make_unique<MBUtility::NonOwningIndeterminateInputStream>(&SubProcess),
+        //        std::make_unique<MBUtility::NonOwningOutputStream>(&SubProcess));
+        //InitialziedLSPs["clangd"]->InitializeServer(Init);
         for(auto& Entry : m_TotalSources)
         {
             auto Lambda = [&](CodeBlock& BlockToModify) -> void
                     {
-                        auto ItHandler = InitialziedLSPs.find(BlockToModify.CodeType); 
-                        if(ItHandler != InitialziedLSPs.end())
+                        auto HandlesIt = ColorConig.LanguageConfigs.find(BlockToModify.CodeType);
+                        if(HandlesIt != ColorConig.LanguageConfigs.end())
                         {
-                            p_ColorizeCodeBlock(*ItHandler->second,BlockToModify);
+                            std::vector<Coloring> LSPColorings;
+                            if(HandlesIt->second.LSP != "")
+                            {
+                                std::unique_ptr<MBLSP::LSP_Client>& LSP = InitialziedLSPs[HandlesIt->second.LSP];
+                                if(LSP == nullptr)
+                                {
+                                    auto LSPConfIt = LSPConfig.Servers.find(HandlesIt->second.LSP);
+                                    if(LSPConfIt != LSPConfig.Servers.end())
+                                    {
+                                        LSP = p_InitializeLSP(LSPConfIt->second,Init);
+                                    }
+                                }
+                                if(LSP != nullptr)
+                                {
+                                    LSPColorings = p_GetLSPColoring(*LSP,std::get<std::string>(BlockToModify.Content));
+                                }
+                            }
+                            std::vector<Coloring> RegexColorings = p_GetRegexColorings(LSPColorings,HandlesIt->second.RegexColoring,
+                                    ColorConig.ColorInfo.ColorMap,std::get<std::string>(BlockToModify.Content));
+                            std::vector<std::vector<Coloring>> TotalColorings = {std::move(LSPColorings),std::move(RegexColorings)};
+                            BlockToModify.Content = p_CombineColorings(TotalColorings,std::get<std::string>(BlockToModify.Content));
                         }
+
                     };
             auto CodeBlockModifier = LambdaVisitor<decltype(Lambda)>(&Lambda);
             DocumentTraverser Traverser;

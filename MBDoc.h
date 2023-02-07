@@ -11,6 +11,7 @@
 #include <MBUtility/MBErrorHandling.h>
 #include <MBUtility/MBInterfaces.h>
 #include <unordered_set>
+#include <set>
 #include <variant>
 #include <assert.h>
 
@@ -20,6 +21,10 @@
 #include <MBUtility/Iterator.h>
 
 #include <MBLSP/MBLSP.h>
+
+#include "ColorConf.h"
+#include "LSP.h"
+#include "MBLSP/LSP_Structs.h"
 namespace MBDoc
 {
 
@@ -920,7 +925,35 @@ namespace MBDoc
         bool HasEnded() const;
         void NextDirectory(); 
     };
-
+    typedef int ColorTypeIndex; 
+    struct Coloring
+    {
+        size_t ByteOffset = 0;
+        TextColor Color;
+        std::string Content;    
+    };
+    struct ProcessedRegexColoring
+    {
+        std::unordered_map<ColorTypeIndex,std::vector<std::regex>> Regexes;
+    };
+    struct ProcessedLanguageColorConfig
+    {
+        std::string LSP;       
+        ProcessedRegexColoring RegexColoring;
+    };
+    struct ProcessedColorInfo
+    {
+        TextColor DefaultColor;      
+        std::unordered_map<std::string,ColorTypeIndex> ColoringNameToIndex;
+        std::vector<TextColor> ColorMap;
+    };
+    struct ProcessedColorConfiguration
+    {
+        ProcessedColorInfo ColorInfo; 
+        std::unordered_map<std::string,ProcessedLanguageColorConfig> LanguageConfigs;
+    };
+    
+    ProcessedColorConfiguration ProcessColorConfig(ColorConfiguration const& Config);
     class DocumentFilesystem 
     {
     public:
@@ -981,15 +1014,26 @@ namespace MBDoc
 
 
         void p_ResolveReferences();
+        
 
+        static std::vector<Coloring> p_GetRegexColorings(std::vector<Coloring> const& PreviousColorings,
+                ProcessedRegexColoring const& RegexesToUse,
+                std::vector<TextColor> const& ColorMap,
+                std::string const& DocumentContent);
+
+        static std::vector<Coloring> p_GetLSPColoring(MBLSP::LSP_Client& ClientToUse,std::string const& TextContent);
+        static ResolvedCodeText p_CombineColorings(std::vector<std::vector<Coloring>> const& ColoringsToCombine,std::string const& 
+                OriginalContent);
+        static std::unique_ptr<MBLSP::LSP_Client> p_InitializeLSP(LSPServer const& ServerToInitialize,InitializeRequest const& InitReq);
 
         static void p_ColorizeCodeBlock(MBLSP::LSP_Client& ClientToUse,CodeBlock& BlockToColorize);
-        void p_ColorizeLSP();
+        void p_ColorizeLSP(ProcessedColorConfiguration const& ColoringConfiguration,LSPInfo const& LSPConfig);
     public: 
         DocumentFilesystemIterator begin() const;
         DocumentPath ResolveReference(DocumentPath const& DocumentPath,std::string const& PathIdentifier,MBError& OutResult) const;
         [[nodiscard]] 
-        static MBError CreateDocumentFilesystem(DocumentBuild const& BuildToParse,DocumentFilesystem& OutBuild);
+        static MBError CreateDocumentFilesystem(DocumentBuild const& BuildToParse,LSPInfo const& LSPConf,ProcessedColorConfiguration const& 
+                ColorConf,DocumentFilesystem& OutBuild);
 
         void __PrintDirectoryStructure() const;
     };
