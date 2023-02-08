@@ -930,7 +930,11 @@ namespace MBDoc
     {
         size_t ByteOffset = 0;
         TextColor Color;
-        std::string Content;    
+        int Length = 0;
+        bool operator<(Coloring const& Rhs) const
+        {
+            return(ByteOffset < Rhs.ByteOffset);   
+        }
     };
     struct ProcessedRegexColoring
     {
@@ -952,7 +956,34 @@ namespace MBDoc
         ProcessedColorInfo ColorInfo; 
         std::unordered_map<std::string,ProcessedLanguageColorConfig> LanguageConfigs;
     };
-    
+    class LineIndex
+    {
+        std::vector<int> m_LineToOffset; 
+        public:
+        LineIndex(std::string const& DocumentData)
+        {
+            m_LineToOffset.push_back(0);
+            for(int i = 0; i < DocumentData.size();i++)
+            {
+                if(DocumentData[i] == '\n')
+                {
+                    m_LineToOffset .push_back(i);
+                }  
+            } 
+        }     
+        int LineCount() const
+        {
+            return(m_LineToOffset.size());
+        }
+        int operator[](int Index) const
+        {
+            if(Index > m_LineToOffset.size())
+            {
+                throw std::runtime_error("Invalid line index");
+            }   
+            return(m_LineToOffset[Index]);
+        }
+    };
     ProcessedColorConfiguration ProcessColorConfig(ColorConfiguration const& Config);
     class DocumentFilesystem 
     {
@@ -1021,12 +1052,11 @@ namespace MBDoc
                 std::vector<TextColor> const& ColorMap,
                 std::string const& DocumentContent);
 
-        static std::vector<Coloring> p_GetLSPColoring(MBLSP::LSP_Client& ClientToUse,std::string const& TextContent);
+        static std::vector<Coloring> p_GetLSPColoring(MBLSP::LSP_Client& ClientToUse,std::string const& TextContent,ProcessedColorInfo const& ColorInfo,LineIndex const& Index);
         static ResolvedCodeText p_CombineColorings(std::vector<std::vector<Coloring>> const& ColoringsToCombine,std::string const& 
-                OriginalContent);
+                OriginalContent,LineIndex const& Index,ProcessedColorInfo const& ColorInfo);
         static std::unique_ptr<MBLSP::LSP_Client> p_InitializeLSP(LSPServer const& ServerToInitialize,InitializeRequest const& InitReq);
 
-        static void p_ColorizeCodeBlock(MBLSP::LSP_Client& ClientToUse,CodeBlock& BlockToColorize);
         void p_ColorizeLSP(ProcessedColorConfiguration const& ColoringConfiguration,LSPInfo const& LSPConfig);
     public: 
         DocumentFilesystemIterator begin() const;

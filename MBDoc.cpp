@@ -23,6 +23,7 @@
 
 
 #include <MBUtility/InterfaceAdaptors.h>
+#include <MBUtility/Merge.h>
 
 #include <regex>
 namespace MBDoc
@@ -71,6 +72,7 @@ namespace MBDoc
                     Regexes.push_back(std::regex(Regex,std::regex_constants::ECMAScript|std::regex_constants::nosubs));
                 }
             }
+            ReturnValue.LanguageConfigs[LangConf.first] = std::move(NewConf);
         }
         for(auto const& Color : Config.Coloring.ColorMap)
         {
@@ -2716,40 +2718,93 @@ ParseOffset--;
         }
     }
 
-    class i_LineIndex
+    ResolvedCodeText DocumentFilesystem::p_CombineColorings(std::vector<std::vector<Coloring>> const& ColoringsToCombine,std::string const& 
+            OriginalContent,LineIndex const& Index,ProcessedColorInfo const& ColorInfo)
     {
-        std::vector<int> m_LineToOffset; 
-    public:
-        i_LineIndex(std::string const& DocumentData)
+        ResolvedCodeText ReturnValue;
+        for(auto const& Coloring : ColoringsToCombine)
         {
-            m_LineToOffset.push_back(0);
-            for(int i = 0; i < DocumentData.size();i++)
+            assert(std::is_sorted(Coloring.begin(), Coloring.end()));
+        }
+        std::vector<Coloring> TotalColorings = MBUtility::Merge<Coloring>(ColoringsToCombine.begin(),ColoringsToCombine.end());
+        assert(std::is_sorted(TotalColorings.begin(),TotalColorings.end()));
+        assert(TotalColorings.size() == [&]()->size_t{size_t ReturnValue = 0; for(auto const& Vec : ColoringsToCombine){ReturnValue += Vec.size();} return(ReturnValue);}());
+        std::vector<TextElement> CurrentRow;
+        size_t ParseOffset = 0; 
+        int ColoringOffset = 0;
+        int LineOffset = 1;
+        while(ParseOffset < OriginalContent.size())
+        {
+            if(LineOffset < Index.LineCount() && Index[LineOffset] <= ParseOffset)
             {
-                if(DocumentData[i] == '\n')
+                if(ParseOffset == Index[LineOffset])
                 {
-                    m_LineToOffset .push_back(i);
-                }  
-            } 
-        }     
-        int LineCount() const
-        {
-            return(m_LineToOffset.size());
-        }
-        int operator[](int Index)
-        {
-            if(Index > m_LineToOffset.size())
+                    ParseOffset++; 
+                }
+                ReturnValue.m_Rows.push_back(std::move(CurrentRow));   
+                CurrentRow.clear();
+                LineOffset++;
+            }
+            else if(ColoringOffset < TotalColorings.size())
             {
-                throw std::runtime_error("Invalid line index");
-            }   
-            return(m_LineToOffset[Index]);
+                if(LineOffset < Index.LineCount() && Index[LineOffset] < TotalColorings[ColoringOffset].ByteOffset)
+                {
+                    RegularText NewElement;
+                    NewElement.Text = std::string(OriginalContent.data()+ParseOffset,OriginalContent.data()+Index[LineOffset]);
+                    NewElement.Color = ColorInfo.DefaultColor;
+                    CurrentRow.push_back(std::move(NewElement));
+                    ParseOffset = Index[LineOffset]+1;
+                }
+                else
+                {
+                    if(TotalColorings[ColoringOffset].ByteOffset != ParseOffset)
+                    {
+                        RegularText NewElement;
+                        NewElement.Text = std::string(OriginalContent.data()+ParseOffset,OriginalContent.data()+TotalColorings[ColoringOffset].ByteOffset);
+                        NewElement.Color = ColorInfo.DefaultColor;
+                        CurrentRow.push_back(std::move(NewElement));
+                    }                        
+                    RegularText NewElement;
+                    NewElement.Text = std::string(OriginalContent.data()+TotalColorings[ColoringOffset].ByteOffset,OriginalContent.data()+TotalColorings[ColoringOffset].ByteOffset+TotalColorings[ColoringOffset].Length);
+                    NewElement.Color = TotalColorings[ColoringOffset].Color;
+                    ParseOffset = TotalColorings[ColoringOffset].ByteOffset + TotalColorings[ColoringOffset].Length;
+                    ColoringOffset++;
+                    CurrentRow.push_back(std::move(NewElement));
+                }
+            }
+            else
+            {
+                if(LineOffset < Index.LineCount())
+                {
+                    RegularText NewElement;
+                    NewElement.Color = ColorInfo.DefaultColor;
+                    NewElement.Text = std::string(OriginalContent.data()+ParseOffset,OriginalContent.data()+Index[LineOffset]);
+                    CurrentRow.push_back(std::move(NewElement));
+                    ParseOffset = Index[LineOffset]+1;
+                }
+                else
+                {
+                    RegularText NewElement;
+                    NewElement.Text = std::string(OriginalContent.data()+ParseOffset,OriginalContent.data()+OriginalContent.size());
+                    NewElement.Color = ColorInfo.DefaultColor;
+                    ParseOffset = OriginalContent.size();
+                    CurrentRow.push_back(std::move(NewElement));
+                }
+            }
         }
-    };
-
-    void DocumentFilesystem::p_ColorizeCodeBlock(MBLSP::LSP_Client& ClientToUse,CodeBlock& BlockToColorize)
+        if(CurrentRow.size() != 0)
+        {
+            ReturnValue.m_Rows.push_back(std::move(CurrentRow));   
+        }
+        return(ReturnValue);
+    }
+    std::vector<Coloring> DocumentFilesystem::p_GetLSPColoring(MBLSP::LSP_Client& ClientToUse,std::string const& TextContent,ProcessedColorInfo const& ColorInfo
+            ,LineIndex const& Index)
+    //void DocumentFilesystem::p_ColorizeCodeBlock(MBLSP::LSP_Client& ClientToUse,CodeBlock& BlockToColorize)
     {
-        std::vector<std::vector<TextElement>> Result;
+        std::vector<Coloring> ReturnValue;
         DidOpenTextDocument_Notification OpenNotification;
-        OpenNotification.params.textDocument.text = std::get<std::string>(BlockToColorize.Content);
+        OpenNotification.params.textDocument.text = TextContent;
         OpenNotification.params.textDocument.uri = MBLSP::URLEncodePath(std::filesystem::current_path()/"asdasdasdasd.cpp");
         ClientToUse.SendNotification(OpenNotification);
 
@@ -2761,7 +2816,6 @@ ParseOffset--;
             if(Tokens.result)
             {
                 std::string const& Text = OpenNotification.params.textDocument.text;
-                i_LineIndex Index(OpenNotification.params.textDocument.text);
                 std::vector<int> const& TokenData = Tokens.result->data;
                 if(TokenData.size() % 5 != 0)
                 {
@@ -2770,9 +2824,8 @@ ParseOffset--;
                 int CurrentLineIndex = 0;
                 int CurrentTokensOffset = 0;
                 int TokenOffset = 0;
-                
                 int LatestTokenEnd = 0;
-                std::vector<TextElement> CurrentLine;
+
                 while(CurrentTokensOffset < TokenData.size())
                 {
                     int Line = TokenData[TokenOffset];
@@ -2793,73 +2846,22 @@ ParseOffset--;
                     int CurrentTokenBegin = Index[CurrentLineIndex]+1+CurrentTokensOffset;
                     int CurrentTokenEnd = CurrentTokenBegin + Length;
                    
-                    std::string StringToAdd; 
-                    while(LatestTokenEnd < CurrentTokenBegin)
+                    Coloring TextToAdd;   
+                    TextToAdd.Length = Length;
+                    //TextToAdd.Color = TextColor(0, 0, 255);
+                    auto TypeIt = ColorInfo.ColoringNameToIndex.find(ClientToUse.GetSemanticTokenInfo().TokenIndexToName(Type));
+                    if(TypeIt != ColorInfo.ColoringNameToIndex.end())
                     {
-                        if(Text[LatestTokenEnd] != '\n')
-                        {
-                            StringToAdd += Text[LatestTokenEnd];  
-                        } 
-                        else
-                        {
-                            if(StringToAdd.size() > 0)
-                            {
-                                RegularText TextToAdd;   
-                                TextToAdd.Text = std::move(StringToAdd);
-                                StringToAdd.clear();
-                                CurrentLine.push_back(std::move(TextToAdd));
-                                Result.push_back(std::move(CurrentLine));
-                                CurrentLine.clear();
-                            } 
-                        }
-                        LatestTokenEnd++;
-                    }
-                    if(StringToAdd.size() > 0)
-                    {
-                        RegularText TextToAdd;   
-                        TextToAdd.Text = std::move(StringToAdd);
-                        StringToAdd.clear();
-                        CurrentLine.push_back(std::move(TextToAdd));
-                    } 
-                    
-                    RegularText TextToAdd;   
-                    TextToAdd.Text = std::string(Text.begin()+CurrentTokenBegin,Text.begin()+CurrentTokenEnd);
-                    TextToAdd.Color = TextColor(0, 0, 255);
-                    CurrentLine.push_back(std::move(TextToAdd));
-                    LatestTokenEnd = CurrentTokenEnd;
-                    TokenOffset += 5;
-                }
-                std::string StringToAdd;
-                while (LatestTokenEnd < Text.size())
-                {
-                    if (Text[LatestTokenEnd] != '\n')
-                    {
-                        StringToAdd += Text[LatestTokenEnd];
+                        TextToAdd.Color = ColorInfo.ColorMap[TypeIt->second];
                     }
                     else
                     {
-                        if (StringToAdd.size() > 0)
-                        {
-                            RegularText TextToAdd;
-                            TextToAdd.Text = std::move(StringToAdd);
-                            StringToAdd.clear();
-                            CurrentLine.push_back(std::move(TextToAdd));
-                            Result.push_back(std::move(CurrentLine));
-                            CurrentLine.clear();
-                        }
+                        TextToAdd.Color = ColorInfo.DefaultColor;   
                     }
-                    LatestTokenEnd++;
-                }
-                if (StringToAdd.size() > 0)
-                {
-                    RegularText TextToAdd;
-                    TextToAdd.Text = std::move(StringToAdd);
-                    StringToAdd.clear();
-                    CurrentLine.push_back(std::move(TextToAdd));
-                }
-                if(CurrentLine.size() > 0)
-                {
-                    Result.push_back(std::move(CurrentLine));   
+                    TextToAdd.ByteOffset = CurrentTokenBegin;
+                    ReturnValue.push_back(TextToAdd);
+                    LatestTokenEnd = CurrentTokenEnd;
+                    TokenOffset += 5;
                 }
             }
         } 
@@ -2870,8 +2872,7 @@ ParseOffset--;
         DidCloseTextDocument_Notification CloseNotification;
         CloseNotification.params.textDocument.uri = OpenNotification.params.textDocument.uri;
         ClientToUse.SendNotification(CloseNotification);
-
-        BlockToColorize.Content = ResolvedCodeText(std::move(Result));
+        return(ReturnValue);
     }
     std::vector<Coloring> DocumentFilesystem::p_GetRegexColorings(std::vector<Coloring> const& PreviousColorings,
             ProcessedRegexColoring const& RegexesToUse,
@@ -2891,10 +2892,10 @@ ParseOffset--;
                     TextToInspectEnd = PreviousColorings[PreviousColorIndex].ByteOffset;
                 }
                 else if(ParseOffset >= PreviousColorings[PreviousColorIndex].ByteOffset && 
-                        ParseOffset < PreviousColorings[PreviousColorIndex].ByteOffset+PreviousColorings[PreviousColorIndex].Content.size())
+                        ParseOffset < PreviousColorings[PreviousColorIndex].ByteOffset+PreviousColorings[PreviousColorIndex].Length)
                 {
                     //in previous coloring, skip
-                    ParseOffset = PreviousColorings[PreviousColorIndex].ByteOffset+PreviousColorings[PreviousColorIndex].Content.size();
+                    ParseOffset = PreviousColorings[PreviousColorIndex].ByteOffset+PreviousColorings[PreviousColorIndex].Length;
                     PreviousColorIndex++;
                     continue;
                 }
@@ -2904,30 +2905,38 @@ ParseOffset--;
                     continue;
                 }
             }
-            while(ParseOffset < TextToInspectEnd)
+            for(auto const& RegexCategory : RegexesToUse.Regexes)
             {
-                for(auto const& RegexCategory : RegexesToUse.Regexes)
+                TextColor CurrentColor = ColorMap[RegexCategory.first];
+                for(auto const& Regex : RegexCategory.second)
                 {
-                    TextColor CurrentColor = ColorMap[RegexCategory.first];
-                    for(auto const& Regex : RegexCategory.second)
+                    std::sregex_iterator Begin = std::sregex_iterator(DocumentContent.begin()+ParseOffset,
+                            DocumentContent.begin()+TextToInspectEnd, Regex);
+                    std::sregex_iterator End;
+                    while(Begin != End)
                     {
-                        std::sregex_iterator Begin = std::sregex_iterator(DocumentContent.begin()+ParseOffset,
-                                DocumentContent.begin()+TextToInspectEnd, Regex);
-                        std::sregex_iterator End;
-                        while(Begin != End)
-                        {
-                            assert(Begin->size() == 1);
-                            Coloring NewColoring;
-                            NewColoring.ByteOffset = ParseOffset+Begin->position();
-                            NewColoring.Color = CurrentColor;
-                            NewColoring.Content = Begin->str();
-                            ReturnValue.push_back(NewColoring);
-                        }
+                        assert(Begin->size() == 1);
+                        Coloring NewColoring;
+                        NewColoring.ByteOffset = ParseOffset+Begin->position();
+                        NewColoring.Color = CurrentColor;
+                        NewColoring.Length = Begin->length();
+                        ReturnValue.push_back(NewColoring);
+                        ++Begin;
                     }
                 }
             }
             ParseOffset = TextToInspectEnd;
         }
+        return(ReturnValue);
+    }
+    std::unique_ptr<MBLSP::LSP_Client> DocumentFilesystem::p_InitializeLSP(LSPServer const& ServerToInitialize,InitializeRequest const& InitReq)
+    {
+        std::unique_ptr<MBLSP::LSP_Client> ReturnValue;
+        std::unique_ptr<MBSystem::BiDirectionalSubProcess> SubProcess = 
+            std::make_unique<MBSystem::BiDirectionalSubProcess>(ServerToInitialize.CommandName,ServerToInitialize.CommandArguments);
+        std::unique_ptr<MBUtility::IndeterminateInputStream> InputStream = std::make_unique<MBUtility::NonOwningIndeterminateInputStream>(SubProcess.get());
+        ReturnValue = std::make_unique<MBLSP::LSP_Client>(std::move(InputStream),std::move(SubProcess));
+        ReturnValue->InitializeServer(InitReq);
         return(ReturnValue);
     }
     void DocumentFilesystem::p_ColorizeLSP(ProcessedColorConfiguration const& ColorConig,LSPInfo const& LSPConfig)
@@ -2950,6 +2959,7 @@ ParseOffset--;
                         auto HandlesIt = ColorConig.LanguageConfigs.find(BlockToModify.CodeType);
                         if(HandlesIt != ColorConig.LanguageConfigs.end())
                         {
+                            LineIndex Index(std::get<std::string>(BlockToModify.Content));
                             std::vector<Coloring> LSPColorings;
                             if(HandlesIt->second.LSP != "")
                             {
@@ -2964,13 +2974,13 @@ ParseOffset--;
                                 }
                                 if(LSP != nullptr)
                                 {
-                                    LSPColorings = p_GetLSPColoring(*LSP,std::get<std::string>(BlockToModify.Content));
+                                    LSPColorings = p_GetLSPColoring(*LSP,std::get<std::string>(BlockToModify.Content),ColorConig.ColorInfo,Index);
                                 }
                             }
                             std::vector<Coloring> RegexColorings = p_GetRegexColorings(LSPColorings,HandlesIt->second.RegexColoring,
                                     ColorConig.ColorInfo.ColorMap,std::get<std::string>(BlockToModify.Content));
                             std::vector<std::vector<Coloring>> TotalColorings = {std::move(LSPColorings),std::move(RegexColorings)};
-                            BlockToModify.Content = p_CombineColorings(TotalColorings,std::get<std::string>(BlockToModify.Content));
+                            BlockToModify.Content = p_CombineColorings(TotalColorings,std::get<std::string>(BlockToModify.Content),Index, ColorConig.ColorInfo);
                         }
 
                     };

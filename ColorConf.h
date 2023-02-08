@@ -9,7 +9,7 @@
 #include <MBParsing/MBParsing.h>
 namespace MBDoc
 {
-extern const int i_TypeIndexEnd[];
+extern const int i_TypeIndexEndColorConf_h[];
 template<typename T> inline int GetTypeIndex();
 struct LanguageConfig
 {

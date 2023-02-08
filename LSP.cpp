@@ -90,6 +90,6 @@ MBParsing::JSONObject LSPInfo::GetJSON() const
     }
     return ReturnValue;
 }
-const int i_TypeIndexEnd[] = {1,2,};
+const int i_TypeIndexEndLSP_h[] = {1,2,};
 
 }

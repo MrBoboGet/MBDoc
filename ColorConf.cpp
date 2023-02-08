@@ -148,6 +148,6 @@ MBParsing::JSONObject ColorConfiguration::GetJSON() const
     }
     return ReturnValue;
 }
-const int i_TypeIndexEnd[] = {1,2,3,};
+const int i_TypeIndexEndColorConf_h[] = {1,2,3,};
 
 }

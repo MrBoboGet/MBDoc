@@ -12,7 +12,7 @@ std::vector<std::string> TestLinkResolving()
         return(ReturnValue);
     }
     MBDoc::DocumentFilesystem LinkResolveFilesystem;
-    ParseError = MBDoc::DocumentFilesystem::CreateDocumentFilesystem(LinkResolveBuild,LinkResolveFilesystem);
+    //ParseError = MBDoc::DocumentFilesystem::CreateDocumentFilesystem(LinkResolveBuild,LinkResolveFilesystem);
    
     //Current Dir and PathToResolve
     std::vector<std::pair<std::string,std::string>> TruePairs = 

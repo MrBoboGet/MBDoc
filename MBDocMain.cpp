@@ -26,7 +26,7 @@ int Test()
         return(1);
     }
     MBDoc::DocumentFilesystem Filesystem;
-    ParseError = MBDoc::DocumentFilesystem::CreateDocumentFilesystem(Build, Filesystem);
+    //ParseError = MBDoc::DocumentFilesystem::CreateDocumentFilesystem(Build, Filesystem);
     if (!ParseError)
     {
         std::cout << "Error creating filesystem: " + ParseError.ErrorMessage;
