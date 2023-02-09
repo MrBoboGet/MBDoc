@@ -20,5 +20,8 @@
 /ExecuteTests.sh
 /Test.html
 /Test/Media
-/CMakeLi*
+/CMake*
 /makefile
+
+/Input.json
+/Output.json

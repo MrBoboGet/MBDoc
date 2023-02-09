@@ -35,23 +35,14 @@
             "OutputName":"MBDoc",
             "Sources": 
             [
+
                 "/MBDoc.cpp",
                 "/MBDocCLI.cpp",
-                "/Compilers/HTML.cpp"
+                "/Compilers/HTML.cpp",
+                "/ColorConf.cpp",
+                "/LSP.cpp"
             ],
             "TargetType":"Library"
-        },
-        "MBDocTest": 
-        {
-            "OutputName":"mbdoc_test",
-            "Sources": 
-            [
-                "/MBDoc.cpp",
-                "/MBDocCLI.cpp",
-                "/MBDocTestMain.cpp",
-                "/Compilers/HTML.cpp"
-            ],
-            "TargetType":"Executable"
         }
     }
 }

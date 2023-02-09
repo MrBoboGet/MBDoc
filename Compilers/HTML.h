@@ -11,11 +11,12 @@ namespace MBDoc
         std::string m_VisitResultText;
         DocumentFilesystem const* m_AssociatedBuild = nullptr;
         DocumentPath m_CurrentPath;
+        bool m_Colorize = true;
     public:
         void Visit(URLReference const& Ref) override;
         void Visit(FileReference const& Ref) override;
         void Visit(UnresolvedReference const& Ref) override;
-        std::string GetReferenceString(DocReference const& ReferenceIdentifier);
+        std::string GetReferenceString(DocReference const& ReferenceIdentifier,bool Colorize = true);
         std::string GetDocumentPathURL(DocumentPath const& PathToConvert);
         //Holds a reference to the build for the duration
         void SetCurrentPath(DocumentPath CurrentPath);
@@ -85,6 +86,8 @@ namespace MBDoc
         std::string p_GetNumberLabel(int FormatDepth);
         std::unique_ptr<MBUtility::MBOctetOutputStream> m_OutStream;
         
+        //really ghetto, it is what is is
+        bool m_InCodeBlock = false;
     public:
         HTMLCompiler();
         
@@ -103,6 +106,7 @@ namespace MBDoc
         void Visit(URLReference const& BlockToVisit) override;
         void Visit(FileReference const& BlockToVisit) override;
         void Visit(UnresolvedReference const& BlockToVisit) override;
+        void Visit(DocReference const& BlockToVisit) override;
 
         void Visit(RegularText const& BlockToVisit) override;
 

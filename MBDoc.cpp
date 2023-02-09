@@ -2653,8 +2653,8 @@ ParseOffset--;
             assert(std::is_sorted(Result.m_DirectoryInfos.begin(), Result.m_DirectoryInfos.end(), h_DirectoryOrder));
             
             
-            Result.p_ResolveReferences(); 
             Result.p_ColorizeLSP(ColorConf,LSPConf);
+            Result.p_ResolveReferences(); 
             if (ReturnValue)
             {
                 OutFilesystem = std::move(Result);
@@ -2673,7 +2673,7 @@ ParseOffset--;
         m_AssociatedFilesystem = AssociatedFilesystem;
         m_CurrentPath = CurrentPath;
     }
-    void DocumentFilesystem::DocumentFilesystemReferenceResolver::Visit(UnresolvedReference const& Ref)
+    void DocumentFilesystem::DocumentFilesystemReferenceResolver::Visit(UnresolvedReference& Ref)
     {
         MBError Result = true;
         DocumentPath NewPath = m_AssociatedFilesystem->ResolveReference(m_CurrentPath,Ref.ReferenceString,Result);
@@ -2698,6 +2698,22 @@ ParseOffset--;
            ReferenceToResolve = std::move(m_Result); 
         } 
     }
+    void DocumentFilesystem::DocumentFilesystemReferenceResolver::Visit(CodeBlock& CodeBlock)
+    {
+        if(std::holds_alternative<ResolvedCodeText>(CodeBlock.Content))
+        {
+            for(auto& Row : std::get<ResolvedCodeText>(CodeBlock.Content))
+            {
+                for(auto& Element : Row)
+                {
+                    if(Element.IsType<DocReference>())
+                    {
+                        ResolveReference(Element);
+                    }
+                }
+            }
+        }
+    }
     void DocumentFilesystem::p_ResolveReferences()
     {
         DocumentFilesystemIterator Iterator(0); 
@@ -2719,9 +2735,13 @@ ParseOffset--;
     }
 
     ResolvedCodeText DocumentFilesystem::p_CombineColorings(std::vector<std::vector<Coloring>> const& ColoringsToCombine,std::string const& 
-            OriginalContent,LineIndex const& Index,ProcessedColorInfo const& ColorInfo)
+            OriginalContent,LineIndex const& Index,ProcessedColorInfo const& ColorInfo,LSPReferenceResolver* OptionalLSPResolver)
     {
         ResolvedCodeText ReturnValue;
+        if(OptionalLSPResolver != nullptr)
+        {
+            OptionalLSPResolver->OpenDocument(OriginalContent);   
+        }
         for(auto const& Coloring : ColoringsToCombine)
         {
             assert(std::is_sorted(Coloring.begin(), Coloring.end()));
@@ -2733,6 +2753,19 @@ ParseOffset--;
         size_t ParseOffset = 0; 
         int ColoringOffset = 0;
         int LineOffset = 1;
+
+        int FunctionIndex = -2;
+        int ClassIndex = -2;
+        auto FunctionIndexIt = ColorInfo.ColoringNameToIndex.find("function");
+        auto ClassIndexIt = ColorInfo.ColoringNameToIndex.find("class");
+        if(FunctionIndexIt != ColorInfo.ColoringNameToIndex.end())
+        {
+            FunctionIndex = FunctionIndexIt->second;   
+        }
+        if(ClassIndexIt != ColorInfo.ColoringNameToIndex.end())
+        {
+            ClassIndex = ClassIndexIt->second;   
+        }
         while(ParseOffset < OriginalContent.size())
         {
             if(LineOffset < Index.LineCount() && Index[LineOffset] <= ParseOffset)
@@ -2763,13 +2796,32 @@ ParseOffset--;
                         NewElement.Text = std::string(OriginalContent.data()+ParseOffset,OriginalContent.data()+TotalColorings[ColoringOffset].ByteOffset);
                         NewElement.Color = ColorInfo.DefaultColor;
                         CurrentRow.push_back(std::move(NewElement));
-                    }                        
-                    RegularText NewElement;
-                    NewElement.Text = std::string(OriginalContent.data()+TotalColorings[ColoringOffset].ByteOffset,OriginalContent.data()+TotalColorings[ColoringOffset].ByteOffset+TotalColorings[ColoringOffset].Length);
-                    NewElement.Color = TotalColorings[ColoringOffset].Color;
+                    }
+                    std::string VisibleText = std::string(OriginalContent.data()+TotalColorings[ColoringOffset].ByteOffset,
+                            OriginalContent.data()+TotalColorings[ColoringOffset].ByteOffset+TotalColorings[ColoringOffset].Length);
+ 
+                    ColorTypeIndex ColorType = TotalColorings[ColoringOffset].Color;
+                    if(OptionalLSPResolver != nullptr && (ColorType == FunctionIndex || ColorType == ClassIndex))
+                    {
+                        TextElement NewElement = OptionalLSPResolver->CreateReference(LineOffset-1,
+                                TotalColorings[ColoringOffset].ByteOffset-(Index[LineOffset-1]+1),VisibleText,
+                                ColorType == FunctionIndex ? CodeReferenceType::Function : CodeReferenceType::Class);
+                        NewElement.GetBase().Color = ColorInfo.ColorMap[ColorType];
+                        //if(NewElement.IsType<DocReference>())
+                        //{
+                        //    std::cout<<NewElement.GetType<DocReference>().VisibleText<<std::endl;   
+                        //}
+                        CurrentRow.push_back(std::move(NewElement));
+                    }
+                    else
+                    {
+                        RegularText NewElement;
+                        NewElement.Text = VisibleText;
+                        NewElement.Color = ColorInfo.ColorMap[ColorType];
+                        CurrentRow.push_back(std::move(NewElement));
+                    }
                     ParseOffset = TotalColorings[ColoringOffset].ByteOffset + TotalColorings[ColoringOffset].Length;
                     ColoringOffset++;
-                    CurrentRow.push_back(std::move(NewElement));
                 }
             }
             else
@@ -2795,6 +2847,10 @@ ParseOffset--;
         if(CurrentRow.size() != 0)
         {
             ReturnValue.m_Rows.push_back(std::move(CurrentRow));   
+        }
+        if(OptionalLSPResolver != nullptr)
+        {
+            OptionalLSPResolver->CloseDocument();   
         }
         return(ReturnValue);
     }
@@ -2852,11 +2908,7 @@ ParseOffset--;
                     auto TypeIt = ColorInfo.ColoringNameToIndex.find(ClientToUse.GetSemanticTokenInfo().TokenIndexToName(Type));
                     if(TypeIt != ColorInfo.ColoringNameToIndex.end())
                     {
-                        TextToAdd.Color = ColorInfo.ColorMap[TypeIt->second];
-                    }
-                    else
-                    {
-                        TextToAdd.Color = ColorInfo.DefaultColor;   
+                        TextToAdd.Color = TypeIt->second;
                     }
                     TextToAdd.ByteOffset = CurrentTokenBegin;
                     ReturnValue.push_back(TextToAdd);
@@ -2907,7 +2959,7 @@ ParseOffset--;
             }
             for(auto const& RegexCategory : RegexesToUse.Regexes)
             {
-                TextColor CurrentColor = ColorMap[RegexCategory.first];
+                ColorTypeIndex CurrentColor = RegexCategory.first;
                 for(auto const& Regex : RegexCategory.second)
                 {
                     std::sregex_iterator Begin = std::sregex_iterator(DocumentContent.begin()+ParseOffset,
@@ -2939,6 +2991,85 @@ ParseOffset--;
         ReturnValue->InitializeServer(InitReq);
         return(ReturnValue);
     }
+    
+    void DocumentFilesystem::LSPReferenceResolver::SetLSP(MBLSP::LSP_Client* AssociatedLSP)
+    {
+        m_AssociatedLSP = AssociatedLSP;
+    }
+    void DocumentFilesystem::LSPReferenceResolver::OpenDocument(std::string const& DocumentData)
+    {
+        DidOpenTextDocument_Notification OpenNotification;
+        OpenNotification.params.textDocument.text = DocumentData;
+        OpenNotification.params.textDocument.uri = MBLSP::URLEncodePath(std::filesystem::current_path()/"asdasdasdasd.cpp");
+        m_CurrentDocument = OpenNotification.params.textDocument.uri;
+        m_AssociatedLSP->SendNotification(OpenNotification);
+    }
+    void DocumentFilesystem::LSPReferenceResolver::CloseDocument()
+    {
+        DidCloseTextDocument_Notification CloseNotification;
+        CloseNotification.params.textDocument.uri = m_CurrentDocument;
+        m_AssociatedLSP->SendNotification(CloseNotification);
+    }
+    TextElement DocumentFilesystem::LSPReferenceResolver::CreateReference(int Line,int Offset,std::string const& VisibleText,
+            CodeReferenceType ReferenceType)
+    {
+        TextElement ReturnValue;
+        GotoDefinition_Request GotoDefinitionRequest;
+        GotoDefinitionRequest.params.textDocument.uri = m_CurrentDocument;
+        GotoDefinitionRequest.params.position.line = Line;
+        GotoDefinitionRequest.params.position.character = Offset;
+        GotoDefinition_Response Response = m_AssociatedLSP->SendRequest(GotoDefinitionRequest);
+        //Multiple locations doesn't make alot of sense, and may be indicative of for example virtual functions
+        if(Response.result && Response.result->size() == 1)
+        {
+            auto const& Result = Response.result.Value(); 
+            UnresolvedReference Reference;
+            Reference.ReferenceString = "UNRESOLVED";
+            Reference.VisibleText = VisibleText;
+
+            Location const& LocationToCheck = Result[0];
+            std::filesystem::path AbsolutePath = MBLSP::URLDecodePath(LocationToCheck.uri); 
+            //Kinda hacky, assumes the existance of mbpm...
+            const char* MBPM_PACKET_PATH = std::getenv("MBPM_PACKETS_INSTALL_DIRECTORY");
+            if(MBPM_PACKET_PATH == nullptr)
+            {
+                throw std::runtime_error("Cant resolve CodeBlock definitions without MBPM_PACKETS_INSTALL_DIRECTORY set, "
+                       "assumes that CodeBlocks uses mbpm packetmanager");
+            }
+            std::filesystem::path PacketPath = MBPM_PACKET_PATH;
+            std::string RelativePath = MBUnicode::PathToUTF8(std::filesystem::relative(AbsolutePath,PacketPath));
+            if(RelativePath.size() >= 2 && !(RelativePath[0] == '.' && RelativePath[1] == '.'))
+            {
+                size_t DirectoryEnd = RelativePath.find('/');
+                if(DirectoryEnd == RelativePath.npos)
+                {
+                    DirectoryEnd = RelativePath.size();
+                }
+                Reference.ReferenceString = "/{";
+                Reference.ReferenceString.insert(Reference.ReferenceString.end(),RelativePath.begin(),RelativePath.begin()+DirectoryEnd);
+                Reference.ReferenceString += "}/{Code/";
+                if(ReferenceType == CodeReferenceType::Class)
+                {
+                    Reference.ReferenceString += "Classes";
+                }
+                else if(ReferenceType == CodeReferenceType::Function)
+                {
+                    Reference.ReferenceString += "Functions";
+                }
+                Reference.ReferenceString += "}/"+VisibleText+".mbd";
+            }
+            ReturnValue = std::move(Reference);
+            //Reference.ReferenceString = 
+        }
+        else
+        {
+            RegularText NewElement;    
+            NewElement.Text = VisibleText;
+            ReturnValue = std::move(NewElement);
+            std::cout<<NewElement.Text<<std::endl;
+        }
+        return(ReturnValue);
+    }
     void DocumentFilesystem::p_ColorizeLSP(ProcessedColorConfiguration const& ColorConig,LSPInfo const& LSPConfig)
     {
         //how to create these is not completelty obvious
@@ -2952,6 +3083,7 @@ ParseOffset--;
         //        std::make_unique<MBUtility::NonOwningIndeterminateInputStream>(&SubProcess),
         //        std::make_unique<MBUtility::NonOwningOutputStream>(&SubProcess));
         //InitialziedLSPs["clangd"]->InitializeServer(Init);
+        LSPReferenceResolver ReferenceResolver;
         for(auto& Entry : m_TotalSources)
         {
             auto Lambda = [&](CodeBlock& BlockToModify) -> void
@@ -2961,6 +3093,7 @@ ParseOffset--;
                         {
                             LineIndex Index(std::get<std::string>(BlockToModify.Content));
                             std::vector<Coloring> LSPColorings;
+                            bool ResolveReferences = false;
                             if(HandlesIt->second.LSP != "")
                             {
                                 std::unique_ptr<MBLSP::LSP_Client>& LSP = InitialziedLSPs[HandlesIt->second.LSP];
@@ -2974,13 +3107,16 @@ ParseOffset--;
                                 }
                                 if(LSP != nullptr)
                                 {
+                                    ReferenceResolver.SetLSP(LSP.get());
+                                    ResolveReferences = true;
                                     LSPColorings = p_GetLSPColoring(*LSP,std::get<std::string>(BlockToModify.Content),ColorConig.ColorInfo,Index);
                                 }
                             }
                             std::vector<Coloring> RegexColorings = p_GetRegexColorings(LSPColorings,HandlesIt->second.RegexColoring,
                                     ColorConig.ColorInfo.ColorMap,std::get<std::string>(BlockToModify.Content));
                             std::vector<std::vector<Coloring>> TotalColorings = {std::move(LSPColorings),std::move(RegexColorings)};
-                            BlockToModify.Content = p_CombineColorings(TotalColorings,std::get<std::string>(BlockToModify.Content),Index, ColorConig.ColorInfo);
+                            BlockToModify.Content = p_CombineColorings(TotalColorings,std::get<std::string>(BlockToModify.Content),
+                                    Index, ColorConig.ColorInfo,ResolveReferences ? &ReferenceResolver : nullptr);
                         }
 
                     };

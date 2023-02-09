@@ -240,7 +240,20 @@ namespace MBDoc
         {
             return(*std::get<std::unique_ptr<DocReference>>(m_Content));    
         }
-
+        template<typename T>
+        TextElement& operator=(T ObjectToSteal)
+        {
+            if constexpr(std::is_base_of<DocReference,T>::value)
+            {
+                m_Content = std::unique_ptr<DocReference>(new T(std::move(ObjectToSteal)));
+                return(*this);
+            }
+            else
+            {
+                m_Content = std::move(ObjectToSteal);
+                return(*this);
+            }
+        }
         TextElement_Base const& GetBase() const
         {
             if(IsType<DocReference>())
@@ -376,6 +389,38 @@ namespace MBDoc
                 return(m_CurrentValue == RHS.m_CurrentValue);
             }
         };
+        class RowIterator_Mut : public MBUtility::Iterator_Base<RowIterator_Mut,std::vector<TextElement>>
+        {
+        private:
+            std::vector<std::vector<TextElement>>::iterator m_CurrentValue;
+            std::vector<std::vector<TextElement>>::iterator m_End;
+        public:
+            RowIterator_Mut(std::vector<std::vector<TextElement>>::iterator Begin,std::vector<std::vector<TextElement>>::iterator End)
+            {
+                m_CurrentValue = std::move(Begin);    
+                m_End = std::move(End);
+            }
+            void Increment()
+            {
+                ++m_CurrentValue;
+            }
+            std::vector<TextElement>& GetRef()
+            {
+                return(*m_CurrentValue);    
+            }
+            bool IsEqual(RowIterator_Mut const& RHS) const
+            {
+                return(m_CurrentValue == RHS.m_CurrentValue);
+            }
+        };
+        RowIterator_Mut begin()
+        {
+            return(RowIterator_Mut(m_Rows.begin(),m_Rows.end()));    
+        }
+        RowIterator_Mut end() 
+        {
+            return(RowIterator_Mut(m_Rows.end(),m_Rows.end()));    
+        }
         RowIterator begin() const
         {
             return(RowIterator(m_Rows.begin(),m_Rows.end()));    
@@ -929,7 +974,8 @@ namespace MBDoc
     struct Coloring
     {
         size_t ByteOffset = 0;
-        TextColor Color;
+        //Guaranteed default
+        ColorTypeIndex Color = 0;
         int Length = 0;
         bool operator<(Coloring const& Rhs) const
         {
@@ -996,7 +1042,6 @@ namespace MBDoc
         //};
     private:
         friend class DocumentFilesystemIterator;
-        friend class DocumentFilesystemReferenceResolver;
 
         std::unordered_map<std::string,DocumentPath> m_CachedPathsConversions;
 
@@ -1017,9 +1062,30 @@ namespace MBDoc
             TextElement m_Result;
             bool m_ShouldUpdate = false;
         public:
-            void Visit(UnresolvedReference const& Ref) override;
+            void Visit(UnresolvedReference& Ref) override;
+            void Visit(CodeBlock& CodeBlock) override;
             DocumentFilesystemReferenceResolver(DocumentFilesystem* AssociatedFilesystem,DocumentPath CurrentPath);
             void ResolveReference(TextElement& ReferenceToResolve) override;
+        };
+
+        //only code of specific semantics are resolved, in order to make it 
+        //generic
+        enum class CodeReferenceType
+        {
+            Function,
+            Class
+        };
+        class LSPReferenceResolver
+        {
+        private:      
+            std::string m_CurrentDocument;
+            MBLSP::LSP_Client* m_AssociatedLSP;
+        public:
+            void SetLSP(MBLSP::LSP_Client* AssociatedLSP);
+            void OpenDocument(std::string const& DocumentData);
+            //not strictly necesary, but might save memory
+            void CloseDocument();
+            TextElement CreateReference(int Line,int Offset,std::string const& VisibleText,CodeReferenceType ReferenceType);
         };
         
         IndexType p_DirectorySubdirectoryIndex(IndexType DirectoryIndex,std::string const& SubdirectoryName) const;
@@ -1051,10 +1117,11 @@ namespace MBDoc
                 ProcessedRegexColoring const& RegexesToUse,
                 std::vector<TextColor> const& ColorMap,
                 std::string const& DocumentContent);
-
+        
         static std::vector<Coloring> p_GetLSPColoring(MBLSP::LSP_Client& ClientToUse,std::string const& TextContent,ProcessedColorInfo const& ColorInfo,LineIndex const& Index);
+        //Kinda ugly, should probably make this a bit more clean but it is what it is
         static ResolvedCodeText p_CombineColorings(std::vector<std::vector<Coloring>> const& ColoringsToCombine,std::string const& 
-                OriginalContent,LineIndex const& Index,ProcessedColorInfo const& ColorInfo);
+                OriginalContent,LineIndex const& Index,ProcessedColorInfo const& ColorInfo,LSPReferenceResolver* OptionalResolver);
         static std::unique_ptr<MBLSP::LSP_Client> p_InitializeLSP(LSPServer const& ServerToInitialize,InitializeRequest const& InitReq);
 
         void p_ColorizeLSP(ProcessedColorConfiguration const& ColoringConfiguration,LSPInfo const& LSPConfig);

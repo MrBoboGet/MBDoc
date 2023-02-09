@@ -39,11 +39,21 @@ namespace MBDoc
     }
     void HTMLReferenceSolver::Visit(UnresolvedReference const& Ref)
     {
-       m_VisitResultProperties = "#\" style=\"color: red;";
+
+        m_VisitResultProperties = "#\"";
+        if (m_Colorize)
+        {
+            m_VisitResultProperties += " style=\"color: red;";
+        }
+        else 
+        {
+            m_VisitResultProperties += " style=\"color: inherit;";
+        }
        m_VisitResultText = Ref.ReferenceString;
     }
-    std::string HTMLReferenceSolver::GetReferenceString(DocReference const& ReferenceIdentifier)
+    std::string HTMLReferenceSolver::GetReferenceString(DocReference const& ReferenceIdentifier,bool Colorize)
     {
+        m_Colorize = Colorize;
         std::string ReturnValue = "<a href=\"";
         ReferenceIdentifier.Accept(*this);
         ReturnValue += m_VisitResultProperties;
@@ -331,6 +341,7 @@ namespace MBDoc
     }
     void HTMLCompiler::Visit(CodeBlock const& BlockToWrite)
     {
+        m_InCodeBlock = true;
         m_OutStream->Write("<pre>", 5);
         if(std::holds_alternative<std::string>(BlockToWrite.Content))
         {
@@ -349,6 +360,7 @@ namespace MBDoc
                 *m_OutStream<<"<br>";
             } 
         }
+        m_InCodeBlock = false;
         m_OutStream->Write("</pre>", 6);
     }
     void HTMLCompiler::Visit(MediaInclude const& MediaToInclude)
@@ -418,8 +430,20 @@ namespace MBDoc
     }
     void HTMLCompiler::Visit(UnresolvedReference const& BlockToVisit)
     {
-        std::string StringToWrite = m_ReferenceSolver.GetReferenceString(BlockToVisit);
+        std::string StringToWrite;
+        if (m_InCodeBlock) 
+        {
+            StringToWrite = m_ReferenceSolver.GetReferenceString(BlockToVisit, false);
+        }
+        else 
+        {
+            StringToWrite = m_ReferenceSolver.GetReferenceString(BlockToVisit);
+        }
         m_OutStream->Write(StringToWrite.data(), StringToWrite.size());
+    }
+    void HTMLCompiler::Visit(DocReference const& BlockToVisit)
+    {
+        BlockToVisit.Accept(*this);
     }
     void HTMLCompiler::Visit(RegularText const& RegularTextElement)
     {
