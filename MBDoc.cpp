@@ -28,6 +28,26 @@
 #include <regex>
 namespace MBDoc
 {
+    TextColor h_ParseTextColor(const char* DataBegin,const char* DataEnd)
+    {
+        TextColor ReturnValue;    
+        if(DataEnd-DataBegin != 6)
+        {
+            throw std::runtime_error("Error parsing color: unrecognized color \""+std::string(DataBegin,DataEnd)+"\"");
+        }
+        bool Result = true;
+        char Data[3];
+        for(int i = 0; i < 3;i++)
+        {
+            Data[i] = MBUtility::HexValueToByte(DataBegin[i*2],DataBegin[i*2+1],&Result);
+            if(!Result)
+            {
+                throw std::runtime_error("Error parsing color: unrecognized color \""+std::string(DataBegin,DataEnd)+"\"");
+            }
+        }
+        ReturnValue = TextColor(Data[0],Data[1],Data[2]);
+        return(ReturnValue);
+    }
     TextColor h_ParseTextColor(std::string const& TextString)
     {
         TextColor ReturnValue;    
@@ -500,16 +520,38 @@ namespace MBDoc
         const char* CharData = (const char*)Data;
         while(ParseOffset > 0)
         {
-if (CharData[ParseOffset - 1] == '\\')
-{
-    ReturnValue = !ReturnValue;
-}
-else
-{
-    break;
-}
-ParseOffset--;
+            if (CharData[ParseOffset - 1] == '\\')
+            {
+                ReturnValue = !ReturnValue;
+            }
+            else
+            {
+                break;
+            }
+            ParseOffset--;
         }
+        return(ReturnValue);
+    }
+    TextColor h_ParseColorModifier(const char* Data,size_t DataSize,size_t ParseOffset,size_t* OutParseOffset)
+    {
+        TextColor ReturnValue;
+        size_t NextSpace = std::find(Data+ParseOffset,Data+DataSize,' ')-Data;
+        if(NextSpace >= DataSize)
+        {
+            throw std::runtime_error("Error parsing color modifier: need delimiting space");   
+        }
+        //reset color, is on the form ~00FFBB @[visible text](Format.mbd) ~ <-- empty to reset coloring
+        if(NextSpace-ParseOffset == 0)
+        {
+            *OutParseOffset = ParseOffset+1;
+            return(ReturnValue);
+        }
+        if(NextSpace-ParseOffset != 6)
+        {
+            throw  std::runtime_error("Error parsing color modifier: non-reset modifer requires exactly 6 characters to form a valid hex color");
+        }
+        ReturnValue = h_ParseTextColor(Data+ParseOffset,Data+ParseOffset+6);
+        *OutParseOffset = ParseOffset+6;
         return(ReturnValue);
     }
     std::vector<TextElement> DocumentParsingContext::p_ParseTextElements(void const* Data, size_t DataSize, size_t ParseOffset, size_t* OutParseOffset)
@@ -522,16 +564,21 @@ ParseOffset--;
         while (ParseOffset < DataSize)
         {
             size_t FindTextModifierDelimiterOffset = ParseOffset;
+
             size_t NextReferenceDeclaration = DataSize;
             size_t NextTextModifier = DataSize;
+            size_t NextColorModifier = DataSize;
+
             size_t NextModifier = DataSize;
             while (FindTextModifierDelimiterOffset < DataSize)
             {
                 NextReferenceDeclaration = std::find(CharData + FindTextModifierDelimiterOffset, CharData + DataSize, '@') - (CharData);
                 NextTextModifier = std::find(CharData + FindTextModifierDelimiterOffset, CharData + DataSize, '*') - (CharData);
+                NextColorModifier = std::find(CharData + FindTextModifierDelimiterOffset, CharData + DataSize, '~') - (CharData);
                 //NextTextModifier = std::min(NextTextModifier, size_t(std::find(CharData + FindTextModifierDelimiterOffset, CharData + DataSize, '_') - (CharData)));
 
                 NextModifier = std::min(NextTextModifier, NextReferenceDeclaration);
+                NextModifier = std::min(NextModifier,NextColorModifier);
                 if (NextModifier == DataSize)
                 {
                     break;
@@ -555,10 +602,10 @@ ParseOffset--;
                 //Unescape text
 
                 //TODO fix efficiently, jank
-                ReturnValue.push_back(RegularText(std::move(NewText)));
+                ReturnValue.push_back(std::move(NewText));
                 ParseOffset = NextModifier;
             }
-            if (NextTextModifier >= DataSize && NextReferenceDeclaration >= DataSize)
+            if (NextModifier >= DataSize)
             {
                 break;
             }
@@ -569,11 +616,15 @@ ParseOffset--;
                 NewReference.GetBase().Modifiers = CurrentTextModifier;
                 ReturnValue.push_back(std::move(NewReference));
             }
-            if (NextTextModifier < NextReferenceDeclaration)
+            else if (NextTextModifier < NextReferenceDeclaration)
             {
                 TextState NewState = h_ParseTextState(Data, DataSize, NextTextModifier, &ParseOffset);
                 CurrentTextColor = NewState.Color;
                 CurrentTextModifier = TextModifier(uint64_t(CurrentTextModifier) ^ uint64_t(NewState.Modifiers));
+            }
+            else if(NextColorModifier == NextModifier)
+            {
+                CurrentTextColor = h_ParseColorModifier(CharData,DataSize,NextColorModifier+1,&ParseOffset);
             }
         }
         return(ReturnValue);
@@ -643,6 +694,38 @@ ParseOffset--;
         }
         //there is always 1 extra newline
         std::get<std::string>(NewCodeBlock.Content).resize(std::get<std::string>(NewCodeBlock.Content).size() - 1);
+        return(ReturnValue);
+    }
+
+
+    std::unique_ptr<BlockElement> p_ParseTable(ArgumentList const& Arguments,LineRetriever& Retriever)
+    {
+        std::unique_ptr<BlockElement> ReturnValue;
+        std::string TotalContent;
+        std::vector<std::string> TextElementData;
+        std::vector<std::vector<TextElement>> TableElements;
+        return(ReturnValue);
+    }
+    std::unique_ptr<BlockElement> DocumentParsingContext::p_ParseNamedBlockElement(LineRetriever& Retriever)
+    {
+        std::unique_ptr<BlockElement> ReturnValue;
+        std::string HeaderLine;
+        Retriever.GetLine(HeaderLine);
+        size_t FirstSpace = HeaderLine.find(' ');
+        if(FirstSpace == HeaderLine.npos)
+        {
+            FirstSpace = HeaderLine.size();
+        }
+        std::string Name = std::string(HeaderLine.data()+1,HeaderLine.data()+FirstSpace);
+        ArgumentList Arguments = p_ParseArgumentList(HeaderLine.data(),HeaderLine.size(),FirstSpace);
+        if(Name == "table")
+        {
+            ReturnValue = p_ParseTable(Arguments,Retriever); 
+        }
+        else
+        {
+            throw std::runtime_error("Unkown block element with name \""+Name+"\"");
+        }
         return(ReturnValue);
     }
     std::unique_ptr<BlockElement> DocumentParsingContext::p_ParseBlockElement(LineRetriever& Retriever)
@@ -723,6 +806,21 @@ ParseOffset--;
                     }
                 } 
             }
+            if(ParseOffset + 1 < CurrentLine.size())
+            {
+                if( CurrentLine[ParseOffset] == '\\' && !(std::memcmp(CurrentLine.data()+ParseOffset,"\\\\",2) == 0))
+                {
+                    if(TotalParagraphData.size() > 0)
+                    {
+                        break;
+                    }   
+                    else
+                    {
+                        ReturnValue = p_ParseNamedBlockElement(Retriever);   
+                        break;
+                    }
+                } 
+            }
             TotalParagraphData += CurrentLine+" ";
             Retriever.DiscardLine();
         }
@@ -730,9 +828,9 @@ ParseOffset--;
         assert((TotalParagraphData.size() > 0) != (ReturnValue != nullptr));
         if(TotalParagraphData.size() > 0)
         {
-            Paragraph* NewBlock = new Paragraph();
+            std::unique_ptr<Paragraph> NewBlock = std::make_unique<Paragraph>();
             NewBlock->TextElements = p_ParseTextElements(TotalParagraphData.data(),TotalParagraphData.size(),0,nullptr);
-            ReturnValue = std::unique_ptr<BlockElement>(NewBlock);
+            ReturnValue = std::move(NewBlock);
         }
         return(ReturnValue); 
     }
@@ -1814,7 +1912,7 @@ ParseOffset--;
     void DocumentTraverser::Visit(FormatElement const& FormatToVisit)
     {
         m_AssociatedVisitor->EnterFormat(FormatToVisit);
-        for(auto& Element : FormatToVisit.Contents)
+        for(auto const& Element : FormatToVisit.Contents)
         {
             Element.Accept(*this);
         }
@@ -1823,7 +1921,7 @@ ParseOffset--;
     void DocumentTraverser::Visit(FormatElement& FormatToVisit)
     {
         m_AssociatedVisitor->EnterFormat(FormatToVisit);
-        for(auto const& Element : FormatToVisit.Contents)
+        for(auto& Element : FormatToVisit.Contents)
         {
             Element.Accept(*this);
         }
@@ -2882,7 +2980,7 @@ ParseOffset--;
                 int TokenOffset = 0;
                 int LatestTokenEnd = 0;
 
-                while(CurrentTokensOffset < TokenData.size())
+                while(TokenOffset < TokenData.size())
                 {
                     int Line = TokenData[TokenOffset];
                     int Offset = TokenData[TokenOffset+1];
@@ -3038,6 +3136,7 @@ ParseOffset--;
             }
             std::filesystem::path PacketPath = MBPM_PACKET_PATH;
             std::string RelativePath = MBUnicode::PathToUTF8(std::filesystem::relative(AbsolutePath,PacketPath));
+            std::replace(RelativePath.begin(), RelativePath.end(), '\\', '/');
             if(RelativePath.size() >= 2 && !(RelativePath[0] == '.' && RelativePath[1] == '.'))
             {
                 size_t DirectoryEnd = RelativePath.find('/');

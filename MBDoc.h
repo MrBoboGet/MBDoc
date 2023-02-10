@@ -322,15 +322,113 @@ namespace MBDoc
     class BlockVisitor;
     struct BlockElement
     {
+    protected:
         BlockElementType Type = BlockElementType::Null;
+    public:
         AttributeList Attributes;
         void Accept(BlockVisitor& Visitor) const;
         void Accept(BlockVisitor& Visitor);
 
         virtual ~BlockElement(){};
     };
-
-    struct Paragraph : BlockElement
+    struct Table : public BlockElement
+    {
+    private:
+        int m_Width = 0;
+        int m_Height = 0;
+        std::vector<std::vector<TextElement>> m_Contents;
+        std::vector<std::string> m_ColumnNames;
+    public:
+        Table()
+        {
+            Type = BlockElementType::Table;
+        }
+        class TableRowIterator_Const : MBUtility::Iterator_Base<TableRowIterator_Const,
+            MBUtility::RangeIterable<std::vector<TextElement> const*>>
+        {
+        protected:
+            Table const* m_AssociatedTable = nullptr;
+            int m_RowOffset = 0;
+        public:      
+            TableRowIterator_Const(){};
+            TableRowIterator_Const(Table const* AssociatedTable,int RowOffset)
+            {
+                m_AssociatedTable = AssociatedTable;
+                m_RowOffset = RowOffset;
+            }
+            void Increment()
+            {
+                m_RowOffset++;   
+            }
+            MBUtility::RangeIterable<std::vector<TextElement> const*> GetRef()
+            {
+                auto Begin = &(*m_AssociatedTable)(m_RowOffset,0);
+                return(MBUtility::RangeIterable<std::vector<TextElement> const*>(Begin,Begin+m_AssociatedTable->m_Width));
+            }
+            bool IsEqual(TableRowIterator_Const const& RHS)
+            {
+                return(m_RowOffset == RHS.m_RowOffset);
+            }
+        };
+        class TableRowIterator : public TableRowIterator_Const,public MBUtility::Iterator_Base<TableRowIterator,
+            MBUtility::RangeIterable<std::vector<TextElement>*>>
+        {
+        public: 
+            TableRowIterator(){};
+            TableRowIterator(Table* AssociatedTable,int RowOffset)
+            {
+                m_AssociatedTable = AssociatedTable;
+                m_RowOffset = RowOffset;
+            }
+            MBUtility::RangeIterable<std::vector<TextElement>*> GetRef()
+            {
+                Table& AssociatedTable = const_cast<Table&>(*m_AssociatedTable);
+                auto Begin = &AssociatedTable(m_RowOffset,0);
+                return(MBUtility::RangeIterable<std::vector<TextElement>*>(Begin,Begin+AssociatedTable.m_Width));
+            }
+        };
+        TableRowIterator begin()
+        {
+            return(TableRowIterator(this,0));   
+        }
+        TableRowIterator end()
+        {
+            return(TableRowIterator(this,m_Height));   
+        }
+        TableRowIterator_Const begin() const
+        {
+            return(TableRowIterator_Const(this,0));   
+        }
+        TableRowIterator_Const end() const
+        {
+            return(TableRowIterator_Const(this,m_Height));   
+        }
+        //Throws exception if Content.size()%Width != 0
+        Table(std::vector<std::string> ColumnNames /*may be zero to indicate no names are given*/, int Width,std::vector<std::vector<TextElement>>
+                Content)
+        {
+            if(Content.size() % Width != 0)
+            {
+                throw std::runtime_error("Invalid table size");  
+            } 
+            m_ColumnNames = std::move(ColumnNames);
+            m_Width = Width;
+            m_Height = Content.size()/Width;
+            m_Contents = std::move(Content);
+        }
+        bool HasColumnNames() const {return m_ColumnNames.size() != 0;};
+        std::vector<std::string> const& GetColumnNames() 
+        {
+            if(!HasColumnNames()) 
+                throw std::runtime_error("Table has no column names");
+            return m_ColumnNames;
+        };
+        int ColumnCount() const {return m_Width;};
+        int RowCount() const{return m_Height;};
+        std::vector<TextElement>& operator()(int Row,int Column){return(m_Contents[Row*m_Width+Column]);}
+        std::vector<TextElement> const& operator()(int Row,int Column) const{return(m_Contents[Row*m_Width+Column]);}
+    };
+    struct Paragraph : public BlockElement
     {
         Paragraph() 
         {
@@ -338,7 +436,7 @@ namespace MBDoc
         };
         std::vector<TextElement> TextElements;//Can be sentences, text, inline references etc
     };
-    struct MediaInclude : BlockElement
+    struct MediaInclude : public BlockElement
     {
         MediaInclude() 
         {
@@ -821,6 +919,9 @@ namespace MBDoc
         std::vector<TextElement> p_ParseTextElements(void const* Data,size_t DataSize,size_t ParseOffset,size_t* OutParseOffset);
         std::unique_ptr<BlockElement> p_ParseCodeBlock(LineRetriever& Retriever);
         std::unique_ptr<BlockElement> p_ParseMediaInclude(LineRetriever& Retriever);
+        std::unique_ptr<BlockElement> p_ParseTable(ArgumentList const& Arguments,LineRetriever& Retriever);
+        std::unique_ptr<BlockElement> p_ParseNamedBlockElement(LineRetriever& Retriever);
+
         std::unique_ptr<BlockElement> p_ParseBlockElement(LineRetriever& Retriever);
         AttributeList p_ParseAttributeList(LineRetriever& Retriever);
 

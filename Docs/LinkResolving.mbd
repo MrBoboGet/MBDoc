@@ -5,7 +5,7 @@ and the design of the syntax is discussed, and in @[Index](index.mbd) the
 purpose of the project and the general goals are discussed. This document serves
 to explain the way references are resolved from a given @ReferenceIdentifier,
 the design decisions and how this serves the goals outlined. This is briefly
-touched upon in @Format, but the definite source for the design of the reference
+touched upon in @[format](Format.mbd), but the definite source for the design of the reference
 identifiers and how they are resolved is here.
 
 When writing documentation, being able to refer to other doucments, previous

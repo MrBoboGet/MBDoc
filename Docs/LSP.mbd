@@ -1,12 +1,14 @@
 %title LSP integration
 
-
+Random test, does ~00FFAA this ~ differ from ~0000FF this?~ .
 
 
 ```cpp
 #include <iostream>
+#include <MBDoc/MBDoc.h>
 int main(int argc,char** argv)
 {
+    MBDoc::TextElement TestElement;
     std::cout<<"Hello world!"<<std::endl;
 }
 ```

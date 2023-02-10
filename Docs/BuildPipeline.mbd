@@ -24,7 +24,7 @@ describe the implementantation. An overview of the implementation can be find
         is however intentionally designed to be as close to the way builds are
         specified in the CLI as possible.
 
-        The result of the build specification is always the construction of d
+        The result of the build specification is always the construction of 
         @[The Document Filesystem](#The Document Filesystem).
 
         _# The Document Filesystem
