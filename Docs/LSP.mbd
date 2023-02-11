@@ -3,6 +3,11 @@
 Random test, does ~00FFAA this ~ differ from ~0000FF this?~ .
 
 
+\table 2 Test Table
+    First column First Row & Second Column First Row &
+    First column second row & Second column Second Row
+\end
+
 ```cpp
 #include <iostream>
 #include <MBDoc/MBDoc.h>

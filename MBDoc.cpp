@@ -161,33 +161,42 @@ namespace MBDoc
     //
     void BlockElement::Accept(BlockVisitor& Visitor) const
     {
-        if(Type == BlockElementType::CodeBlock)
+        if(IsType<CodeBlock>())
         {
             Visitor.Visit(static_cast<CodeBlock const&>(*this));
         }       
-        else if(Type == BlockElementType::MediaInclude)
+        else if(IsType<MediaInclude>())
         {
             Visitor.Visit(static_cast<MediaInclude const&>(*this));
         }
-        else if(Type == BlockElementType::Paragraph)
+        else if(IsType<Paragraph>())
         {
             Visitor.Visit(static_cast<Paragraph const&>(*this));
+        }
+        else if(IsType<Table>())
+        {
+            Visitor.Visit(static_cast<Table const&>(*this));
         }
     }
     void BlockElement::Accept(BlockVisitor& Visitor) 
     {
-        if(Type == BlockElementType::CodeBlock)
+        if(IsType<CodeBlock>())
         {
             Visitor.Visit(static_cast<CodeBlock&>(*this));
         }       
-        else if(Type == BlockElementType::MediaInclude)
+        else if(IsType<MediaInclude>())
         {
             Visitor.Visit(static_cast<MediaInclude&>(*this));
         }
-        else if(Type == BlockElementType::Paragraph)
+        else if(IsType<Paragraph>())
         {
             Visitor.Visit(static_cast<Paragraph&>(*this));
         }
+        else if(IsType<Table>())
+        {
+            Visitor.Visit(static_cast<Table&>(*this));
+        }
+
     }
     //BEGIN AttributeList
     bool AttributeList::IsEmpty() const
@@ -698,12 +707,67 @@ namespace MBDoc
     }
 
 
-    std::unique_ptr<BlockElement> p_ParseTable(ArgumentList const& Arguments,LineRetriever& Retriever)
+    std::unique_ptr<BlockElement> DocumentParsingContext::p_ParseTable(ArgumentList const& Arguments,LineRetriever& Retriever)
     {
         std::unique_ptr<BlockElement> ReturnValue;
+        if(Arguments.PositionalArgumentsCount() < 1)
+        {
+            throw std::runtime_error("Error parsing table: The first positional argument has to be the width of the table");
+        }
+        int Width = 0;
+        try
+        {
+            Width = std::stoi(Arguments[0]);         
+        } 
+        catch(std::exception const& e)
+        {
+            throw std::runtime_error("Error parsing table: Error parsing table width as integer");
+        }
+        std::vector<std::string> ColumnNames;
+        for(int i = 1; i < Arguments.PositionalArgumentsCount();i++)
+        {
+            ColumnNames.push_back(Arguments[i]);
+        }
+        if(ColumnNames.size() != 0 && ColumnNames.size() != Width)
+        {
+            throw std::runtime_error("Error parsing table: All column must be given names as positional arguments if atleast one is specified");
+        }
         std::string TotalContent;
         std::vector<std::string> TextElementData;
         std::vector<std::vector<TextElement>> TableElements;
+        std::string CurrentLine;
+        while(Retriever.GetLine(CurrentLine))
+        {
+            size_t ParseOffset = 0;
+            MBParsing::SkipWhitespace(CurrentLine,0,&ParseOffset);
+            if(ParseOffset < CurrentLine.size() && CurrentLine.compare(ParseOffset,4,"\\end") == 0)
+            {
+                break; 
+            }
+            TotalContent += CurrentLine;
+        }
+        size_t ParseOffset = 0;
+        while(ParseOffset < TotalContent.size())
+        {
+            size_t NextAmpersand = TotalContent.find('&',ParseOffset);
+            if(NextAmpersand == TotalContent.npos)
+            {
+                TextElementData.push_back(TotalContent.substr(ParseOffset));
+                break;
+            }
+            else
+            {
+                TextElementData.push_back(std::string(TotalContent.data()+ParseOffset,TotalContent.data()+NextAmpersand));
+                ParseOffset = NextAmpersand+1;
+            }
+        }
+        TableElements.reserve(TextElementData.size());
+        size_t TempOffset = 0;
+        for(auto const& Text : TextElementData)
+        {
+            TableElements.push_back(p_ParseTextElements(Text.data(),Text.size(),0,&TempOffset));
+        }
+        ReturnValue = std::make_unique<Table>(std::move(ColumnNames),Width,std::move(TableElements));
         return(ReturnValue);
     }
     std::unique_ptr<BlockElement> DocumentParsingContext::p_ParseNamedBlockElement(LineRetriever& Retriever)
@@ -1971,6 +2035,32 @@ namespace MBDoc
     void DocumentTraverser::Visit(CodeBlock& VisitedBlock) 
     { 
         m_AssociatedVisitor->Visit(VisitedBlock);
+    }
+    void DocumentTraverser::Visit(Table const& Table)
+    {
+        m_AssociatedVisitor->Visit(Table);
+        for(auto& Row : Table)
+        {
+            for(auto& Cell : Row)
+            {
+                m_AssociatedVisitor->EnterBlock(Cell);
+                Visit(Cell);
+                m_AssociatedVisitor->LeaveBlock(Cell);
+            }   
+        }
+    }
+    void DocumentTraverser::Visit(Table& Table)
+    {
+        m_AssociatedVisitor->Visit(Table);
+        for(auto& Row : Table)
+        {
+            for(auto& Cell : Row)
+            {
+                m_AssociatedVisitor->EnterBlock(Cell);
+                Visit(Cell);
+                m_AssociatedVisitor->LeaveBlock(Cell);
+            }   
+        }
     }
 
     void DocumentTraverser::Visit(RegularText const& VisitedText)

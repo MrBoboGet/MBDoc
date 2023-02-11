@@ -88,6 +88,9 @@ namespace MBDoc
         
         //really ghetto, it is what is is
         bool m_InCodeBlock = false;
+        bool m_InTable = false;
+        int m_TableWidth = 0;
+        int m_CurrentColumnCount = 0;
     public:
         HTMLCompiler();
         
@@ -98,6 +101,7 @@ namespace MBDoc
         void LeaveFormat(FormatElement const& ElementToEnter) override; 
 
         void LeaveBlock(BlockElement const& BlockToLeave) override;
+        void EnterBlock(BlockElement const& BlockToEnter) override;
 
         void Visit(CodeBlock const& BlockToVisit) override;
         void Visit(MediaInclude const& BlockToVisit) override;

@@ -203,6 +203,11 @@ namespace MBDoc
     private:
         std::variant<RegularText,std::unique_ptr<DocReference>> m_Content;
     public:
+        TextElement(TextElement&& ElemToMove) noexcept
+        {
+            m_Content = std::move(ElemToMove.m_Content);    
+        }
+        TextElement(TextElement const&) = delete;
         template<typename T>
         TextElement(T ValueToStore)
         {
@@ -229,6 +234,7 @@ namespace MBDoc
         {
             return(*std::get<std::unique_ptr<DocReference>>(m_Content));    
         }
+        
 
         template<typename T>
         T& GetType() 
@@ -253,6 +259,11 @@ namespace MBDoc
                 m_Content = std::move(ObjectToSteal);
                 return(*this);
             }
+        }
+        TextElement& operator=(TextElement ObjectToSteal)
+        {
+            m_Content = std::move(ObjectToSteal.m_Content);
+            return(*this);
         }
         TextElement_Base const& GetBase() const
         {
@@ -320,6 +331,10 @@ namespace MBDoc
         CodeBlock,
     };
     class BlockVisitor;
+    class Paragraph;
+    class MediaInclude;
+    class CodeBlock;
+    class Table;
     struct BlockElement
     {
     protected:
@@ -328,23 +343,64 @@ namespace MBDoc
         AttributeList Attributes;
         void Accept(BlockVisitor& Visitor) const;
         void Accept(BlockVisitor& Visitor);
-
+        template<typename T>
+        bool IsType() const
+        {
+            if constexpr(std::is_same<Paragraph,T>::value)
+            {
+                return(Type == BlockElementType::Paragraph);
+            }    
+            else if constexpr(std::is_same<CodeBlock,T>::value)
+            {
+                return(Type == BlockElementType::CodeBlock);
+            }
+            else if constexpr(std::is_same<MediaInclude,T>::value)
+            {
+                return(Type == BlockElementType::MediaInclude);
+            }
+            else if constexpr(std::is_same<Table,T>::value)
+            {
+                return(Type == BlockElementType::Table);
+            }
+            else
+            {
+                static_assert(false,"BlockElement cannot possibly be of supplied type");
+            }
+        }
+        template<typename T>
+        T& GetType();
+        template<typename T>
+        T const& GetType() const;
         virtual ~BlockElement(){};
+    };
+    struct Paragraph : public BlockElement
+    {
+        Paragraph() 
+        {
+            Type = BlockElementType::Paragraph; 
+        };
+        Paragraph(Paragraph&& ParToMove) noexcept
+        {
+            Attributes = std::move(ParToMove.Attributes);
+            TextElements = std::move(ParToMove.TextElements);  
+            Type = ParToMove.Type;
+        }
+        std::vector<TextElement> TextElements;//Can be sentences, text, inline references etc
     };
     struct Table : public BlockElement
     {
     private:
         int m_Width = 0;
         int m_Height = 0;
-        std::vector<std::vector<TextElement>> m_Contents;
+        std::vector<Paragraph> m_Contents;
         std::vector<std::string> m_ColumnNames;
     public:
         Table()
         {
             Type = BlockElementType::Table;
         }
-        class TableRowIterator_Const : MBUtility::Iterator_Base<TableRowIterator_Const,
-            MBUtility::RangeIterable<std::vector<TextElement> const*>>
+        class TableRowIterator_Const : public MBUtility::Iterator_Base<TableRowIterator_Const,
+            MBUtility::RangeIterable<Paragraph const*>>
         {
         protected:
             Table const* m_AssociatedTable = nullptr;
@@ -360,19 +416,21 @@ namespace MBDoc
             {
                 m_RowOffset++;   
             }
-            MBUtility::RangeIterable<std::vector<TextElement> const*> GetRef()
+            MBUtility::RangeIterable<Paragraph const*> GetRef()
             {
                 auto Begin = &(*m_AssociatedTable)(m_RowOffset,0);
-                return(MBUtility::RangeIterable<std::vector<TextElement> const*>(Begin,Begin+m_AssociatedTable->m_Width));
+                return(MBUtility::RangeIterable<Paragraph const*>(Begin,Begin+m_AssociatedTable->m_Width));
             }
-            bool IsEqual(TableRowIterator_Const const& RHS)
+            bool IsEqual(TableRowIterator_Const const& RHS) const
             {
                 return(m_RowOffset == RHS.m_RowOffset);
             }
         };
-        class TableRowIterator : public TableRowIterator_Const,public MBUtility::Iterator_Base<TableRowIterator,
-            MBUtility::RangeIterable<std::vector<TextElement>*>>
+        class TableRowIterator :  public MBUtility::Iterator_Base<TableRowIterator,
+            MBUtility::RangeIterable<Paragraph*>>
         {
+            Table* m_AssociatedTable = nullptr;
+            int m_RowOffset = 0;
         public: 
             TableRowIterator(){};
             TableRowIterator(Table* AssociatedTable,int RowOffset)
@@ -380,12 +438,20 @@ namespace MBDoc
                 m_AssociatedTable = AssociatedTable;
                 m_RowOffset = RowOffset;
             }
-            MBUtility::RangeIterable<std::vector<TextElement>*> GetRef()
+            void Increment()
             {
-                Table& AssociatedTable = const_cast<Table&>(*m_AssociatedTable);
-                auto Begin = &AssociatedTable(m_RowOffset,0);
-                return(MBUtility::RangeIterable<std::vector<TextElement>*>(Begin,Begin+AssociatedTable.m_Width));
+                m_RowOffset++;   
             }
+            MBUtility::RangeIterable<Paragraph*> GetRef()
+            {
+                auto Begin = &(*m_AssociatedTable)(m_RowOffset,0);
+                return(MBUtility::RangeIterable<Paragraph*>(Begin,Begin+m_AssociatedTable->m_Width));
+            }
+            bool IsEqual(TableRowIterator const& RHS) const
+            {
+                return(m_RowOffset == RHS.m_RowOffset);
+            }
+
         };
         TableRowIterator begin()
         {
@@ -407,6 +473,7 @@ namespace MBDoc
         Table(std::vector<std::string> ColumnNames /*may be zero to indicate no names are given*/, int Width,std::vector<std::vector<TextElement>>
                 Content)
         {
+            Type = BlockElementType::Table;
             if(Content.size() % Width != 0)
             {
                 throw std::runtime_error("Invalid table size");  
@@ -414,7 +481,12 @@ namespace MBDoc
             m_ColumnNames = std::move(ColumnNames);
             m_Width = Width;
             m_Height = Content.size()/Width;
-            m_Contents = std::move(Content);
+            for(int i = 0; i < Content.size();i++)
+            {
+                Paragraph NewParagraph; 
+                NewParagraph.TextElements = std::move(Content[i]);
+                m_Contents.push_back(std::move(NewParagraph));
+            }
         }
         bool HasColumnNames() const {return m_ColumnNames.size() != 0;};
         std::vector<std::string> const& GetColumnNames() 
@@ -425,16 +497,8 @@ namespace MBDoc
         };
         int ColumnCount() const {return m_Width;};
         int RowCount() const{return m_Height;};
-        std::vector<TextElement>& operator()(int Row,int Column){return(m_Contents[Row*m_Width+Column]);}
-        std::vector<TextElement> const& operator()(int Row,int Column) const{return(m_Contents[Row*m_Width+Column]);}
-    };
-    struct Paragraph : public BlockElement
-    {
-        Paragraph() 
-        {
-            Type = BlockElementType::Paragraph; 
-        };
-        std::vector<TextElement> TextElements;//Can be sentences, text, inline references etc
+        Paragraph& operator()(int Row,int Column){return(m_Contents[Row*m_Width+Column]);}
+        Paragraph const& operator()(int Row,int Column) const{return(m_Contents[Row*m_Width+Column]);}
     };
     struct MediaInclude : public BlockElement
     {
@@ -444,6 +508,16 @@ namespace MBDoc
         };
         std::string MediaPath;
     };
+
+
+
+
+
+
+
+
+
+
     class DocumentParsingContext;
     class DocumentFilesystem;
     class ResolvedCodeText
@@ -538,15 +612,66 @@ namespace MBDoc
         std::string CodeType;
         std::variant<std::string,ResolvedCodeText> Content;
     };
+    template<typename T>
+    T& BlockElement::GetType()
+    {
+        if constexpr(std::is_same<Paragraph,T>::value)
+        {
+            return(static_cast<Paragraph&>(*this));
+        }    
+        else if constexpr(std::is_same<CodeBlock,T>::value)
+        {
+            return(static_cast<CodeBlock&>(*this));
+        }
+        else if constexpr(std::is_same<MediaInclude,T>::value)
+        {
+            return(static_cast<MediaInclude&>(*this));
+        }
+        else if constexpr(std::is_same<Table,T>::value)
+        {
+            return(static_cast<Table&>(*this));
+        }
+        else
+        {
+            static_assert(false,"BlockElement cannot possibly be of supplied type");
+        }
+    }
+    template<typename T>
+    T const& BlockElement::GetType() const
+    {
+        if constexpr(std::is_same<Paragraph,T>::value)
+        {
+            return(static_cast<Paragraph const&>(*this));
+        }    
+        else if constexpr(std::is_same<CodeBlock,T>::value)
+        {
+            return(static_cast<CodeBlock const&>(*this));
+        }
+        else if constexpr(std::is_same<MediaInclude,T>::value)
+        {
+            return(static_cast<MediaInclude const&>(*this));
+        }
+        else if constexpr(std::is_same<Table,T>::value)
+        {
+            return(static_cast<Table const&>(*this));
+        }
+        else
+        {
+            static_assert(false,"BlockElement cannot possibly be of supplied type");
+        }
+
+    }
 
     class BlockVisitor
     {
     public:
         virtual void Visit(Paragraph const& VisitedParagraph) {};
+        virtual void Visit(Table const& VisitedParagraph) {};
         virtual void Visit(MediaInclude const& VisitedMedia) {};
         virtual void Visit(CodeBlock const& CodeBlock) {};
 
         virtual void Visit(Paragraph& VisitedParagraph) {};
+        virtual void Visit(Table& VisitedParagraph) {};
         virtual void Visit(MediaInclude& VisitedMedia) {};
         virtual void Visit(CodeBlock& CodeBlock) {};
         virtual ~BlockVisitor() {};
@@ -794,6 +919,21 @@ namespace MBDoc
             } 
         }
 
+        void Visit(Table& VisitedTable) override
+        {
+                 
+            if constexpr(std::is_invocable<T,Table>::value)
+            {
+                m_Ref(VisitedTable);  
+            } 
+        }
+        void Visit(Table const& VisitedTable) override
+        {
+            if constexpr(std::is_invocable<T,Table const>::value)
+            {
+                m_Ref(VisitedTable);  
+            } 
+        }
         void Visit(Paragraph& VisitedParagraph) override
         {
                  
@@ -873,6 +1013,8 @@ namespace MBDoc
         void Visit(MediaInclude& VisitedMedia) override;
         void Visit(CodeBlock const& CodeBlock) override;
         void Visit(CodeBlock& CodeBlock) override;
+        void Visit(Table const& CodeBlock) override;
+        void Visit(Table& CodeBlock) override;
 
         void Visit(RegularText& VisitedText)override;
         void Visit(RegularText const& VisitedText)override;

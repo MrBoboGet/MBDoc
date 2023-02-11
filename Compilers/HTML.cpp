@@ -1,4 +1,5 @@
 #include "HTML.h"
+#include "../MBDoc.h"
 #include <MBUtility/MBStrings.h>
 namespace MBDoc
 {
@@ -409,11 +410,52 @@ namespace MBDoc
             m_OutStream->Write("<mark>Note: </mark>", 19);
         }
     }
+    void HTMLCompiler::EnterBlock(BlockElement const& BlockToEnter)
+    {
+        if(BlockToEnter.IsType<Table>())
+        {
+            m_InTable = true;   
+            m_TableWidth = BlockToEnter.GetType<Table>().ColumnCount();
+            m_CurrentColumnCount = 0;
+            *m_OutStream << "<table>";
+        }
+        else if(BlockToEnter.IsType<Paragraph>())
+        {
+            if(m_InTable)
+            {
+                if(m_CurrentColumnCount == 0)
+                {
+                    *m_OutStream << "<tr>"; 
+                }  
+                *m_OutStream<<"<td>";
+                m_CurrentColumnCount++;
+                m_CurrentColumnCount = m_CurrentColumnCount%m_TableWidth;
+            } 
+        }
+    }
     void HTMLCompiler::LeaveBlock(BlockElement const& BlockToLeave)
     {
-        if(BlockToLeave.Type == BlockElementType::Paragraph)
+        if(BlockToLeave.IsType<Paragraph>())
         {
-            m_OutStream->Write("<br><br>\n\n", 10);
+            if(m_InTable)
+            {
+                if(m_CurrentColumnCount == 0)
+                {
+                    *m_OutStream<<"</tr>";  
+                } 
+                *m_OutStream<<"</td>";  
+            }
+            else
+            {
+                m_OutStream->Write("<br><br>\n\n", 10);
+            }
+        }
+        else if(BlockToLeave.IsType<Table>())
+        {
+            m_InTable = false;   
+            m_TableWidth = 0;
+            m_CurrentColumnCount = 0;
+            *m_OutStream << "</table>";
         }
     }
     void HTMLCompiler::Visit(URLReference const& BlockToVisit)
