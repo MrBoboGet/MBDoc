@@ -28,6 +28,51 @@
 #include <regex>
 namespace MBDoc
 {
+
+    //BEGIN LineRetriever
+    LineRetriever::LineRetriever(MBUtility::MBOctetInputStream* InputStream) 
+        : m_UnderlyingRetriever(InputStream)
+    {
+           
+    }
+    void LineRetriever::p_IteratorNextNonComment()
+    {
+        while(!m_UnderlyingRetriever.Finished())
+        {
+            std::string const& CurrentLine = m_UnderlyingRetriever.PeekLine();
+            size_t FirstNonWS = 0; 
+            MBParsing::SkipWhitespace(CurrentLine,0,&FirstNonWS);
+            if(FirstNonWS+1 < CurrentLine.size() && (CurrentLine[FirstNonWS] == '/' && CurrentLine[FirstNonWS+1] == '/'))
+            {
+                m_UnderlyingRetriever.DiscardLine();   
+            }
+            else
+            {
+                break;
+            }
+
+        }    
+    }
+    bool LineRetriever::Finished()
+    {
+        p_IteratorNextNonComment(); 
+        return(m_UnderlyingRetriever.Finished());
+    }
+    bool LineRetriever::GetLine(std::string& OutLine)
+    {
+        p_IteratorNextNonComment(); 
+        return(m_UnderlyingRetriever.GetLine(OutLine));
+    }
+    void LineRetriever::DiscardLine()
+    {
+        m_UnderlyingRetriever.DiscardLine();
+    }
+    std::string& LineRetriever::PeekLine()
+    {
+        p_IteratorNextNonComment(); 
+        return(m_UnderlyingRetriever.PeekLine());
+    }
+    //END LineRetriever
     TextColor h_ParseTextColor(const char* DataBegin,const char* DataEnd)
     {
         TextColor ReturnValue;    
@@ -541,6 +586,31 @@ namespace MBDoc
         }
         return(ReturnValue);
     }
+    std::string h_UnescapeText(const char* Data,size_t DataSize,size_t InParseOffset,size_t TextEnd)
+    {
+        assert(TextEnd <= DataSize);
+        std::string ReturnValue;
+        size_t ParseOffset = InParseOffset;
+        while(ParseOffset < TextEnd)
+        {
+            size_t NextEscapePosition = std::find(Data+ParseOffset,Data+TextEnd,'\\')-Data;
+            if(NextEscapePosition == TextEnd)
+            {
+                ReturnValue.insert(ReturnValue.end(),Data+ParseOffset,Data+TextEnd);
+                break;
+            }
+            else
+            {
+                ReturnValue.insert(ReturnValue.end(),Data+ParseOffset,Data+NextEscapePosition);
+                if(NextEscapePosition+1 < TextEnd)
+                {
+                    ReturnValue += Data[NextEscapePosition+1];
+                }
+                ParseOffset = NextEscapePosition+2;
+            }
+        }
+        return(ReturnValue);
+    }
     TextColor h_ParseColorModifier(const char* Data,size_t DataSize,size_t ParseOffset,size_t* OutParseOffset)
     {
         TextColor ReturnValue;
@@ -560,7 +630,7 @@ namespace MBDoc
             throw  std::runtime_error("Error parsing color modifier: non-reset modifer requires exactly 6 characters to form a valid hex color");
         }
         ReturnValue = h_ParseTextColor(Data+ParseOffset,Data+ParseOffset+6);
-        *OutParseOffset = ParseOffset+6;
+        *OutParseOffset = ParseOffset+7;
         return(ReturnValue);
     }
     std::vector<TextElement> DocumentParsingContext::p_ParseTextElements(void const* Data, size_t DataSize, size_t ParseOffset, size_t* OutParseOffset)
@@ -618,14 +688,14 @@ namespace MBDoc
             {
                 break;
             }
-            if (NextReferenceDeclaration < NextTextModifier)
+            if (NextReferenceDeclaration == NextModifier)
             {
                 TextElement NewReference = p_ParseReference(Data, DataSize, ParseOffset, &ParseOffset);
                 NewReference.GetBase().Color = CurrentTextColor;
                 NewReference.GetBase().Modifiers = CurrentTextModifier;
                 ReturnValue.push_back(std::move(NewReference));
             }
-            else if (NextTextModifier < NextReferenceDeclaration)
+            else if (NextTextModifier == NextModifier)
             {
                 TextState NewState = h_ParseTextState(Data, DataSize, NextTextModifier, &ParseOffset);
                 CurrentTextColor = NewState.Color;
@@ -750,6 +820,17 @@ namespace MBDoc
         while(ParseOffset < TotalContent.size())
         {
             size_t NextAmpersand = TotalContent.find('&',ParseOffset);
+            while(NextAmpersand != TotalContent.npos)
+            {
+                if(h_IsEscaped(TotalContent.data(),TotalContent.size(),NextAmpersand))
+                {
+                    NextAmpersand = TotalContent.find('&',NextAmpersand+1);
+                }   
+                else
+                {
+                    break;   
+                }
+            }
             if(NextAmpersand == TotalContent.npos)
             {
                 TextElementData.push_back(TotalContent.substr(ParseOffset));
@@ -757,7 +838,7 @@ namespace MBDoc
             }
             else
             {
-                TextElementData.push_back(std::string(TotalContent.data()+ParseOffset,TotalContent.data()+NextAmpersand));
+                TextElementData.push_back(h_UnescapeText(TotalContent.data(),TotalContent.size(),ParseOffset,NextAmpersand));
                 ParseOffset = NextAmpersand+1;
             }
         }
@@ -3169,17 +3250,22 @@ namespace MBDoc
         }
         return(ReturnValue);
     }
-    std::unique_ptr<MBLSP::LSP_Client> DocumentFilesystem::p_InitializeLSP(LSPServer const& ServerToInitialize,InitializeRequest const& InitReq)
+    std::unique_ptr<MBLSP::LSP_Client> StartLSPServer(LSPServer const& ServerToStart)
+    {
+        InitializeRequest InitReq;    
+        InitReq.params.rootUri = MBLSP::URLEncodePath(std::filesystem::current_path());
+        return(StartLSPServer(ServerToStart,InitReq));
+    }
+    std::unique_ptr<MBLSP::LSP_Client> StartLSPServer(LSPServer const& ServerToStart,InitializeRequest const& InitReq)
     {
         std::unique_ptr<MBLSP::LSP_Client> ReturnValue;
         std::unique_ptr<MBSystem::BiDirectionalSubProcess> SubProcess = 
-            std::make_unique<MBSystem::BiDirectionalSubProcess>(ServerToInitialize.CommandName,ServerToInitialize.CommandArguments);
+            std::make_unique<MBSystem::BiDirectionalSubProcess>(ServerToStart.CommandName,ServerToStart.CommandArguments);
         std::unique_ptr<MBUtility::IndeterminateInputStream> InputStream = std::make_unique<MBUtility::NonOwningIndeterminateInputStream>(SubProcess.get());
         ReturnValue = std::make_unique<MBLSP::LSP_Client>(std::move(InputStream),std::move(SubProcess));
         ReturnValue->InitializeServer(InitReq);
         return(ReturnValue);
     }
-    
     void DocumentFilesystem::LSPReferenceResolver::SetLSP(MBLSP::LSP_Client* AssociatedLSP)
     {
         m_AssociatedLSP = AssociatedLSP;
@@ -3291,7 +3377,7 @@ namespace MBDoc
                                     auto LSPConfIt = LSPConfig.Servers.find(HandlesIt->second.LSP);
                                     if(LSPConfIt != LSPConfig.Servers.end())
                                     {
-                                        LSP = p_InitializeLSP(LSPConfIt->second,Init);
+                                        LSP = StartLSPServer(LSPConfIt->second,Init);
                                     }
                                 }
                                 if(LSP != nullptr)

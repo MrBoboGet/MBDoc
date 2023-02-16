@@ -87,10 +87,12 @@ int main(int argc,const char** argv)
     //auto Lambda = [](MBDoc::CodeBlock const&) {};
     //std::cout << std::is_invocable<decltype(Lambda), const MBDoc::CodeBlock>::value << std::endl;
     //return 0;
-    const char* NewArgv[] = { "mbdoc","../../Docs/MBDocBuild.json","-f:html","-o:../../TestOut" };
-    argc = sizeof(NewArgv) / sizeof(const char*);
-    argv = NewArgv;
-    
+    //const char* NewArgv[] = { "mbdoc","../../Docs/MBDocBuild.json","-f:html","-o:../../TestOut" };
+    //argc = sizeof(NewArgv) / sizeof(const char*);
+    //argv = NewArgv;
+    //const char* NewArgv[] = { "mbdoc","../../../MBDocGen/Doc/MBDocBuild.json","-f:html","-o:../../../MBDocGen/DocOut" };
+    //argc = sizeof(NewArgv) / sizeof(const char*);
+    //argv = NewArgv;
     MBDoc::DocCLI CLI;
     CLI.Run(argv, argc);
 }

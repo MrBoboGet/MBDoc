@@ -55,7 +55,7 @@ namespace MBDoc
     std::string HTMLReferenceSolver::GetReferenceString(DocReference const& ReferenceIdentifier,bool Colorize)
     {
         m_Colorize = Colorize;
-        std::string ReturnValue = "<a href=\"";
+        std::string ReturnValue = "<a class=\"link\" href=\"";
         ReferenceIdentifier.Accept(*this);
         ReturnValue += m_VisitResultProperties;
         ReturnValue += "\">";
@@ -257,7 +257,7 @@ namespace MBDoc
         }
         if(!ElementToEnter.Color.IsDefault())
         {
-            *m_OutStream<<"<span style=\"color: #"<<
+            *m_OutStream<<"<span class=\"color\" style=\"color: #"<<
                 MBUtility::HexEncodeByte(ElementToEnter.Color.R)<<MBUtility::HexEncodeByte(ElementToEnter.Color.G)
                 <<MBUtility::HexEncodeByte(ElementToEnter.Color.B)<<";\">";
         }
@@ -315,7 +315,7 @@ namespace MBDoc
             throw std::runtime_error("File not open");
         }
         m_OutStream = std::unique_ptr<MBUtility::MBOctetOutputStream>(new MBUtility::MBFileOutputStream(&OutStream));
-        std::string TopInfo = "<!DOCTYPE html><html><head><style>body{background-color: black; color: #00FF00;}</style></head><body>";
+        std::string TopInfo = "<!DOCTYPE html><html><head><style>body{background-color: black; color: #00FF00;}table,th,td{border: 1px solid;}table{border-collapse: collapse;} .color .link{color: inherit !important;}</style></head><body>";
         OutStream.write(TopInfo.data(), TopInfo.size());
         std::string TopFlex = "<div style=\"display: flex\">";
         OutStream.write(TopFlex.data(), TopFlex.size());

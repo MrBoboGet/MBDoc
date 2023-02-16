@@ -211,40 +211,63 @@ namespace MBDoc
         template<typename T>
         TextElement(T ValueToStore)
         {
-            m_Content = std::move(ValueToStore);
+            if constexpr(std::is_base_of<DocReference,T>::value)
+            {
+                m_Content = std::unique_ptr<DocReference>(new T(std::move(ValueToStore)));
+            }
+            else
+            {
+                static_assert(!(sizeof(T)+1),"Element to assign cannot possibly be a TextElement");
+            }
         }
+        TextElement(RegularText Text)
+        {
+            m_Content = std::move(Text);   
+        }
+        TextElement(std::unique_ptr<DocReference> Ref)
+        {
+            m_Content = std::move(Ref);   
+        }
+        //hack purely because gcc is non-conformant and doesn't allow 
+        //specializations in class scope, if i understand the issue correctly
+        //https://gcc.gnu.org/bugzilla/show_bug.cgi?id=85282
         template<typename T>
         bool IsType() const
         {
-            return(std::holds_alternative<T>(m_Content)); 
-        }
-        template<>
-        bool IsType<DocReference>() const
-        {
-            return(std::holds_alternative<std::unique_ptr<DocReference>>(m_Content)); 
+            if constexpr(std::is_same<T,DocReference>::value)
+            {
+                return(std::holds_alternative<std::unique_ptr<DocReference>>(m_Content)); 
+            }
+            else
+            {
+                return(std::holds_alternative<T>(m_Content)); 
+            }
         }
 
         template<typename T>
         T const& GetType() const
         {
-            return(std::get<T>(m_Content));    
+            if constexpr(std::is_same<T,DocReference>::value)
+            {
+                return(*std::get<std::unique_ptr<DocReference>>(m_Content));    
+            }
+            else
+            {
+                return(std::get<T>(m_Content));    
+            }
         }
-        template<>
-        DocReference const& GetType() const
-        {
-            return(*std::get<std::unique_ptr<DocReference>>(m_Content));    
-        }
-        
 
         template<typename T>
         T& GetType() 
         {
-            return(std::get<T>(m_Content));    
-        }
-        template<>
-        DocReference& GetType() 
-        {
-            return(*std::get<std::unique_ptr<DocReference>>(m_Content));    
+            if constexpr(std::is_same<T,DocReference>::value)
+            {
+                return(*std::get<std::unique_ptr<DocReference>>(m_Content));    
+            }
+            else
+            {
+                return(std::get<T>(m_Content));    
+            }
         }
         template<typename T>
         TextElement& operator=(T ObjectToSteal)
@@ -362,9 +385,12 @@ namespace MBDoc
             {
                 return(Type == BlockElementType::Table);
             }
-            else
+            else if constexpr(true)
             {
-                static_assert(false,"BlockElement cannot possibly be of supplied type");
+                //hack, apparently the static_assert needs to be dependant on the template 
+                //argument in order to not always dissallow compilation 
+                //https://stackoverflow.com/questions/38304847/constexpr-if-and-static-assert
+                static_assert(!(sizeof(T)+1),"BlockElement cannot possibly be of supplied type");
             }
         }
         template<typename T>
@@ -405,6 +431,7 @@ namespace MBDoc
         protected:
             Table const* m_AssociatedTable = nullptr;
             int m_RowOffset = 0;
+            MBUtility::RangeIterable<Paragraph const*> m_Iterator;
         public:      
             TableRowIterator_Const(){};
             TableRowIterator_Const(Table const* AssociatedTable,int RowOffset)
@@ -416,10 +443,11 @@ namespace MBDoc
             {
                 m_RowOffset++;   
             }
-            MBUtility::RangeIterable<Paragraph const*> GetRef()
+            MBUtility::RangeIterable<Paragraph const*>& GetRef()
             {
                 auto Begin = &(*m_AssociatedTable)(m_RowOffset,0);
-                return(MBUtility::RangeIterable<Paragraph const*>(Begin,Begin+m_AssociatedTable->m_Width));
+                m_Iterator = MBUtility::RangeIterable<Paragraph const*>(Begin,Begin+m_AssociatedTable->m_Width); 
+                return(m_Iterator);
             }
             bool IsEqual(TableRowIterator_Const const& RHS) const
             {
@@ -431,6 +459,7 @@ namespace MBDoc
         {
             Table* m_AssociatedTable = nullptr;
             int m_RowOffset = 0;
+            MBUtility::RangeIterable<Paragraph*> m_Iterator;
         public: 
             TableRowIterator(){};
             TableRowIterator(Table* AssociatedTable,int RowOffset)
@@ -442,10 +471,11 @@ namespace MBDoc
             {
                 m_RowOffset++;   
             }
-            MBUtility::RangeIterable<Paragraph*> GetRef()
+            MBUtility::RangeIterable<Paragraph*>& GetRef()
             {
                 auto Begin = &(*m_AssociatedTable)(m_RowOffset,0);
-                return(MBUtility::RangeIterable<Paragraph*>(Begin,Begin+m_AssociatedTable->m_Width));
+                m_Iterator = MBUtility::RangeIterable<Paragraph*>(Begin,Begin+m_AssociatedTable->m_Width);
+                return(m_Iterator);
             }
             bool IsEqual(TableRowIterator const& RHS) const
             {
@@ -633,7 +663,7 @@ namespace MBDoc
         }
         else
         {
-            static_assert(false,"BlockElement cannot possibly be of supplied type");
+            static_assert(!(sizeof(T)+1),"BlockElement cannot possibly be of supplied type");
         }
     }
     template<typename T>
@@ -657,7 +687,7 @@ namespace MBDoc
         }
         else
         {
-            static_assert(false,"BlockElement cannot possibly be of supplied type");
+            static_assert(!(sizeof(T)+1),"BlockElement cannot possibly be of supplied type");
         }
 
     }
@@ -1052,7 +1082,20 @@ namespace MBDoc
 
 
 
-    typedef MBUtility::LineRetriever LineRetriever;
+    //typedef MBUtility::LineRetriever LineRetriever;
+    
+    class LineRetriever
+    {
+        MBUtility::LineRetriever m_UnderlyingRetriever;
+
+        void p_IteratorNextNonComment();
+    public:   
+        LineRetriever(MBUtility::MBOctetInputStream* InputStream);
+        bool Finished();
+        bool GetLine(std::string& OutLine);
+        void DiscardLine();
+        std::string& PeekLine();
+    };
 
     class DocumentParsingContext
     {
@@ -1274,6 +1317,8 @@ namespace MBDoc
         }
     };
     ProcessedColorConfiguration ProcessColorConfig(ColorConfiguration const& Config);
+    std::unique_ptr<MBLSP::LSP_Client> StartLSPServer(LSPServer const& ServerToStart,InitializeRequest const& InitReq);
+    std::unique_ptr<MBLSP::LSP_Client> StartLSPServer(LSPServer const& ServerToStart);
     class DocumentFilesystem 
     {
     public:
@@ -1365,7 +1410,6 @@ namespace MBDoc
         //Kinda ugly, should probably make this a bit more clean but it is what it is
         static ResolvedCodeText p_CombineColorings(std::vector<std::vector<Coloring>> const& ColoringsToCombine,std::string const& 
                 OriginalContent,LineIndex const& Index,ProcessedColorInfo const& ColorInfo,LSPReferenceResolver* OptionalResolver);
-        static std::unique_ptr<MBLSP::LSP_Client> p_InitializeLSP(LSPServer const& ServerToInitialize,InitializeRequest const& InitReq);
 
         void p_ColorizeLSP(ProcessedColorConfiguration const& ColoringConfiguration,LSPInfo const& LSPConfig);
     public: 
@@ -1386,7 +1430,6 @@ namespace MBDoc
 
     class DocumentCompiler
     {
-    
     public:
         virtual void AddOptions(CommonCompilationOptions const& CurrentOptions) = 0;
         virtual void PeekDocumentFilesystem(DocumentFilesystem const& FilesystemToCompile) = 0;
