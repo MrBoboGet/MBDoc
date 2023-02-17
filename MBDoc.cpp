@@ -1388,8 +1388,48 @@ namespace MBDoc
 
     //BEGIN DocumentBuild
     
+    void DocumentBuild::p_CreateBuildFromDirectory(DocumentBuild& OutBuild,std::filesystem::path const& DirPath)
+    {
+        std::filesystem::directory_iterator DirIterator(DirPath);
+        for(auto const& Entry : DirIterator)
+        {
+            if(Entry.is_regular_file())
+            {
+                if(Entry.path().extension() == ".mbd")
+                {
+                    OutBuild.DirectoryFiles.push_back(Entry.path());
+                }
+            }
+            else if(Entry.is_directory())
+            {
+                DocumentBuild NewBuild;
+                p_CreateBuildFromDirectory(NewBuild,Entry.path());
+                OutBuild.SubDirectories.push_back(std::make_pair(MBUnicode::PathToUTF8(Entry.path().filename()),std::move(NewBuild)));
+            }
+        }
+    }
     void DocumentBuild::p_ParseDocumentBuildDirectory(DocumentBuild& OutBuild,MBParsing::JSONObject const& DirectoryObject,std::filesystem::path const& BuildDirectory,MBError& OutError)
     {
+        //the inclusion of this option is mutually  exclusive with the others
+        if(DirectoryObject.HasAttribute("MountDir"))
+        {
+            if(DirectoryObject.HasAttribute("Files") || DirectoryObject.HasAttribute("SubDirectories"))
+            {
+                throw std::runtime_error("The inclusion of 'MountDir' is mutally exlusive with both 'Files' and 'SubDirectories'");
+            }
+            MBParsing::JSONObject const& MountDir = DirectoryObject["MountDir"];
+            if(MountDir.GetType() != MBParsing::JSONObjectType::String)
+            {
+                throw std::runtime_error("'MountDir' Attribute has to be a string");
+            }
+            std::filesystem::path PathToInspect = BuildDirectory/MountDir.GetStringData();
+            if(!std::filesystem::is_directory(PathToInspect))
+            {
+                throw std::runtime_error("The directory "+MBUnicode::PathToUTF8(PathToInspect)+" isn't a directory, which is required by 'MountDir'");
+            }
+            p_CreateBuildFromDirectory(OutBuild,PathToInspect);
+            return;
+        }
         if(DirectoryObject.HasAttribute("Files"))
         {
             for(MBParsing::JSONObject const& Object : DirectoryObject["Files"].GetArrayData())

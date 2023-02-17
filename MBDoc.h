@@ -1136,6 +1136,7 @@ namespace MBDoc
     private:
         
         static void p_ParseDocumentBuildDirectory(DocumentBuild& OutBuild,MBParsing::JSONObject const& DirectoryObject,std::filesystem::path const& BuildDirectory,MBError& OutError);
+        static void p_CreateBuildFromDirectory(DocumentBuild& OutBuild,std::filesystem::path const& DirPath);
     public:
         //std::filesystem::path BuildRootDirectory;
         //std::vector<DocumentPath> BuildFiles = {};
