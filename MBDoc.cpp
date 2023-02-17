@@ -3042,7 +3042,23 @@ namespace MBDoc
             Iterator++; 
         }
     }
-
+    std::vector<Coloring> h_RemoveDuplicates(std::vector<Coloring> const& ColoringsToPrune)
+    {
+        std::vector<Coloring> ReturnValue;
+        ReturnValue.reserve(ColoringsToPrune.size());
+        size_t ParseOffset = 0;
+        size_t ColorIndex = 0;
+        while(ColorIndex < ColoringsToPrune.size())
+        {
+            if(ParseOffset <= ColoringsToPrune[ColorIndex].ByteOffset)
+            {
+                ReturnValue.push_back(ColoringsToPrune[ColorIndex]);
+                ParseOffset = ColoringsToPrune[ColorIndex].ByteOffset + ColoringsToPrune[ColorIndex].Length;
+            }
+            ColorIndex++;
+        }
+        return(ReturnValue);
+    }
     ResolvedCodeText DocumentFilesystem::p_CombineColorings(std::vector<std::vector<Coloring>> const& ColoringsToCombine,std::string const& 
             OriginalContent,LineIndex const& Index,ProcessedColorInfo const& ColorInfo,LSPReferenceResolver* OptionalLSPResolver)
     {
@@ -3058,6 +3074,8 @@ namespace MBDoc
         std::vector<Coloring> TotalColorings = MBUtility::Merge<Coloring>(ColoringsToCombine.begin(),ColoringsToCombine.end());
         assert(std::is_sorted(TotalColorings.begin(),TotalColorings.end()));
         assert(TotalColorings.size() == [&]()->size_t{size_t ReturnValue = 0; for(auto const& Vec : ColoringsToCombine){ReturnValue += Vec.size();} return(ReturnValue);}());
+        TotalColorings = h_RemoveDuplicates(TotalColorings);
+        assert(std::is_sorted(TotalColorings.begin(),TotalColorings.end()));
         std::vector<TextElement> CurrentRow;
         size_t ParseOffset = 0; 
         int ColoringOffset = 0;
@@ -3288,6 +3306,8 @@ namespace MBDoc
             }
             ParseOffset = TextToInspectEnd;
         }
+        //maybe uneccessary
+        std::sort(ReturnValue.begin(),ReturnValue.end());
         return(ReturnValue);
     }
     std::unique_ptr<MBLSP::LSP_Client> StartLSPServer(LSPServer const& ServerToStart)
