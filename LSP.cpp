@@ -37,6 +37,11 @@ void LSPServer::FillObject(MBParsing::JSONObject const& ObjectToParse)
         }
         CommandArguments.push_back(SubStruct.GetStringData());
     }
+    if(ObjectToParse.HasAttribute("initializationOptions"))
+    {
+        initializationOptions = ObjectToParse["initializationOptions"];
+        
+    }
     
 }
 MBParsing::JSONObject LSPServer::GetJSON() const
@@ -49,7 +54,12 @@ MBParsing::JSONObject LSPServer::GetJSON() const
         CommandArguments_Array.push_back(MBParsing::JSONObject(Element));
         
     }
-    ReturnValue["CommandArguments"] = std::move(CommandArguments_Array);return ReturnValue;
+    ReturnValue["CommandArguments"] = std::move(CommandArguments_Array);if(initializationOptions)
+    {
+        ReturnValue["initializationOptions"] = MBParsing::JSONObject(initializationOptions.Value());
+        
+    }
+    return ReturnValue;
 }
 LSPInfo LSPInfo::Parse(MBParsing::JSONObject const& ObjectToParse)
 {

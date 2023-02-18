@@ -1371,9 +1371,7 @@ namespace MBDoc
             MBLSP::LSP_Client* m_AssociatedLSP;
         public:
             void SetLSP(MBLSP::LSP_Client* AssociatedLSP);
-            void OpenDocument(std::string const& DocumentData);
-            //not strictly necesary, but might save memory
-            void CloseDocument();
+            void SetDocumentURI(std::string const& DocumentURI);
             TextElement CreateReference(int Line,int Offset,std::string const& VisibleText,CodeReferenceType ReferenceType);
         };
         
@@ -1407,9 +1405,9 @@ namespace MBDoc
                 std::vector<TextColor> const& ColorMap,
                 std::string const& DocumentContent);
         
-        static std::vector<Coloring> p_GetLSPColoring(MBLSP::LSP_Client& ClientToUse,std::string const& TextContent,ProcessedColorInfo const& ColorInfo,LineIndex const& Index);
+        static std::vector<Coloring> p_GetLSPColoring(MBLSP::LSP_Client& ClientToUse,std::string const& URI,std::string const& TextContent,ProcessedColorInfo const& ColorInfo,LineIndex const& Index);
         //Kinda ugly, should probably make this a bit more clean but it is what it is
-        static ResolvedCodeText p_CombineColorings(std::vector<std::vector<Coloring>> const& ColoringsToCombine,std::string const& 
+        static ResolvedCodeText p_CombineColorings(std::vector<Coloring> const& RegexColoring,std::vector<Coloring> const& LSPColoring,std::string const& 
                 OriginalContent,LineIndex const& Index,ProcessedColorInfo const& ColorInfo,LSPReferenceResolver* OptionalResolver);
 
         void p_ColorizeLSP(ProcessedColorConfiguration const& ColoringConfiguration,LSPInfo const& LSPConfig);

@@ -1407,6 +1407,11 @@ namespace MBDoc
                 OutBuild.SubDirectories.push_back(std::make_pair(MBUnicode::PathToUTF8(Entry.path().filename()),std::move(NewBuild)));
             }
         }
+        std::sort(OutBuild.DirectoryFiles.begin(),OutBuild.DirectoryFiles.end());
+        std::sort(OutBuild.SubDirectories.begin(),OutBuild.SubDirectories.end(),[](auto const& Lhs,auto const& Rhs)
+                {
+                    return(Lhs.first < Rhs.first);  
+                });
     }
     void DocumentBuild::p_ParseDocumentBuildDirectory(DocumentBuild& OutBuild,MBParsing::JSONObject const& DirectoryObject,std::filesystem::path const& BuildDirectory,MBError& OutError)
     {
@@ -3059,22 +3064,65 @@ namespace MBDoc
         }
         return(ReturnValue);
     }
-    ResolvedCodeText DocumentFilesystem::p_CombineColorings(std::vector<std::vector<Coloring>> const& ColoringsToCombine,std::string const& 
-            OriginalContent,LineIndex const& Index,ProcessedColorInfo const& ColorInfo,LSPReferenceResolver* OptionalLSPResolver)
+    bool h_Overlaps(Coloring const& Lhs,Coloring const& Rhs)
+    {
+        size_t RhsLeftmost = Rhs.ByteOffset;
+        size_t RhsRightmost = Rhs.ByteOffset+Rhs.Length;
+        if(Lhs.ByteOffset >= RhsLeftmost && Lhs.ByteOffset <= RhsRightmost)
+        {
+            return(true);   
+        }
+        else if((Lhs.ByteOffset+Lhs.Length) >= RhsLeftmost && (Lhs.ByteOffset+Lhs.Length) <= RhsRightmost)
+        {
+            return(true);
+        }
+        return(false);
+    }
+    std::vector<Coloring> h_RemoveDuplicates(std::vector<Coloring> const& PrioColoring,std::vector<Coloring> const& ColoringsToPrune)
+    {
+        std::vector<Coloring> ReturnValue;
+        ReturnValue.reserve(ColoringsToPrune.size());
+        size_t PrioColoringIndex = 0;
+        size_t PruneIndex = 0;
+        while(PrioColoringIndex < PrioColoring.size() && PruneIndex < ColoringsToPrune.size())
+        {
+            if(h_Overlaps(PrioColoring[PrioColoringIndex],ColoringsToPrune[PruneIndex]))
+            {
+                PruneIndex++;    
+            }
+            else if(PrioColoring[PrioColoringIndex].ByteOffset < ColoringsToPrune[PruneIndex].ByteOffset)
+            {
+                PrioColoringIndex++;   
+            }
+            else
+            {
+                ReturnValue.push_back(ColoringsToPrune[PruneIndex]);
+                PruneIndex++;
+            }
+        }
+        while(PruneIndex < ColoringsToPrune.size())
+        {
+            ReturnValue.push_back(ColoringsToPrune[PruneIndex]);   
+            PruneIndex++;
+        }
+        return(ReturnValue);
+    }
+    ResolvedCodeText DocumentFilesystem::p_CombineColorings(std::vector<Coloring> const& RegexColoring,std::vector<Coloring> const& LSPColoring,
+            std::string const& OriginalContent,LineIndex const& Index,ProcessedColorInfo const& ColorInfo,LSPReferenceResolver* OptionalLSPResolver)
     {
         ResolvedCodeText ReturnValue;
-        if(OptionalLSPResolver != nullptr)
-        {
-            OptionalLSPResolver->OpenDocument(OriginalContent);   
-        }
-        for(auto const& Coloring : ColoringsToCombine)
-        {
-            assert(std::is_sorted(Coloring.begin(), Coloring.end()));
-        }
-        std::vector<Coloring> TotalColorings = MBUtility::Merge<Coloring>(ColoringsToCombine.begin(),ColoringsToCombine.end());
-        assert(std::is_sorted(TotalColorings.begin(),TotalColorings.end()));
-        assert(TotalColorings.size() == [&]()->size_t{size_t ReturnValue = 0; for(auto const& Vec : ColoringsToCombine){ReturnValue += Vec.size();} return(ReturnValue);}());
-        TotalColorings = h_RemoveDuplicates(TotalColorings);
+        //for(auto const& Coloring : ColoringsToCombine)
+        //{
+        //    assert(std::is_sorted(Coloring.begin(), Coloring.end()));
+        //}
+        assert(std::is_sorted(RegexColoring.begin(),RegexColoring.end()));
+        assert(std::is_sorted(LSPColoring.begin(),LSPColoring.end()));
+        
+        std::vector<Coloring> PrunedRegexColoring = h_RemoveDuplicates(LSPColoring,RegexColoring);
+        std::vector<Coloring> TotalColorings;
+        TotalColorings.resize(PrunedRegexColoring.size()+LSPColoring.size());
+        std::merge(PrunedRegexColoring.begin(),PrunedRegexColoring.end(),LSPColoring.begin(),LSPColoring.end(),TotalColorings.begin());
+        TotalColorings = h_RemoveDuplicates(TotalColorings); 
         assert(std::is_sorted(TotalColorings.begin(),TotalColorings.end()));
         std::vector<TextElement> CurrentRow;
         size_t ParseOffset = 0; 
@@ -3175,30 +3223,22 @@ namespace MBDoc
         {
             ReturnValue.m_Rows.push_back(std::move(CurrentRow));   
         }
-        if(OptionalLSPResolver != nullptr)
-        {
-            OptionalLSPResolver->CloseDocument();   
-        }
         return(ReturnValue);
     }
-    std::vector<Coloring> DocumentFilesystem::p_GetLSPColoring(MBLSP::LSP_Client& ClientToUse,std::string const& TextContent,ProcessedColorInfo const& ColorInfo
+    std::vector<Coloring> DocumentFilesystem::p_GetLSPColoring(MBLSP::LSP_Client& ClientToUse,std::string const& URI,std::string const& TextContent,ProcessedColorInfo const& ColorInfo
             ,LineIndex const& Index)
     //void DocumentFilesystem::p_ColorizeCodeBlock(MBLSP::LSP_Client& ClientToUse,CodeBlock& BlockToColorize)
     {
         std::vector<Coloring> ReturnValue;
-        DidOpenTextDocument_Notification OpenNotification;
-        OpenNotification.params.textDocument.text = TextContent;
-        OpenNotification.params.textDocument.uri = MBLSP::URLEncodePath(std::filesystem::current_path()/"asdasdasdasd.cpp");
-        ClientToUse.SendNotification(OpenNotification);
 
         SemanticToken_Request TokenRequest;
-        TokenRequest.params.textDocument.uri = OpenNotification.params.textDocument.uri;
+        TokenRequest.params.textDocument.uri = URI;
         SemanticToken_Response Tokens = ClientToUse.SendRequest(TokenRequest);
         try
         {
             if(Tokens.result)
             {
-                std::string const& Text = OpenNotification.params.textDocument.text;
+                std::string const& Text = TextContent;
                 std::vector<int> const& TokenData = Tokens.result->data;
                 if(TokenData.size() % 5 != 0)
                 {
@@ -3248,9 +3288,6 @@ namespace MBDoc
         {
 
         }
-        DidCloseTextDocument_Notification CloseNotification;
-        CloseNotification.params.textDocument.uri = OpenNotification.params.textDocument.uri;
-        ClientToUse.SendNotification(CloseNotification);
         return(ReturnValue);
     }
     std::vector<Coloring> DocumentFilesystem::p_GetRegexColorings(std::vector<Coloring> const& PreviousColorings,
@@ -3314,6 +3351,10 @@ namespace MBDoc
     {
         InitializeRequest InitReq;    
         InitReq.params.rootUri = MBLSP::URLEncodePath(std::filesystem::current_path());
+        if(ServerToStart.initializationOptions)
+        {
+            InitReq.params.initializationOptions = ServerToStart.initializationOptions.Value();   
+        }
         return(StartLSPServer(ServerToStart,InitReq));
     }
     std::unique_ptr<MBLSP::LSP_Client> StartLSPServer(LSPServer const& ServerToStart,InitializeRequest const& InitReq)
@@ -3330,19 +3371,14 @@ namespace MBDoc
     {
         m_AssociatedLSP = AssociatedLSP;
     }
-    void DocumentFilesystem::LSPReferenceResolver::OpenDocument(std::string const& DocumentData)
+    void DocumentFilesystem::LSPReferenceResolver::SetDocumentURI(std::string const& NewURI)
     {
-        DidOpenTextDocument_Notification OpenNotification;
-        OpenNotification.params.textDocument.text = DocumentData;
-        OpenNotification.params.textDocument.uri = MBLSP::URLEncodePath(std::filesystem::current_path()/"asdasdasdasd.cpp");
-        m_CurrentDocument = OpenNotification.params.textDocument.uri;
-        m_AssociatedLSP->SendNotification(OpenNotification);
-    }
-    void DocumentFilesystem::LSPReferenceResolver::CloseDocument()
-    {
-        DidCloseTextDocument_Notification CloseNotification;
-        CloseNotification.params.textDocument.uri = m_CurrentDocument;
-        m_AssociatedLSP->SendNotification(CloseNotification);
+        //DidOpenTextDocument_Notification OpenNotification;
+        //OpenNotification.params.textDocument.text = DocumentData;
+        //OpenNotification.params.textDocument.uri = MBLSP::URLEncodePath(std::filesystem::current_path()/"asdasdasdasd.cpp");
+        //m_CurrentDocument = OpenNotification.params.textDocument.uri;
+        //m_AssociatedLSP->SendNotification(OpenNotification);
+        m_CurrentDocument = NewURI;
     }
     TextElement DocumentFilesystem::LSPReferenceResolver::CreateReference(int Line,int Offset,std::string const& VisibleText,
             CodeReferenceType ReferenceType)
@@ -3358,8 +3394,17 @@ namespace MBDoc
         {
             auto const& Result = Response.result.Value(); 
             UnresolvedReference Reference;
-            Reference.ReferenceString = "UNRESOLVED";
             Reference.VisibleText = VisibleText;
+            Reference.ReferenceString = "../../{Code/";
+            if(ReferenceType == CodeReferenceType::Class)
+            {
+                Reference.ReferenceString += "Classes";
+            }
+            else if(ReferenceType == CodeReferenceType::Function)
+            {
+                Reference.ReferenceString += "Functions";
+            }
+            Reference.ReferenceString += "}/"+VisibleText+".mbd";
 
             Location const& LocationToCheck = Result[0];
             std::filesystem::path AbsolutePath = MBLSP::URLDecodePath(LocationToCheck.uri); 
@@ -3412,8 +3457,6 @@ namespace MBDoc
        
         //DEBUG AF, hardcodec LSP
         //MBSystem::BiDirectionalSubProcess SubProcess("clangd",{});
-        InitializeRequest Init;
-        Init.params.rootUri = MBLSP::URLEncodePath(std::filesystem::current_path());
         //InitialziedLSPs["clangd"] = std::make_unique<MBLSP::LSP_Client>(
         //        std::make_unique<MBUtility::NonOwningIndeterminateInputStream>(&SubProcess),
         //        std::make_unique<MBUtility::NonOwningOutputStream>(&SubProcess));
@@ -3421,14 +3464,17 @@ namespace MBDoc
         LSPReferenceResolver ReferenceResolver;
         for(auto& Entry : m_TotalSources)
         {
+            std::filesystem::path DocumentPath = Entry.Document.Path;
             auto Lambda = [&](CodeBlock& BlockToModify) -> void
                     {
                         auto HandlesIt = ColorConig.LanguageConfigs.find(BlockToModify.CodeType);
+                        std::string DocumentURI;
                         if(HandlesIt != ColorConig.LanguageConfigs.end())
                         {
                             LineIndex Index(std::get<std::string>(BlockToModify.Content));
                             std::vector<Coloring> LSPColorings;
                             bool ResolveReferences = false;
+                            MBLSP::LSP_Client* AssociatedLSP = nullptr;
                             if(HandlesIt->second.LSP != "")
                             {
                                 std::unique_ptr<MBLSP::LSP_Client>& LSP = InitialziedLSPs[HandlesIt->second.LSP];
@@ -3437,21 +3483,61 @@ namespace MBDoc
                                     auto LSPConfIt = LSPConfig.Servers.find(HandlesIt->second.LSP);
                                     if(LSPConfIt != LSPConfig.Servers.end())
                                     {
-                                        LSP = StartLSPServer(LSPConfIt->second,Init);
+                                        LSP = StartLSPServer(LSPConfIt->second);
                                     }
                                 }
                                 if(LSP != nullptr)
                                 {
+                                    if(BlockToModify.CodeType == "cpp")
+                                    {
+                                        DocumentURI = MBLSP::URLEncodePath(DocumentPath.replace_extension(".cpp"));
+                                        //Hack to add support for MBDocGen
+                                        std::string PrefixToSearch = "/Code/Sources/";
+                                        auto MBDocGenPrefixPosition = DocumentURI.find(PrefixToSearch); 
+                                        if(MBDocGenPrefixPosition != DocumentURI.npos)
+                                        {
+                                            std::string NewURI = DocumentURI.substr(0,MBDocGenPrefixPosition);
+                                            //removes that last directory, allowing all versions of doc/docs/Docs etc etc
+                                            auto LastSlash = NewURI.find_last_of('/');
+                                            if(LastSlash != NewURI.npos)
+                                            {
+                                                NewURI = NewURI.substr(0,LastSlash);
+                                                NewURI += "/";
+                                                NewURI += DocumentURI.substr(MBDocGenPrefixPosition+PrefixToSearch.size());
+                                                DocumentURI = NewURI;
+                                            }
+                                        }
+                                    }
+                                    else
+                                    {
+                                        DocumentURI = MBLSP::URLEncodePath(DocumentPath);
+                                    }
+
                                     ReferenceResolver.SetLSP(LSP.get());
+                                    ReferenceResolver.SetDocumentURI(DocumentURI); 
+
+                                    DidOpenTextDocument_Notification OpenNotification;
+                                    OpenNotification.params.textDocument.text = std::get<std::string>(BlockToModify.Content);
+                                    OpenNotification.params.textDocument.uri = DocumentURI;
+                                    LSP->SendNotification(OpenNotification);
+
+
                                     ResolveReferences = true;
-                                    LSPColorings = p_GetLSPColoring(*LSP,std::get<std::string>(BlockToModify.Content),ColorConig.ColorInfo,Index);
+                                    LSPColorings = p_GetLSPColoring(*LSP,DocumentURI,std::get<std::string>(BlockToModify.Content),ColorConig.ColorInfo,Index);
+                                    AssociatedLSP = LSP.get();
                                 }
                             }
                             std::vector<Coloring> RegexColorings = p_GetRegexColorings(LSPColorings,HandlesIt->second.RegexColoring,
                                     ColorConig.ColorInfo.ColorMap,std::get<std::string>(BlockToModify.Content));
-                            std::vector<std::vector<Coloring>> TotalColorings = {std::move(LSPColorings),std::move(RegexColorings)};
-                            BlockToModify.Content = p_CombineColorings(TotalColorings,std::get<std::string>(BlockToModify.Content),
+                            //std::vector<std::vector<Coloring>> TotalColorings = {std::move(LSPColorings),std::move(RegexColorings)};
+                            BlockToModify.Content = p_CombineColorings(RegexColorings,LSPColorings,std::get<std::string>(BlockToModify.Content),
                                     Index, ColorConig.ColorInfo,ResolveReferences ? &ReferenceResolver : nullptr);
+                            if(AssociatedLSP)
+                            {
+                                DidCloseTextDocument_Notification CloseNotification;
+                                CloseNotification.params.textDocument.uri = DocumentURI;
+                                AssociatedLSP->SendNotification(CloseNotification);
+                            }
                         }
 
                     };

@@ -17,6 +17,7 @@ struct LSPServer
     public:
     std::string CommandName;
     std::vector<std::string> CommandArguments;
+    MBUtility::Optional<MBParsing::JSONObject> initializationOptions;
     static LSPServer Parse(MBParsing::JSONObject const& ObjectToParse);
     void FillObject(MBParsing::JSONObject const& ObjectToParse);
     MBParsing::JSONObject GetJSON() const;

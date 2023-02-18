@@ -21,6 +21,7 @@
 /Test.html
 /Test/Media
 /CMake*
+/CppProperties.json
 /makefile
 
 /Input.json
