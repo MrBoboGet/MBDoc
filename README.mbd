@@ -1,3 +1,4 @@
+
 # MBDoc
 
 
@@ -28,32 +29,31 @@ _# Features
         _# Examples
 
 ```
-//creates reference to a document with an absolute path
+#creates reference to a document with an absolute path
 @[doc](/MBUtility/Code/Classes/LineRetriever.mbd)
-//This reference searches the complete document filesystem for any file or
-//directory named LineRetriever.mbd that is located under the directory
-//MBUtility.
+#This reference searches the complete document filesystem for any file or
+#directory named LineRetriever.mbd that is located under the directory
+#MBUtility.
 @[doc](/MBUtility/{LineRetriever.mbd})
-//Creates a reference to a document named LineRetriever.mbd, that is the
-//subdirectory for directory named class that is located somewhere under
-//MBUtility.
+#Creates a reference to a document named LineRetriever.mbd, that is the
+#subdirectory for directory named class that is located somewhere under
+#MBUtility.
 @[doc](/MBUtility/{Classes/LineRetriever.mbd})
-//Creates a reference named LineRetriever.mbd that is located somewhere under a
-//directory named Classes that is somwhere under MBUtility
+#Creates a reference named LineRetriever.mbd that is located somewhere under a
+#directory named Classes that is somwhere under MBUtility
 @[doc](/MBUtility/{Classes}/{LineRetriever.mbd})
-//Creates a reference to a file that contains a part named GetLine somewhere
-//under MBUtility
+#Creates a reference to a file that contains a part named GetLine somewhere
+#under MBUtility
 @[doc](/MBUtility#GetLine).
 ```
         /#
 
-    #  
     Arbitrary color selection, image and video includes, tables. 
 
     # Multiple formats
 
         The program includes support for github markdown, HTML and vim help
-        files. They are all specified with the '-s' flag. Compiling this
+        files. They are all specified with the `-s`flag. Compiling this
         document can for example be done with `mbdoc README.mbd -f:md -o:./`
     
     # Builtin LSP support
@@ -79,16 +79,16 @@ _# Features
 
         _# Example
 
-        This creates a document filesystem with that has the files `/foo.mbd',
-        '/bar.mbd', as well as the directory `/DirName` containing 
-        '/DirName/stuff.mbd`, aswell as the the directory `/DirName2/` that
+        This creates a document filesystem with that has the files `/foo.mbd`,
+        `/bar.mbd`, as well as the directory `/DirName` containing 
+        `/DirName/stuff.mbd`, aswell as the the directory `/DirName2/` that
         directly maps the local filesystem files to the document filesystem.
 
 ```json
 {
     "TopDirectory":
     {
-        "Files":["foo.mbd,"bar.mbd"],
+        "Files":["foo.mbd","bar.mbd"],
         "SubDirectories":
         {
             "DirName":
@@ -129,7 +129,7 @@ out of alignment content & text & @[ref](#foobar) & ~FF00BB colored text
         meaning the compiler only has to implement the specific task of writing
         the contents of the output files.
 
-/_
+/#
 
 # Documentation
 
@@ -143,14 +143,15 @@ so is the whole build compiled with MBDoc.
 # Compilation
 
 MBDoc is compiled with
-@[MBPacketManager](https://github.io/MrBoboGet/MBPacketManager), and further
+@[MBPacketManager](https://github.com/MrBoboGet/MBPacketManager), and further
 instructions can be found at that github page. In essence however, all that is
 needed is to have a include path where the root of 
-@[MBPacketManager](https://github.io/MrBoboGet/MBPacketManager),
-@[MBPacketManager](https://github.io/MrBoboGet/MBPacketManager) can be found.
+@[MBPacketManager](https://github.com/MrBoboGet/MBPacketManager),
+@[MBPacketManager](https://github.com/MrBoboGet/MBPacketManager) can be found.
 Add this directory as an include path, and link to their respective static
 library.
 
 # License
 
 The source code is like all my projects, in the public domain.
+

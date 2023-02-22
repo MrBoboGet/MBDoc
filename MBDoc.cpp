@@ -667,6 +667,50 @@ namespace MBDoc
         *OutParseOffset = ParseOffset+7;
         return(ReturnValue);
     }
+    std::string h_NormalizeText(std::string const& TextToNormalize)
+    {
+        std::string ReturnValue;
+        size_t ParseOffset = 0;
+        while(ParseOffset < TextToNormalize.size())
+        {
+            MBParsing::SkipWhitespace(TextToNormalize,ParseOffset,&ParseOffset);
+            size_t LineEnd = TextToNormalize.find_first_of("\r\n",ParseOffset);
+            
+            size_t LastNonWhitespace = TextToNormalize.find_last_not_of("\r\n \t",LineEnd);
+            if(LastNonWhitespace == TextToNormalize.npos)
+            {
+                LastNonWhitespace = ParseOffset;
+            }
+            else
+            {
+                LastNonWhitespace += 1;   
+            }
+            if(LastNonWhitespace < ParseOffset)
+            {
+                break;   
+            }
+            if(LineEnd == TextToNormalize.npos)
+            {
+                ReturnValue.insert(ReturnValue.end(),TextToNormalize.data()+ParseOffset,TextToNormalize.data()+LastNonWhitespace);
+                break;
+            }
+            else
+            {
+                ReturnValue.insert(ReturnValue.end(),TextToNormalize.data()+ParseOffset,TextToNormalize.data()+LastNonWhitespace);
+                if(TextToNormalize[LineEnd] == '\n') 
+                {
+                    ParseOffset = LineEnd+1;   
+                }
+                else if(TextToNormalize[LineEnd] == '\r')
+                {
+                    ParseOffset = LineEnd+2;
+                }
+                ReturnValue += ' ';
+            }
+        }
+        std::cout<<ReturnValue<<std::endl;
+        return(ReturnValue);
+    }
     std::vector<TextElement> DocumentParsingContext::p_ParseTextElements(void const* Data, size_t DataSize, size_t ParseOffset, size_t* OutParseOffset)
     {
         std::vector<TextElement> ReturnValue;
@@ -711,7 +755,7 @@ namespace MBDoc
                 RegularText NewText;
                 NewText.Modifiers = CurrentTextModifier;
                 NewText.Color = CurrentTextColor;
-                NewText.Text = h_UnescapeText(CharData,DataSize,ParseOffset, NextModifier);
+                NewText.Text = h_NormalizeText(h_UnescapeText(CharData,DataSize,ParseOffset, NextModifier));
                 //Unescape text
 
                 //TODO fix efficiently, jank
@@ -1003,7 +1047,7 @@ namespace MBDoc
                     }
                 } 
             }
-            TotalParagraphData += CurrentLine+" ";
+            TotalParagraphData += CurrentLine+"\n";
             Retriever.DiscardLine();
         }
         //XOR

@@ -23,6 +23,7 @@
 /CMake*
 /CppProperties.json
 /makefile
+/Test
 
 /Input.json
 /Output.json

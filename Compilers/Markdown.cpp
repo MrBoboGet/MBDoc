@@ -75,7 +75,7 @@ namespace MBDoc
     void MarkdownCompiler::EnterFormat(FormatElement const& ElementToEnter) 
     {
         m_FormatDetph +=1; 
-        *m_OutStream<<std::string(m_FormatDetph,'#')<<" "<<ElementToEnter.Name;
+        *m_OutStream<<std::string(m_FormatDetph,'#')<<" "<<ElementToEnter.Name<<"\n\n";
     }
     void MarkdownCompiler::LeaveFormat(FormatElement const& ElementToEnter) 
     {
@@ -84,7 +84,7 @@ namespace MBDoc
 
     void MarkdownCompiler::LeaveBlock(BlockElement const& BlockToLeave)
     {
-        *m_OutStream<<"\n";
+        *m_OutStream<<"\n\n";
     }
     void MarkdownCompiler::EnterBlock(BlockElement const& BlockToEnter)
     {
@@ -149,7 +149,7 @@ namespace MBDoc
     void MarkdownCompiler::CompileDocument(DocumentPath const& Path,DocumentSource const& Document)
     {
         m_TocCreator.Initialize(Document);
-        std::filesystem::path OutPath = m_OutDir/Path.GetString().substr(1);
+        std::filesystem::path OutPath = (m_OutDir/Path.GetString().substr(1)).replace_extension(".md");
         std::ofstream OutFile = std::ofstream(OutPath,std::ios::out);
         MBUtility::MBFileOutputStream OutStream(&OutFile);
         m_OutStream = &OutStream;
