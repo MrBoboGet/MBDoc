@@ -11,6 +11,7 @@
 
 #include "Compilers/RawTerminal.h"
 #include "Compilers/HTML.h"
+#include "Compilers/Markdown.h"
 #include "MBUnicode/MBUnicode.h"
 
 #include <MBSystem/MBSystem.h>
@@ -161,6 +162,10 @@ namespace MBDoc
         if(FormatString == "html")
         {
             ReturnValue = std::unique_ptr<DocumentCompiler>(new HTMLCompiler());
+        }
+        else if(FormatString == "md")
+        {
+            ReturnValue = std::make_unique<MarkdownCompiler>();
         }
         //else if(FormatString == "md")
         //{

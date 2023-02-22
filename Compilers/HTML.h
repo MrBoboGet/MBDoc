@@ -80,7 +80,12 @@ namespace MBDoc
         CommonCompilationOptions m_CommonOptions;
         HTMLReferenceSolver m_ReferenceSolver;        
         HTMLNavigationCreator m_NavigationCreator;
+
+
         int m_FormatDepth = 0;
+        std::vector<std::string> m_CurrentPartIdentifier;
+
+
         std::vector<int> m_FormatCounts;
         std::filesystem::path m_SourcePath;
         std::string p_GetNumberLabel(int FormatDepth);

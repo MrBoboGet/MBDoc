@@ -18,13 +18,31 @@ namespace MBDoc
     {
         m_CurrentPath = std::move(CurrentPath);
     }
+    std::string h_PartIdentifierToHTMLID(std::vector<std::string> const& PartIdentifier)
+    {
+        std::string ReturnValue = "#";
+        bool FirstPart = true;
+        for(auto const& Part : PartIdentifier)
+        {
+            if(FirstPart)
+            {
+                ReturnValue += Part;   
+                FirstPart = false;
+            }
+            else
+            {
+                ReturnValue += "_"+Part;
+            }
+        }
+        return(ReturnValue);
+    }
     std::string HTMLReferenceSolver::GetDocumentPathURL(DocumentPath const& PathToConvert) 
     {
         std::string ReturnValue = DocumentPath::GetRelativePath(PathToConvert, m_CurrentPath).GetString();
         ReturnValue = MBUtility::ReplaceAll(ReturnValue, ".mbd", ".html");
-        if (PathToConvert.GetPartIdentifier() != "")
+        if (PathToConvert.GetPartIdentifier().size() != 0)
         {
-            ReturnValue += "#" + PathToConvert.GetPartIdentifier();
+            ReturnValue += h_PartIdentifierToHTMLID(PathToConvert.GetPartIdentifier());
         }
         return(ReturnValue);
     }
@@ -501,9 +519,10 @@ namespace MBDoc
         }
         m_FormatCounts[m_FormatDepth-1] += 1;
         std::string HeadingTag = "h"+std::to_string(m_FormatDepth);
+        m_CurrentPartIdentifier.push_back(FormatToCompile.Name);
         //if(FormatToCompile.Type != FormatElementType::Default)
         //{
-            std::string StringToWrite = "<" + HeadingTag + " id=\"" + FormatToCompile.Name+"\" ";
+            std::string StringToWrite = "<" + HeadingTag + " id=\"" + h_PartIdentifierToHTMLID(m_CurrentPartIdentifier).substr(1)+"\" ";
             if (m_FormatDepth == 1)
             {
                 StringToWrite += "style = \"text-align: center;\"";
@@ -524,6 +543,10 @@ namespace MBDoc
         if(m_FormatDepth < m_FormatCounts.size())
         {
             m_FormatCounts[m_FormatDepth] = 0;   
+        }
+        if(m_CurrentPartIdentifier.size() > 0)
+        {
+            m_CurrentPartIdentifier.pop_back();   
         }
         m_FormatDepth -= 1;
     }

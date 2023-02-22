@@ -1,125 +1,14 @@
 #include "Markdown.h"
+#include <MBUtility/MBStrings.h>
 namespace MBDoc
 {
        
     //BEGIN MarkdownCompiler
-    void MarkdownCompiler::p_CompileText(std::vector<std::unique_ptr<TextElement>> const& ElementsToCompile, MarkdownReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream)
-    {
-        for(std::unique_ptr<TextElement> const& Text : ElementsToCompile)
-        {
-            std::string ModifierString = "";
-            if((Text->Modifiers & TextModifier::Italic) != TextModifier::Null)
-            {
-                ModifierString += '*';
-            }
-            if((Text->Modifiers & TextModifier::Bold) != TextModifier::Null)
-            {
-                ModifierString += "**";
-            }
-            OutStream.Write(ModifierString.data(),ModifierString.size());
-            if(Text->Type == TextElementType::Regular)
-            {
-                
-                OutStream.Write(static_cast<RegularText const&>(*Text.get()).Text.data(),static_cast<RegularText const&>(*Text.get()).Text.size());
-            }
-            if(Text->Type == TextElementType::Reference)
-            {
-                DocReference const& CurrentElement = static_cast<DocReference const&>(*Text.get());
-                std::string TextToWrite = ReferenceSolver.GetReferenceString(CurrentElement);
-                OutStream.Write(TextToWrite.data(), TextToWrite.size());
-            }
-            OutStream.Write(ModifierString.data(),ModifierString.size());
-        }   
-    }
-    void MarkdownCompiler::p_CompileBlock(BlockElement const* BlockToCompile, MarkdownReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream)
-    {
-        if(BlockToCompile->Type != BlockElementType::Paragraph)
-        {
-            throw std::runtime_error("Unsupported block type");  
-        } 
-        Paragraph const& ParagraphToCompile = static_cast<Paragraph const&>(*BlockToCompile);
-        p_CompileText(ParagraphToCompile.TextElements, ReferenceSolver,OutStream);
-        OutStream.Write("\n\n",2);
-    }
-    void MarkdownCompiler::p_CompileDirective(Directive const& DirectiveToCompile, MarkdownReferenceSolver const& ReferenceSolver, MBUtility::MBOctetOutputStream& OutStream)
-    {
-        if (DirectiveToCompile.DirectiveName == "toc")
-        {
-            ReferenceSolver.CreateTOC(OutStream);
-        }
-    }
-    enum class i_CompileType
-    {
-        Block,
-        Format,
-        Directive
-    };
-    void MarkdownCompiler::p_CompileFormat(FormatElement const& FormatToCompile, MarkdownReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream,int Depth)
-    {
-        if(FormatToCompile.Type != FormatElementType::Default)
-        {
-            std::string StringToWrite = "#";
-            for(int i = 0; i < Depth;i++)
-            {
-                StringToWrite += "#";  
-            } 
-            StringToWrite += " "+FormatToCompile.Name+"\n\n";
-            OutStream.Write(StringToWrite.data(),StringToWrite.size());
-        }
-        for(FormatElementComponent const& Component : FormatToCompile.Contents)
-        {
-            if(Component.GetType() == FormatComponentType::Directive)
-            {
-                p_CompileDirective(Component.GetDirectiveData(),ReferenceSolver,OutStream); 
-            }  
-            else if(Component.GetType() == FormatComponentType::Block)
-            {
-                p_CompileBlock(&Component.GetBlockData(),ReferenceSolver,OutStream);
-            }
-            else if(Component.GetType() == FormatComponentType::Format)
-            {
-                p_CompileFormat(Component.GetFormatData(),ReferenceSolver,OutStream,Depth+1);
-            }
-        }
-    }
-    void MarkdownCompiler::p_CompileSource(DocumentSource const& SourceToCompile, MarkdownReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream)
-    {
-        //Joint iterator, a bit ugly         
-        for(FormatElement const& Format : SourceToCompile.Contents)
-        {
-            p_CompileFormat(Format,ReferenceSolver,OutStream,0);        
-        }
-        OutStream.Flush();
-    }
-    class Printer : public MBUtility::MBOctetOutputStream
-    {
-    public:
-        size_t Write(const void* DataToWrite,size_t DataSize)
-        {
-            std::cout.write((const char*)DataToWrite,DataSize); 
-            return(0);
-        } 
-    };
-    MarkdownReferenceSolver MarkdownCompiler::p_CreateReferenceSolver(DocumentSource const& Source)
-    {
-        MarkdownReferenceSolver ReturnValue;
-        ReturnValue.Initialize(Source);
-        return(ReturnValue);
-    }
+    
     //void MarkdownCompiler::Compile(DocumentFilesystem const& BuildToCompile, CommonCompilationOptions const& Options)
     //{
     //    std::cout << "Not implemented B)" << std::endl;
     //}
-    void MarkdownCompiler::Compile(std::vector<DocumentSource> const& Sources)
-    {
-        Printer OutStream;
-        for(DocumentSource const& Source : Sources)
-        {
-            MarkdownReferenceSolver Solver = p_CreateReferenceSolver(Source);
-            //MBUtility::MBFileOutputStream OutStream = MBUtility::MBFileOutputStream("README.md");
-            p_CompileSource(Source,Solver,OutStream); 
-        }    
-    }
     //
     //END MarkdownCompiler
     //BEGIN MarkdownReferenceSolver
@@ -129,45 +18,7 @@ namespace MBDoc
         ReturnValue = "#"+MBUnicode::UnicodeStringToLower(ReturnValue);
         return(ReturnValue);
     }
-    std::string MarkdownReferenceSolver::GetReferenceString(DocReference const& ReferenceIdentifier) const
-    {
-        //std::string ReturnValue = ReferenceIdentifier;
-        std::string ReturnValue;
-        std::string IdentifierURL = ReferenceIdentifier.Identifier;
-        std::string VisibleText = ReferenceIdentifier.VisibleText;
-        if (m_HeadingNames.find(ReferenceIdentifier.Identifier) != m_HeadingNames.end())
-        {
-            IdentifierURL = h_CreateHeadingReference(ReferenceIdentifier.Identifier);
-            if (VisibleText == "")
-            {
-                VisibleText = ReferenceIdentifier.Identifier;
-            }
-        }
-        else
-        {
-            size_t NamespaceDelimiterPosition = ReferenceIdentifier.Identifier.find("::");
-            if (NamespaceDelimiterPosition != ReferenceIdentifier.Identifier.npos && NamespaceDelimiterPosition + 2 < ReferenceIdentifier.Identifier.size())
-            {
-                //assumes github markdown
-                std::string User = ReferenceIdentifier.Identifier.substr(0, NamespaceDelimiterPosition);
-                std::string Repository = ReferenceIdentifier.Identifier.substr(NamespaceDelimiterPosition + 2);
-                IdentifierURL = "https://github.com/" + User + "/" + Repository;
-                if(VisibleText == "")
-                {
-                    VisibleText = Repository;
-                }
-            }
-        }
-        if (VisibleText != "")
-        {
-            ReturnValue = "[" + VisibleText + "](" + IdentifierURL + ")";
-        }
-        else
-        {
-            ReturnValue = "<" + IdentifierURL+ ">";
-        }
-        return(ReturnValue);
-    }
+    
     void MarkdownReferenceSolver::p_WriteToc(Heading const& CurrentHeading,MBUtility::MBOctetOutputStream& OutStream , size_t Depth) const
     {
         std::string Indent = std::string(Depth * 4, ' ');
@@ -198,22 +49,112 @@ namespace MBDoc
             {
                 continue;   
             }
-            if (Element.GetFormatData().Type != FormatElementType::Default)
-            {
-                ReturnValue.SubHeaders.push_back(p_CreateHeading(Element.GetFormatData()));
-            }
+            ReturnValue.SubHeaders.push_back(p_CreateHeading(Element.GetFormatData()));
         }
         return(ReturnValue);
     }
     void MarkdownReferenceSolver::Initialize(DocumentSource const& Documents)
     {
-        for (FormatElement const& Element : Documents.Contents)
+        for (FormatElementComponent const& Element : Documents.Contents)
         {
-            if (Element.Type != FormatElementType::Default)
+            if (Element.GetType() == FormatComponentType::Format)
             {
-                m_Headings.push_back(p_CreateHeading(Element));
+                m_Headings.push_back(p_CreateHeading(Element.GetFormatData()));
             }
         }
+    }
+    void MarkdownCompiler::EnterText(TextElement_Base const& ElementToEnter)
+    {
+           
+    }
+    void MarkdownCompiler::LeaveText(TextElement_Base const& ElementToEnter)
+    {
+           
+    }
+
+    void MarkdownCompiler::EnterFormat(FormatElement const& ElementToEnter) 
+    {
+        m_FormatDetph +=1; 
+        *m_OutStream<<std::string(m_FormatDetph,'#')<<" "<<ElementToEnter.Name;
+    }
+    void MarkdownCompiler::LeaveFormat(FormatElement const& ElementToEnter) 
+    {
+        m_FormatDetph -=1; 
+    }
+
+    void MarkdownCompiler::LeaveBlock(BlockElement const& BlockToLeave)
+    {
+        *m_OutStream<<"\n";
+    }
+    void MarkdownCompiler::EnterBlock(BlockElement const& BlockToEnter)
+    {
+           
+    }
+
+    void MarkdownCompiler::Visit(CodeBlock const& BlockToVisit)
+    {
+        *m_OutStream << "```"<<BlockToVisit.CodeType<<"\n"; 
+        *m_OutStream << std::get<std::string>(BlockToVisit.Content)<<"\n";
+        *m_OutStream << "```\n";
+    }
+    void MarkdownCompiler::Visit(MediaInclude const& BlockToVisit)
+    {
+           
+    }
+    void MarkdownCompiler::Visit(Paragraph const& BlockToVisit)
+    {
+        //just let the  traverser handle
+    }
+
+    void MarkdownCompiler::Visit(URLReference const& BlockToVisit)
+    {
+        std::string VisibleText = BlockToVisit.VisibleText != "" ? BlockToVisit.VisibleText : BlockToVisit.URL;
+        *m_OutStream<<"["<<VisibleText<<"]"<<"("<<BlockToVisit.URL<<")";
+    }
+    void MarkdownCompiler::Visit(FileReference const& BlockToVisit)
+    {
+        std::string VisibleText = BlockToVisit.VisibleText != "" ? BlockToVisit.VisibleText : BlockToVisit.Path.GetString();
+        *m_OutStream<<"["<<VisibleText<<"]"<<"("<<BlockToVisit.Path.GetString()<<")";
+    }
+    void MarkdownCompiler::Visit(UnresolvedReference const& BlockToVisit)
+    {
+        std::string VisibleText = BlockToVisit.VisibleText != "" ? BlockToVisit.VisibleText : BlockToVisit.ReferenceString;
+        *m_OutStream<<"["<<VisibleText<<"]"<<"("<<BlockToVisit.ReferenceString<<")";
+    }
+    void MarkdownCompiler::Visit(DocReference const& BlockToVisit)
+    {
+           
+    }
+
+    void MarkdownCompiler::Visit(RegularText const& BlockToVisit)
+    {
+        *m_OutStream <<BlockToVisit.Text;
+    }
+
+    void MarkdownCompiler::Visit(Directive const& BlockToVisit)
+    {
+        if(BlockToVisit.DirectiveName == "toc")
+        {
+            m_TocCreator.CreateTOC(*m_OutStream);
+        }
+    }
+    void MarkdownCompiler::AddOptions(CommonCompilationOptions const& Options)
+    {
+        m_OutDir = Options.OutputDirectory;    
+    }
+    void MarkdownCompiler::PeekDocumentFilesystem(DocumentFilesystem const& FilesystemToCompile)
+    {
+           
+    }
+    void MarkdownCompiler::CompileDocument(DocumentPath const& Path,DocumentSource const& Document)
+    {
+        m_TocCreator.Initialize(Document);
+        std::filesystem::path OutPath = m_OutDir/Path.GetString().substr(1);
+        std::ofstream OutFile = std::ofstream(OutPath,std::ios::out);
+        MBUtility::MBFileOutputStream OutStream(&OutFile);
+        m_OutStream = &OutStream;
+        DocumentTraverser Traverser;
+        Traverser.Traverse(Document,*this);
     }
     //END MarkdownReferenceSolver
 };

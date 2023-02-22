@@ -25,6 +25,7 @@
                 "/MBDocCLI.cpp",
                 "/MBDocMain.cpp",
                 "/Compilers/HTML.cpp",
+                "/Compilers/Markdown.cpp",
                 "/ColorConf.cpp",
                 "/LSP.cpp"
             ],
@@ -39,6 +40,7 @@
                 "/MBDoc.cpp",
                 "/MBDocCLI.cpp",
                 "/Compilers/HTML.cpp",
+                "/Compilers/Markdown.cpp",
                 "/ColorConf.cpp",
                 "/LSP.cpp"
             ],

@@ -611,6 +611,40 @@ namespace MBDoc
         }
         return(ReturnValue);
     }
+    std::string h_UnescapeText(const char* Data,size_t DataSize,size_t InParseOffset,size_t TextEnd,char EscapedCharacter)
+    {
+        assert(TextEnd <= DataSize);
+        std::string ReturnValue;
+        size_t ParseOffset = InParseOffset;
+        while(ParseOffset < TextEnd)
+        {
+            size_t NextEscapePosition = std::find(Data+ParseOffset,Data+TextEnd,'\\')-Data;
+            if(NextEscapePosition == TextEnd)
+            {
+                ReturnValue.insert(ReturnValue.end(),Data+ParseOffset,Data+TextEnd);
+                break;
+            }
+            else if(NextEscapePosition + 1 >= DataSize || Data[NextEscapePosition+1] != EscapedCharacter)
+            {
+                ReturnValue.insert(ReturnValue.end(),Data+ParseOffset,Data+NextEscapePosition+1);
+                if(NextEscapePosition + 1 < DataSize)
+                {
+                    ReturnValue += Data[NextEscapePosition+1];   
+                }
+                ParseOffset = NextEscapePosition+2;
+            }
+            else
+            {
+                ReturnValue.insert(ReturnValue.end(),Data+ParseOffset,Data+NextEscapePosition);
+                if(NextEscapePosition+1 < TextEnd)
+                {
+                    ReturnValue += Data[NextEscapePosition+1];
+                }
+                ParseOffset = NextEscapePosition+2;
+            }
+        }
+        return(ReturnValue);
+    }
     TextColor h_ParseColorModifier(const char* Data,size_t DataSize,size_t ParseOffset,size_t* OutParseOffset)
     {
         TextColor ReturnValue;
@@ -677,7 +711,7 @@ namespace MBDoc
                 RegularText NewText;
                 NewText.Modifiers = CurrentTextModifier;
                 NewText.Color = CurrentTextColor;
-                NewText.Text = std::string(CharData + ParseOffset, NextModifier - ParseOffset);
+                NewText.Text = h_UnescapeText(CharData,DataSize,ParseOffset, NextModifier);
                 //Unescape text
 
                 //TODO fix efficiently, jank
@@ -772,7 +806,10 @@ namespace MBDoc
             std::get<std::string>(NewCodeBlock.Content).insert(std::get<std::string>(NewCodeBlock.Content).end(), '\n');
         }
         //there is always 1 extra newline
-        std::get<std::string>(NewCodeBlock.Content).resize(std::get<std::string>(NewCodeBlock.Content).size() - 1);
+        if (std::get<std::string>(NewCodeBlock.Content).size() > 0)
+        {
+            std::get<std::string>(NewCodeBlock.Content).resize(std::get<std::string>(NewCodeBlock.Content).size() - 1);
+        }
         return(ReturnValue);
     }
 
@@ -838,7 +875,7 @@ namespace MBDoc
             }
             else
             {
-                TextElementData.push_back(h_UnescapeText(TotalContent.data(),TotalContent.size(),ParseOffset,NextAmpersand));
+                TextElementData.push_back(h_UnescapeText(TotalContent.data(),TotalContent.size(),ParseOffset,NextAmpersand,'&'));
                 ParseOffset = NextAmpersand+1;
             }
         }
@@ -1338,13 +1375,120 @@ namespace MBDoc
     {
         References.insert(Ref.ReferenceString); 
     }
+
+    
+    //BEGIN ReferenceTargetsResolver 
+    ReferenceTargetsResolver::LabelNode ReferenceTargetsResolver::p_ExtractLabelNode(FormatElement const& ElementToConvert)
+    {
+        ReferenceTargetsResolver::LabelNode ReturnValue;
+        ReturnValue.Name = ElementToConvert.Name;
+        for(auto const& Child : ElementToConvert.Contents)
+        {
+            if(Child.GetType() == FormatComponentType::Format)
+            {
+                ReturnValue.Children.push_back(p_ExtractLabelNode(Child.GetFormatData()));
+            }   
+        }
+        std::sort(ReturnValue.Children.begin(),ReturnValue.Children.end());
+        return(ReturnValue);
+    }
+    std::vector<ReferenceTargetsResolver::LabelNode> ReferenceTargetsResolver::p_GetDocumentLabelNodes(std::vector<FormatElementComponent>  const& SourceToConvert)
+    {
+        std::vector<ReferenceTargetsResolver::LabelNode> ReturnValue;
+        for(auto const& Element : SourceToConvert)
+        {
+            if(Element.GetType() == FormatComponentType::Format)
+            {
+                ReturnValue.push_back(p_ExtractLabelNode(Element.GetFormatData()));
+            }
+        }
+        return(ReturnValue);
+    }
+    ReferenceTargetsResolver::FlatLabelNode ReferenceTargetsResolver::p_UpdateFlatNodeList(std::vector<ReferenceTargetsResolver::FlatLabelNode>& OutNodes,ReferenceTargetsResolver::LabelNode const& NodeToFlatten)
+    {
+        FlatLabelNode ReturnValue;
+        ReturnValue.Name = NodeToFlatten.Name;
+        ReturnValue.ChildrenBegin = OutNodes.size();
+        ReturnValue.ChildrenEnd = ReturnValue.ChildrenBegin+NodeToFlatten.Children.size();
+        OutNodes.resize(OutNodes.size()+NodeToFlatten.Children.size());
+        LabelNodeIndex CurrentChildIndex = ReturnValue.ChildrenBegin;
+        for(auto const& Child : NodeToFlatten.Children)
+        {
+            FlatLabelNode NewNode = p_UpdateFlatNodeList(OutNodes,Child);
+            OutNodes[CurrentChildIndex] = NewNode;
+            CurrentChildIndex++;
+        }
+        return(ReturnValue);
+    }
+    std::vector<ReferenceTargetsResolver::FlatLabelNode> ReferenceTargetsResolver::p_GetFlatLabelNodes(std::vector<LabelNode> NodeToConvert)
+    {
+        std::vector<ReferenceTargetsResolver::FlatLabelNode> ReturnValue;
+        std::sort(NodeToConvert.begin(),NodeToConvert.end(),[](LabelNode const& lhs, LabelNode const& rhs) -> bool {return(lhs.Name < rhs.Name);});
+        LabelNode TopNode;
+        TopNode.Children = std::move(NodeToConvert);
+        ReturnValue.resize(1);
+        FlatLabelNode FlatTopNode = p_UpdateFlatNodeList(ReturnValue, TopNode);;
+        ReturnValue[0] = std::move(FlatTopNode);
+        return(ReturnValue);
+    }
+    bool ReferenceTargetsResolver::p_ContainsLabel(ReferenceTargetsResolver::LabelNodeIndex NodeIndex,std::vector<std::string> const& Labels,int LabelIndex) const
+    {
+        bool ReturnValue = false;       
+        assert(NodeIndex < m_Nodes.size());
+        FlatLabelNode const& NodeToInspect = m_Nodes[NodeIndex];
+        std::string const& NameToSearch = Labels[LabelIndex];
+        LabelNodeIndex FirstMatching = std::lower_bound(m_Nodes.data()+NodeToInspect.ChildrenBegin,m_Nodes.data()+NodeToInspect.ChildrenEnd,NameToSearch,
+                [](FlatLabelNode const& lhs,std::string const& rhs) -> bool {return(lhs.Name < rhs);})-m_Nodes.data();
+        if(FirstMatching == NodeToInspect.ChildrenEnd || m_Nodes[FirstMatching].Name != NameToSearch)
+        {
+            return(false);
+        }
+        assert(Labels.size() != 0);
+        if(LabelIndex == Labels.size() -1)
+        {
+            return(true);
+        }
+        else
+        {
+            while(FirstMatching < NodeToInspect.ChildrenEnd && m_Nodes[FirstMatching].Name == NameToSearch)
+            {
+                bool HasSubmatch = p_ContainsLabel(FirstMatching,Labels,LabelIndex+1);
+                if(HasSubmatch)
+                {
+                    ReturnValue = true;
+                    break;
+                }
+                FirstMatching++;
+            }
+        }
+        return(ReturnValue);
+    }
+    bool ReferenceTargetsResolver::ContainsLabels(std::vector<std::string> const& Labels) const
+    {
+        if(Labels.size() == 0)
+        {
+            return(false);   
+        }
+        return(p_ContainsLabel(0,Labels,0));  
+    }
+    ReferenceTargetsResolver::ReferenceTargetsResolver()
+    {
+           
+    }
+    ReferenceTargetsResolver::ReferenceTargetsResolver(std::vector<FormatElementComponent> const& FormatsToInspect)
+    {
+        m_Nodes = p_GetFlatLabelNodes(p_GetDocumentLabelNodes(FormatsToInspect));
+    }
+    //END ReferenceTargetsResolver 
+
+
     void DocumentParsingContext::p_UpdateReferences(DocumentSource& SourceToModify)
     {
         DocumentTraverser Traverser;
         ReferenceExtractor Extractor;
         Traverser.Traverse(SourceToModify,Extractor);
         SourceToModify.References = std::move(Extractor.References);
-        SourceToModify.ReferenceTargets = Extractor.Targets;
+        SourceToModify.ReferenceTargets = ReferenceTargetsResolver(SourceToModify.Contents);
     }
     DocumentSource DocumentParsingContext::ParseSource(MBUtility::MBOctetInputStream& InputStream,std::string FileName,MBError& OutError)
     {
@@ -1686,11 +1830,11 @@ namespace MBDoc
     {
         return(m_PathComponents.size() == 0 && m_PartIdentifier.size() == 0);   
     }
-    void DocumentPath::SetPartIdentifier(std::string PartSpecifier)
+    void DocumentPath::SetPartIdentifier(std::vector<std::string> PartSpecifier)
     {
         m_PartIdentifier = std::move(PartSpecifier);
     }
-    std::string const& DocumentPath::GetPartIdentifier() const
+    std::vector<std::string> const& DocumentPath::GetPartIdentifier() const
     {
         return(m_PartIdentifier);
     }
@@ -1702,17 +1846,19 @@ namespace MBDoc
         DocumentReference ReturnValue;
         size_t LastSlash = StringToParse.find_last_of('/');
         size_t LastBracket = std::min(StringToParse.find_last_of('{'),StringToParse.find_last_of('}'));
-        size_t LastHashtag = StringToParse.find_last_of('#');
-        if(LastHashtag != StringToParse.npos)
+        //ASSUMPTION: hashtag cannot be part of normal filename
+        size_t FirstHashTag = StringToParse.find('#');
+        if(FirstHashTag != StringToParse.npos)
         {
-            if((LastHashtag < LastSlash && LastSlash != StringToParse.npos) || (LastHashtag < LastBracket && LastBracket != StringToParse.npos))
+            if((FirstHashTag < LastSlash && LastSlash != StringToParse.npos) || (FirstHashTag < LastBracket && LastBracket != StringToParse.npos))
             {
                 OutError = false;
                 OutError.ErrorMessage = "Path specifier is not allowed after the part specifier"; 
                 return(ReturnValue);
             } 
-            ReturnValue.PartSpecifier = StringToParse.substr(LastHashtag+1);
-            StringToParse.resize(LastHashtag);
+            //TODO, make new MBUtility::Split, the current one is mega ass
+            ReturnValue.PartSpecifier = MBUtility::Split(StringToParse.substr(FirstHashTag+1),"#");
+            StringToParse.resize(FirstHashTag);
         }
         size_t ParseOffset = 0;
         MBParsing::SkipWhitespace(StringToParse,ParseOffset,&ParseOffset);
@@ -2385,13 +2531,13 @@ namespace MBDoc
         return(ReturnValue);
            
     }
-    DocumentFilesystem::FSSearchResult DocumentFilesystem::p_ResolvePartSpecifier(FSSearchResult CurrentResult,std::string const& PartSpecifier) const
+    DocumentFilesystem::FSSearchResult DocumentFilesystem::p_ResolvePartSpecifier(FSSearchResult CurrentResult,std::vector<std::string> const& PartSpecifier) const
     {
         FSSearchResult ReturnValue;        
         assert(CurrentResult.Type == DocumentFSType::File || CurrentResult.Type == DocumentFSType::Directory);
         if(CurrentResult.Type == DocumentFSType::File)
         {
-            if(m_TotalSources[CurrentResult.Index].Document.ReferenceTargets.find(PartSpecifier) != m_TotalSources[CurrentResult.Index].Document.ReferenceTargets.end())
+            if(m_TotalSources[CurrentResult.Index].Document.ReferenceTargets.ContainsLabels(PartSpecifier))
             {
                 ReturnValue = CurrentResult;     
             }   
@@ -2404,7 +2550,7 @@ namespace MBDoc
             {
                 if (!Iterator.EntryIsDirectory())
                 {
-                    if (Iterator.GetDocumentInfo().ReferenceTargets.find(PartSpecifier) != Iterator.GetDocumentInfo().ReferenceTargets.end())
+                    if (Iterator.GetDocumentInfo().ReferenceTargets.ContainsLabels(PartSpecifier))
                     {
                         ReturnValue.Type = DocumentFSType::File;
                         ReturnValue.Index = Iterator.GetCurrentFileIndex();
@@ -2566,7 +2712,7 @@ namespace MBDoc
                 return(ReturnValue);
             }
         }
-        if(ReferenceIdentifier.PartSpecifier != "")
+        if(ReferenceIdentifier.PartSpecifier.size() != 0)
         {
             SearchRoot = p_ResolvePartSpecifier(SearchRoot,ReferenceIdentifier.PartSpecifier);
         }
@@ -2590,7 +2736,7 @@ namespace MBDoc
             }
         }
         ReturnValue = p_GetFileIndexPath(SearchRoot.Index); 
-        if (ReferenceIdentifier.PartSpecifier != "")
+        if (ReferenceIdentifier.PartSpecifier.size() != 0)
         {
             ReturnValue.SetPartIdentifier(ReferenceIdentifier.PartSpecifier);
         }

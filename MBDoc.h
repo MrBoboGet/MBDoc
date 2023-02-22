@@ -33,7 +33,7 @@ namespace MBDoc
     private:
         bool m_IsAbsolute = false;
         std::vector<std::string> m_PathComponents;
-        std::string m_PartIdentifier;
+        std::vector<std::string> m_PartIdentifier;
     public:
         //Requires that both files are relative
         static DocumentPath GetRelativePath(DocumentPath const& TargetObject, DocumentPath const& CurrentObject);
@@ -51,8 +51,8 @@ namespace MBDoc
 
         void AddDirectory(std::string StringToAdd);
         void PopDirectory();
-        void SetPartIdentifier(std::string PartSpecifier);
-        std::string const& GetPartIdentifier() const;
+        void SetPartIdentifier(std::vector<std::string> PartSpecifier);
+        std::vector<std::string> const& GetPartIdentifier() const;
 
         bool Empty() const;
     };
@@ -814,6 +814,39 @@ namespace MBDoc
           
     };
     //
+    //
+    class DocumentSource;
+    class ReferenceTargetsResolver
+    {
+        struct LabelNode
+        {
+            std::string Name;      
+            std::vector<LabelNode> Children;
+            bool operator<(LabelNode const& rhs) 
+            {
+                return(Name < rhs.Name);
+            }
+        };
+        typedef int LabelNodeIndex;
+        struct FlatLabelNode
+        {
+            std::string Name;
+            LabelNodeIndex ChildrenBegin = 0; 
+            LabelNodeIndex ChildrenEnd = 0; 
+        };
+        std::vector<FlatLabelNode> m_Nodes;
+        
+        static LabelNode p_ExtractLabelNode(FormatElement const& ElementToConvert);
+        static std::vector<LabelNode> p_GetDocumentLabelNodes(std::vector<FormatElementComponent>  const& SourceToConvert);
+        static FlatLabelNode p_UpdateFlatNodeList(std::vector<FlatLabelNode>& OutNodes,LabelNode const& NodeToFlatten);
+        static std::vector<FlatLabelNode> p_GetFlatLabelNodes(std::vector<LabelNode> NodeToConvert);
+
+        bool p_ContainsLabel(LabelNodeIndex NodeIndex,std::vector<std::string> const& Labels,int LabelIndex) const;
+    public:      
+        bool ContainsLabels(std::vector<std::string> const& Labels) const;
+        ReferenceTargetsResolver();
+        ReferenceTargetsResolver(std::vector<FormatElementComponent> const& FormatsToInspect);
+    };
     class DocumentSource
     {
     public:
@@ -831,7 +864,7 @@ namespace MBDoc
 
         std::filesystem::path Path;
         std::string Name;
-        std::unordered_set<std::string> ReferenceTargets;
+        ReferenceTargetsResolver ReferenceTargets;
         std::unordered_set<std::string> References;
         //TODO replace with FormatElementComponent
         std::vector<FormatElementComponent> Contents;
@@ -1163,7 +1196,7 @@ namespace MBDoc
     struct DocumentReference
     {
         std::vector<PathSpecifier> PathSpecifiers;
-        std::string PartSpecifier; 
+        std::vector<std::string> PartSpecifier; 
         static DocumentReference ParseReference(std::string StringToParse,MBError& OutError);
     };
     //Usage assumptions: never modified, only created and read from. Optimize for access and assume no modification 
@@ -1380,7 +1413,7 @@ namespace MBDoc
         //Resolving
         FSSearchResult p_ResolveDirectorySpecifier(IndexType RootDirectoryIndex,DocumentReference const& ReferenceToResolve,IndexType SpecifierOffset) const;
         FSSearchResult p_ResolveAbsoluteDirectory(IndexType RootDirectoryIndex,PathSpecifier const& Path) const;
-        FSSearchResult p_ResolvePartSpecifier(FSSearchResult CurrentResult,std::string const& PartSpecifier) const;
+        FSSearchResult p_ResolvePartSpecifier(FSSearchResult CurrentResult,std::vector<std::string> const& PartSpecifier) const;
         
         DocumentPath p_GetFileIndexPath(IndexType FileIndex) const;
         IndexType p_GetFileDirectoryIndex(DocumentPath const& PathToSearch) const;

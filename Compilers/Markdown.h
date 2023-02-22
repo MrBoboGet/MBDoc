@@ -16,26 +16,49 @@ namespace MBDoc
         void p_WriteToc(Heading const& CurrentHeading,MBUtility::MBOctetOutputStream& OutStream, size_t Depth) const;
         Heading p_CreateHeading(FormatElement const& Format);
     public:
-        std::string GetReferenceString(DocReference const& ReferenceIdentifier) const;
         void CreateTOC(MBUtility::MBOctetOutputStream& OutStream) const;
         
         void Initialize(DocumentSource const& Documents);
     };
      
-    class MarkdownCompiler
+    class MarkdownCompiler : public DocumentVisitor, public DocumentCompiler
     {
     private:
         
+        MarkdownReferenceSolver m_TocCreator;
+        DocumentSource const* m_CurrentDocument = nullptr;
+        std::filesystem::path m_OutDir;
+        MBUtility::MBOctetOutputStream* m_OutStream;
 
-        void p_CompileText(std::vector<std::unique_ptr<TextElement>> const& ElementsToCompile,MarkdownReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream);
-        void p_CompileBlock(BlockElement const* BlockToCompile, MarkdownReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream);
-        void p_CompileDirective(Directive const& DirectiveToCompile, MarkdownReferenceSolver const& ReferenceSolver, MBUtility::MBOctetOutputStream& OutStream);
-        void p_CompileFormat(FormatElement const& SourceToCompile, MarkdownReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream,int Depth);
-        void p_CompileSource(DocumentSource const& SourceToCompile, MarkdownReferenceSolver const& ReferenceSolver,MBUtility::MBOctetOutputStream& OutStream);
+        int m_FormatDetph = 0;
 
-        MarkdownReferenceSolver p_CreateReferenceSolver(DocumentSource const& Source);
     public:
-        virtual void Compile(std::vector<DocumentSource> const& Sources);
-        //void Compile(DocumentFilesystem const& BuildToCompile,CommonCompilationOptions const& Options) override; 
+
+        void EnterText(TextElement_Base const& ElementToEnter) override; 
+        void LeaveText(TextElement_Base const& ElementToEnter) override; 
+
+        void EnterFormat(FormatElement const& ElementToEnter) override; 
+        void LeaveFormat(FormatElement const& ElementToEnter) override; 
+
+        void LeaveBlock(BlockElement const& BlockToLeave) override;
+        void EnterBlock(BlockElement const& BlockToEnter) override;
+
+        void Visit(CodeBlock const& BlockToVisit) override;
+        void Visit(MediaInclude const& BlockToVisit) override;
+        void Visit(Paragraph const& BlockToVisit) override;
+
+        void Visit(URLReference const& BlockToVisit) override;
+        void Visit(FileReference const& BlockToVisit) override;
+        void Visit(UnresolvedReference const& BlockToVisit) override;
+        void Visit(DocReference const& BlockToVisit) override;
+
+        void Visit(RegularText const& BlockToVisit) override;
+
+        void Visit(Directive const& BlockToVisit) override;
+
+
+        void AddOptions(CommonCompilationOptions const& Options) override;
+        void PeekDocumentFilesystem(DocumentFilesystem const& FilesystemToCompile) override;
+        void CompileDocument(DocumentPath const& Path,DocumentSource const& Document) override;
     };
 };

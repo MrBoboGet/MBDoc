@@ -90,9 +90,10 @@ int main(int argc,const char** argv)
     //const char* NewArgv[] = { "mbdoc","../../Docs/MBDocBuild.json","-f:html","-o:../../TestOut" };
     //argc = sizeof(NewArgv) / sizeof(const char*);
     //argv = NewArgv;
-    //const char* NewArgv[] = { "mbdoc","../../../MBDocGen/Doc/MBDocBuild.json","-f:html","-o:../../../MBDocGen/DocOut" };
+    //const char* NewArgv[] = { "mbdoc","../../../MBUtility/Doc/MBDocBuild.json","-f:html","-o:../../../MBUtility/DocOut" };
     //argc = sizeof(NewArgv) / sizeof(const char*);
     //argv = NewArgv;
+    //
     MBDoc::DocCLI CLI;
     CLI.Run(argv, argc);
 }
