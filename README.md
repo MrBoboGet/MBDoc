@@ -45,8 +45,6 @@ References to other documents can either be created with an absolute path in the
 ```
 
 
-Arbitrary color selection, image and video includes, tables. 
-
 ### Multiple formats
 
 The program includes support for github markdown, HTML and vim help files. They are all specified with the `-s`flag. Compiling this document can for example be done with `mbdoc README.mbd -f:md -o:./` 

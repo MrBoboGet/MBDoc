@@ -48,7 +48,6 @@ _# Features
 ```
         /#
 
-    Arbitrary color selection, image and video includes, tables. 
 
     # Multiple formats
 
@@ -66,7 +65,7 @@ _# Features
         implementation. An example of this can be seen with the source files for
         MBDoc that are fully colorized and with references to the functions
         definitions can be seen here
-        @[here](https://mrboboget.github.io/MBDoc/Code/Sources/MBDocCLI.cpp).
+        @[here](https://mrboboget.github.io/MBDoc/Code/Sources/MBDocCLI.mbd).
 
         Custom colorization for codeblocks can also be added with regexes,
         supporting pretty colors for niche and ad-hoc file types.

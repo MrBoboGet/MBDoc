@@ -25,16 +25,7 @@
             },
             "Code":
             {
-                "SubDirectories":
-                {
-                    "Classes":
-                    {
-                        "Files":
-                        [
-                            "Code/Classes/TextElement.mbd" 
-                        ]
-                    }      
-                } 
+                "MountDir":"Code" 
             }   
         }
     }

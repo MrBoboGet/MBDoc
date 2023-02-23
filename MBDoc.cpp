@@ -26,9 +26,107 @@
 #include <MBUtility/Merge.h>
 
 #include <regex>
+
+
 namespace MBDoc
 {
-
+    std::string h_UnescapeText(const char* Data,size_t DataSize,size_t InParseOffset,size_t TextEnd)
+    {
+        assert(TextEnd <= DataSize);
+        std::string ReturnValue;
+        size_t ParseOffset = InParseOffset;
+        while(ParseOffset < TextEnd)
+        {
+            size_t NextEscapePosition = std::find(Data+ParseOffset,Data+TextEnd,'\\')-Data;
+            if(NextEscapePosition == TextEnd)
+            {
+                ReturnValue.insert(ReturnValue.end(),Data+ParseOffset,Data+TextEnd);
+                break;
+            }
+            else
+            {
+                ReturnValue.insert(ReturnValue.end(),Data+ParseOffset,Data+NextEscapePosition);
+                if(NextEscapePosition+1 < TextEnd)
+                {
+                    ReturnValue += Data[NextEscapePosition+1];
+                }
+                ParseOffset = NextEscapePosition+2;
+            }
+        }
+        return(ReturnValue);
+    }
+    std::string h_UnescapeText(const char* Data,size_t DataSize,size_t InParseOffset,size_t TextEnd,char EscapedCharacter)
+    {
+        assert(TextEnd <= DataSize);
+        std::string ReturnValue;
+        size_t ParseOffset = InParseOffset;
+        while(ParseOffset < TextEnd)
+        {
+            size_t NextEscapePosition = std::find(Data+ParseOffset,Data+TextEnd,'\\')-Data;
+            if(NextEscapePosition == TextEnd)
+            {
+                ReturnValue.insert(ReturnValue.end(),Data+ParseOffset,Data+TextEnd);
+                break;
+            }
+            else if(NextEscapePosition + 1 >= DataSize || Data[NextEscapePosition+1] != EscapedCharacter)
+            {
+                ReturnValue.insert(ReturnValue.end(),Data+ParseOffset,Data+NextEscapePosition+1);
+                if(NextEscapePosition + 1 < DataSize)
+                {
+                    ReturnValue += Data[NextEscapePosition+1];   
+                }
+                ParseOffset = NextEscapePosition+2;
+            }
+            else
+            {
+                ReturnValue.insert(ReturnValue.end(),Data+ParseOffset,Data+NextEscapePosition);
+                if(NextEscapePosition+1 < TextEnd)
+                {
+                    ReturnValue += Data[NextEscapePosition+1];
+                }
+                ParseOffset = NextEscapePosition+2;
+            }
+        }
+        return(ReturnValue);
+    }
+    bool h_IsEscaped(void const* Data,size_t DataSize,size_t ParseOffset)
+    {
+        bool ReturnValue = false;
+        const char* CharData = (const char*)Data;
+        while(ParseOffset > 0)
+        {
+            if (CharData[ParseOffset - 1] == '\\')
+            {
+                ReturnValue = !ReturnValue;
+            }
+            else
+            {
+                break;
+            }
+            ParseOffset--;
+        }
+        return(ReturnValue);
+    }
+    size_t h_FindNextUnescaped(const char* Data,size_t DataSize,size_t InParseOffset,char EscapedCharacter)
+    {
+        size_t ReturnValue = DataSize;    
+        size_t ParseOffset = InParseOffset; 
+        while(ParseOffset < DataSize)
+        {
+            size_t NextCandidate = std::find(Data+ParseOffset,Data+DataSize,EscapedCharacter)-Data;
+            if(NextCandidate == DataSize)
+            {
+                break;
+            }
+            if(!h_IsEscaped(Data,DataSize,NextCandidate))
+            {
+                ReturnValue = NextCandidate;     
+                break;
+            }
+            ParseOffset = NextCandidate+1;
+        }
+        return(ReturnValue);
+    }
     //BEGIN LineRetriever
     LineRetriever::LineRetriever(MBUtility::MBOctetInputStream* InputStream) 
         : m_UnderlyingRetriever(InputStream)
@@ -455,13 +553,15 @@ namespace MBDoc
         const char* CharData = (const char*)Data;
         if(CharData[ParseOffset+1] == '[')
         {
-            size_t TextEnd = std::find(CharData+ParseOffset+2,CharData+DataSize,']')-(CharData);
+            //size_t TextEnd = std::find(CharData+ParseOffset+2,CharData+DataSize,']')-(CharData);
+            size_t TextEnd = h_FindNextUnescaped(CharData,DataSize,ParseOffset+2,']');
             if(TextEnd == DataSize)
             {
                 throw std::runtime_error("Unexpected end of visible text in reference");   
             }
-            VisibleText = std::string(CharData+ParseOffset+2,CharData+TextEnd);
+            VisibleText = h_UnescapeText(CharData,TextEnd,ParseOffset+2,TextEnd);
             ParseOffset = TextEnd+1;
+            MBParsing::SkipWhitespace(Data,DataSize,ParseOffset,&ParseOffset);
             if(ParseOffset >= DataSize)
             {
                 throw std::runtime_error("Reference with visible requires refernce identifier part");
@@ -568,83 +668,6 @@ namespace MBDoc
         }
         return(ReturnValue);   
     }
-    bool h_IsEscaped(void const* Data,size_t DataSize,size_t ParseOffset)
-    {
-        bool ReturnValue = false;
-        const char* CharData = (const char*)Data;
-        while(ParseOffset > 0)
-        {
-            if (CharData[ParseOffset - 1] == '\\')
-            {
-                ReturnValue = !ReturnValue;
-            }
-            else
-            {
-                break;
-            }
-            ParseOffset--;
-        }
-        return(ReturnValue);
-    }
-    std::string h_UnescapeText(const char* Data,size_t DataSize,size_t InParseOffset,size_t TextEnd)
-    {
-        assert(TextEnd <= DataSize);
-        std::string ReturnValue;
-        size_t ParseOffset = InParseOffset;
-        while(ParseOffset < TextEnd)
-        {
-            size_t NextEscapePosition = std::find(Data+ParseOffset,Data+TextEnd,'\\')-Data;
-            if(NextEscapePosition == TextEnd)
-            {
-                ReturnValue.insert(ReturnValue.end(),Data+ParseOffset,Data+TextEnd);
-                break;
-            }
-            else
-            {
-                ReturnValue.insert(ReturnValue.end(),Data+ParseOffset,Data+NextEscapePosition);
-                if(NextEscapePosition+1 < TextEnd)
-                {
-                    ReturnValue += Data[NextEscapePosition+1];
-                }
-                ParseOffset = NextEscapePosition+2;
-            }
-        }
-        return(ReturnValue);
-    }
-    std::string h_UnescapeText(const char* Data,size_t DataSize,size_t InParseOffset,size_t TextEnd,char EscapedCharacter)
-    {
-        assert(TextEnd <= DataSize);
-        std::string ReturnValue;
-        size_t ParseOffset = InParseOffset;
-        while(ParseOffset < TextEnd)
-        {
-            size_t NextEscapePosition = std::find(Data+ParseOffset,Data+TextEnd,'\\')-Data;
-            if(NextEscapePosition == TextEnd)
-            {
-                ReturnValue.insert(ReturnValue.end(),Data+ParseOffset,Data+TextEnd);
-                break;
-            }
-            else if(NextEscapePosition + 1 >= DataSize || Data[NextEscapePosition+1] != EscapedCharacter)
-            {
-                ReturnValue.insert(ReturnValue.end(),Data+ParseOffset,Data+NextEscapePosition+1);
-                if(NextEscapePosition + 1 < DataSize)
-                {
-                    ReturnValue += Data[NextEscapePosition+1];   
-                }
-                ParseOffset = NextEscapePosition+2;
-            }
-            else
-            {
-                ReturnValue.insert(ReturnValue.end(),Data+ParseOffset,Data+NextEscapePosition);
-                if(NextEscapePosition+1 < TextEnd)
-                {
-                    ReturnValue += Data[NextEscapePosition+1];
-                }
-                ParseOffset = NextEscapePosition+2;
-            }
-        }
-        return(ReturnValue);
-    }
     TextColor h_ParseColorModifier(const char* Data,size_t DataSize,size_t ParseOffset,size_t* OutParseOffset)
     {
         TextColor ReturnValue;
@@ -667,15 +690,19 @@ namespace MBDoc
         *OutParseOffset = ParseOffset+7;
         return(ReturnValue);
     }
-    std::string h_NormalizeText(std::string const& TextToNormalize)
+    std::string h_NormalizeText(std::string const& TextToNormalize,bool KeepSpace,bool& OutKeepSpace)
     {
         std::string ReturnValue;
         size_t ParseOffset = 0;
+        if(KeepSpace && TextToNormalize.size() > 0 && (TextToNormalize[0] == ' ' || TextToNormalize[0] == '\t' || TextToNormalize[0] == '\r' || TextToNormalize[0] == '\n'))
+        {
+            ReturnValue += ' '; 
+        }
+        OutKeepSpace = false;
         while(ParseOffset < TextToNormalize.size())
         {
             MBParsing::SkipWhitespace(TextToNormalize,ParseOffset,&ParseOffset);
             size_t LineEnd = TextToNormalize.find_first_of("\r\n",ParseOffset);
-            
             size_t LastNonWhitespace = TextToNormalize.find_last_not_of("\r\n \t",LineEnd);
             if(LastNonWhitespace == TextToNormalize.npos)
             {
@@ -683,7 +710,7 @@ namespace MBDoc
             }
             else
             {
-                LastNonWhitespace += 1;   
+                LastNonWhitespace += 1;
             }
             if(LastNonWhitespace < ParseOffset)
             {
@@ -691,7 +718,17 @@ namespace MBDoc
             }
             if(LineEnd == TextToNormalize.npos)
             {
+                //kinda hacky, but we allow one space between every element
                 ReturnValue.insert(ReturnValue.end(),TextToNormalize.data()+ParseOffset,TextToNormalize.data()+LastNonWhitespace);
+                if(LastNonWhitespace < TextToNormalize.size())
+                {
+                    ReturnValue += ' ';
+                    OutKeepSpace = false;
+                }
+                else
+                {
+                    OutKeepSpace = true;   
+                }
                 break;
             }
             else
@@ -706,9 +743,9 @@ namespace MBDoc
                     ParseOffset = LineEnd+2;
                 }
                 ReturnValue += ' ';
+                OutKeepSpace = false;
             }
         }
-        std::cout<<ReturnValue<<std::endl;
         return(ReturnValue);
     }
     std::vector<TextElement> DocumentParsingContext::p_ParseTextElements(void const* Data, size_t DataSize, size_t ParseOffset, size_t* OutParseOffset)
@@ -718,6 +755,7 @@ namespace MBDoc
         const char* CharData = (const char*)Data;
         TextColor CurrentTextColor;
         TextModifier CurrentTextModifier = TextModifier(0);
+        bool KeepSpace = false;
         while (ParseOffset < DataSize)
         {
             size_t FindTextModifierDelimiterOffset = ParseOffset;
@@ -755,7 +793,7 @@ namespace MBDoc
                 RegularText NewText;
                 NewText.Modifiers = CurrentTextModifier;
                 NewText.Color = CurrentTextColor;
-                NewText.Text = h_NormalizeText(h_UnescapeText(CharData,DataSize,ParseOffset, NextModifier));
+                NewText.Text = h_NormalizeText(h_UnescapeText(CharData,DataSize,ParseOffset, NextModifier),KeepSpace,KeepSpace);
                 //Unescape text
 
                 //TODO fix efficiently, jank
@@ -769,6 +807,7 @@ namespace MBDoc
             if (NextReferenceDeclaration == NextModifier)
             {
                 TextElement NewReference = p_ParseReference(Data, DataSize, ParseOffset, &ParseOffset);
+                KeepSpace = true;
                 NewReference.GetBase().Color = CurrentTextColor;
                 NewReference.GetBase().Modifiers = CurrentTextModifier;
                 ReturnValue.push_back(std::move(NewReference));
@@ -3636,7 +3675,6 @@ namespace MBDoc
             RegularText NewElement;    
             NewElement.Text = VisibleText;
             ReturnValue = std::move(NewElement);
-            std::cout<<NewElement.Text<<std::endl;
         }
         return(ReturnValue);
     }
