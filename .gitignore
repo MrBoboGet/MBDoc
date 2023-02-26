@@ -24,6 +24,7 @@
 /CppProperties.json
 /makefile
 /Test
-
+/Docs/Code
 /Input.json
 /Output.json
+/Temp*

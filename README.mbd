@@ -66,6 +66,10 @@ _# Features
         MBDoc that are fully colorized and with references to the functions
         definitions can be seen here
         @[here](https://mrboboget.github.io/MBDoc/Code/Sources/MBDocCLI.mbd).
+        Multiple LSP can colorize different parts of the document, and example
+        of which can be viewed 
+        @[here](https://mrboboget.github.io/MBDoc/LSP.mbd).
+
 
         Custom colorization for codeblocks can also be added with regexes,
         supporting pretty colors for niche and ad-hoc file types.
@@ -135,20 +139,15 @@ out of alignment content & text & @[ref](#foobar) & ~FF00BB colored text
 Documentation can be found at
 @[mrboboget.github.io](https://mrboboget.github.io/MBDoc/index.html), which is
 also written in MBDoc. The sources for the different projects are 
-all written separately, and a build containing all of projects is created with
-@[MBPacketManager](https://github.io/MrBoboGet/MBPacketManager), and after that
-so is the whole build compiled with MBDoc.
+all written separately, and a build containing all of the projects is created with
+@[MBPacketManager](https://github.io/MrBoboGet/MBPacketManager), and then
+compiled with mbdoc.
 
 # Compilation
 
 MBDoc is compiled with
-@[MBPacketManager](https://github.com/MrBoboGet/MBPacketManager), and further
-instructions can be found at that github page. In essence however, all that is
-needed is to have a include path where the root of 
-@[MBPacketManager](https://github.com/MrBoboGet/MBPacketManager),
-@[MBPacketManager](https://github.com/MrBoboGet/MBPacketManager) can be found.
-Add this directory as an include path, and link to their respective static
-library.
+@[MBPacketManager](https://github.com/MrBoboGet/MBPacketManager), further
+instructions can be found at that github page. 
 
 # License
 

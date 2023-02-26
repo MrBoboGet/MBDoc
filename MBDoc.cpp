@@ -3775,7 +3775,10 @@ namespace MBDoc
         }
         for(auto const& Server : InitialziedLSPs)
         {
-            Server.second->QuitServer(); 
+            if (Server.second)
+            {
+                Server.second->QuitServer(); 
+            }
         }
     }
     //END DocumentFilesystem

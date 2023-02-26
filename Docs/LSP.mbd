@@ -1,13 +1,9 @@
 %title LSP integration
 
-Random test, does ~00FFAA this ~ differ from ~0000FF this?~ .
 
+# Examples
 
-\table 2 Test Table
-    First column First Row & Second Column First Row &
-    First column second row & Second column Second Row
-\end
-
+This code is colorized with a C++ language server.
 ```cpp
 #include <iostream>
 #include <MBDoc/MBDoc.h>
@@ -15,5 +11,18 @@ int main(int argc,char** argv)
 {
     MBDoc::TextElement TestElement;
     std::cout<<"Hello world!"<<std::endl;
+}
+```
+This MBObjectSpec specification is colorized with mbspecd.
+```mbspec
+struct foo
+{
+    int stuff;
+    List<foo> moreStuff;
+}
+struct bar
+{
+    ?foo Foo;
+    Variant<foo,int> property;
 }
 ```
