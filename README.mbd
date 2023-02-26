@@ -64,11 +64,11 @@ _# Features
         are colored, and also automatically creating references to the
         implementation. An example of this can be seen with the source files for
         MBDoc that are fully colorized and with references to the functions
-        definitions can be seen here
-        @[here](https://mrboboget.github.io/MBDoc/Code/Sources/MBDocCLI.mbd).
+        definitions can be seen 
+        @[here](https://mrboboget.github.io/MBDoc/Code/Sources/MBDocCLI.html).
         Multiple LSP can colorize different parts of the document, and example
         of which can be viewed 
-        @[here](https://mrboboget.github.io/MBDoc/LSP.mbd).
+        @[here](https://mrboboget.github.io/MBDoc/LSP.html).
 
 
         Custom colorization for codeblocks can also be added with regexes,
@@ -140,7 +140,7 @@ Documentation can be found at
 @[mrboboget.github.io](https://mrboboget.github.io/MBDoc/index.html), which is
 also written in MBDoc. The sources for the different projects are 
 all written separately, and a build containing all of the projects is created with
-@[MBPacketManager](https://github.io/MrBoboGet/MBPacketManager), and then
+@[MBPacketManager](https://github.com/MrBoboGet/MBPacketManager), and then
 compiled with mbdoc.
 
 # Compilation

@@ -51,7 +51,7 @@ The program includes support for github markdown, HTML and vim help files. They 
 
 ### Builtin LSP support
 
-Colorizing code blocks often requires the use of heuristics and approximations, as few colorizers take or can take into account the semantics of your build process. MBDoc make's LSP's a first class member, allowing for user customization with for example of codeblocks are colored, and also automatically creating references to the implementation. An example of this can be seen with the source files for MBDoc that are fully colorized and with references to the functions definitions can be seen here [here](https://mrboboget.github.io/MBDoc/Code/Sources/MBDocCLI.mbd). Multiple LSP can colorize different parts of the document, and example of which can be viewed [here](https://mrboboget.github.io/MBDoc/LSP.mbd). 
+Colorizing code blocks often requires the use of heuristics and approximations, as few colorizers take or can take into account the semantics of your build process. MBDoc make's LSP's a first class member, allowing for user customization with for example of codeblocks are colored, and also automatically creating references to the implementation. An example of this can be seen with the source files for MBDoc that are fully colorized and with references to the functions definitions can be seen [here](https://mrboboget.github.io/MBDoc/Code/Sources/MBDocCLI.html). Multiple LSP can colorize different parts of the document, and example of which can be viewed [here](https://mrboboget.github.io/MBDoc/LSP.html). 
 
 Custom colorization for codeblocks can also be added with regexes, supporting pretty colors for niche and ad-hoc file types. 
 
@@ -104,7 +104,7 @@ The source is decoupled between the operations needed for every build, and what 
 
 # Documentation
 
-Documentation can be found at [mrboboget.github.io](https://mrboboget.github.io/MBDoc/index.html), which is also written in MBDoc. The sources for the different projects are all written separately, and a build containing all of the projects is created with [MBPacketManager](https://github.io/MrBoboGet/MBPacketManager), and then compiled with mbdoc. 
+Documentation can be found at [mrboboget.github.io](https://mrboboget.github.io/MBDoc/index.html), which is also written in MBDoc. The sources for the different projects are all written separately, and a build containing all of the projects is created with [MBPacketManager](https://github.com/MrBoboGet/MBPacketManager), and then compiled with mbdoc. 
 
 # Compilation
 
