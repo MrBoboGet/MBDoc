@@ -18,6 +18,7 @@ namespace MBDoc
         void Visit(UnresolvedReference const& Ref) override;
         std::string GetReferenceString(DocReference const& ReferenceIdentifier,bool Colorize = true);
         std::string GetDocumentPathURL(DocumentPath const& PathToConvert);
+        bool DocumentExists(DocumentPath const& CurrentPath,std::string const& DocumentToTest);
         //Holds a reference to the build for the duration
         void SetCurrentPath(DocumentPath CurrentPath);
         void Initialize(DocumentFilesystem const* Build);

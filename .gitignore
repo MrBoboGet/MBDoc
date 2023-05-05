@@ -11,7 +11,10 @@
 /out/
 /MBPM_FileInfo
 
-
+/OutTemp*
+/InREADME.mbd
+/Ideas.txt
+/TODO.txt
 /README_Temp.md
 /Test.mbd
 /OutHTTPTemp
@@ -20,7 +23,7 @@
 /ExecuteTests.sh
 /Test.html
 /Test/Media
-/CMake*
+!/CMake*
 /CppProperties.json
 /makefile
 /Test

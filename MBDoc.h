@@ -1351,7 +1351,7 @@ namespace MBDoc
         }
     };
     ProcessedColorConfiguration ProcessColorConfig(ColorConfiguration const& Config);
-    std::unique_ptr<MBLSP::LSP_Client> StartLSPServer(LSPServer const& ServerToStart,InitializeRequest const& InitReq);
+    std::unique_ptr<MBLSP::LSP_Client> StartLSPServer(LSPServer const& ServerToStart,MBLSP::InitializeRequest const& InitReq);
     std::unique_ptr<MBLSP::LSP_Client> StartLSPServer(LSPServer const& ServerToStart);
     class DocumentFilesystem 
     {
@@ -1405,6 +1405,7 @@ namespace MBDoc
         public:
             void SetLSP(MBLSP::LSP_Client* AssociatedLSP);
             void SetDocumentURI(std::string const& DocumentURI);
+            bool ResolvesReferences();
             TextElement CreateReference(int Line,int Offset,std::string const& VisibleText,CodeReferenceType ReferenceType);
         };
         

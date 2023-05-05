@@ -3405,7 +3405,7 @@ namespace MBDoc
                             OriginalContent.data()+TotalColorings[ColoringOffset].ByteOffset+TotalColorings[ColoringOffset].Length);
  
                     ColorTypeIndex ColorType = TotalColorings[ColoringOffset].Color;
-                    if(OptionalLSPResolver != nullptr && (ColorType == FunctionIndex || ColorType == ClassIndex))
+                    if(OptionalLSPResolver != nullptr && (ColorType == FunctionIndex || ColorType == ClassIndex) && OptionalLSPResolver->ResolvesReferences())
                     {
                         TextElement NewElement = OptionalLSPResolver->CreateReference(LineOffset-1,
                                 TotalColorings[ColoringOffset].ByteOffset-(Index[LineOffset-1]+1),VisibleText,
@@ -3460,9 +3460,9 @@ namespace MBDoc
     {
         std::vector<Coloring> ReturnValue;
 
-        SemanticToken_Request TokenRequest;
+        MBLSP::SemanticToken_Request TokenRequest;
         TokenRequest.params.textDocument.uri = URI;
-        SemanticToken_Response Tokens = ClientToUse.SendRequest(TokenRequest);
+        MBLSP::SemanticToken_Response Tokens = ClientToUse.SendRequest(TokenRequest);
         try
         {
             if(Tokens.result)
@@ -3495,7 +3495,11 @@ namespace MBDoc
                     CurrentLineIndex += Line;
                     CurrentTokensOffset += Offset;
 
-                    int CurrentTokenBegin = Index[CurrentLineIndex]+1+CurrentTokensOffset;
+                    int CurrentTokenBegin = Index[CurrentLineIndex]+CurrentTokensOffset;
+                    if (CurrentLineIndex > 0)
+                    {
+                        CurrentTokenBegin += 1;
+                    }
                     int CurrentTokenEnd = CurrentTokenBegin + Length;
                    
                     Coloring TextToAdd;   
@@ -3578,7 +3582,7 @@ namespace MBDoc
     }
     std::unique_ptr<MBLSP::LSP_Client> StartLSPServer(LSPServer const& ServerToStart)
     {
-        InitializeRequest InitReq;    
+        MBLSP::InitializeRequest InitReq;    
         InitReq.params.rootUri = MBLSP::URLEncodePath(std::filesystem::current_path());
         if(ServerToStart.initializationOptions)
         {
@@ -3586,7 +3590,7 @@ namespace MBDoc
         }
         return(StartLSPServer(ServerToStart,InitReq));
     }
-    std::unique_ptr<MBLSP::LSP_Client> StartLSPServer(LSPServer const& ServerToStart,InitializeRequest const& InitReq)
+    std::unique_ptr<MBLSP::LSP_Client> StartLSPServer(LSPServer const& ServerToStart,MBLSP::InitializeRequest const& InitReq)
     {
         std::unique_ptr<MBLSP::LSP_Client> ReturnValue;
         std::unique_ptr<MBSystem::BiDirectionalSubProcess> SubProcess = 
@@ -3609,15 +3613,19 @@ namespace MBDoc
         //m_AssociatedLSP->SendNotification(OpenNotification);
         m_CurrentDocument = NewURI;
     }
+    bool DocumentFilesystem::LSPReferenceResolver::ResolvesReferences()
+    {
+        return(m_AssociatedLSP->GetServerCapabilites().definitionProvider.IsInitalized() && m_AssociatedLSP->GetServerCapabilites().definitionProvider.Value());
+    }
     TextElement DocumentFilesystem::LSPReferenceResolver::CreateReference(int Line,int Offset,std::string const& VisibleText,
             CodeReferenceType ReferenceType)
     {
         TextElement ReturnValue;
-        GotoDefinition_Request GotoDefinitionRequest;
+        MBLSP::GotoDefinition_Request GotoDefinitionRequest;
         GotoDefinitionRequest.params.textDocument.uri = m_CurrentDocument;
         GotoDefinitionRequest.params.position.line = Line;
         GotoDefinitionRequest.params.position.character = Offset;
-        GotoDefinition_Response Response = m_AssociatedLSP->SendRequest(GotoDefinitionRequest);
+        MBLSP::GotoDefinition_Response Response = m_AssociatedLSP->SendRequest(GotoDefinitionRequest);
         //Multiple locations doesn't make alot of sense, and may be indicative of for example virtual functions
         if(Response.result && Response.result->size() == 1)
         {
@@ -3635,7 +3643,7 @@ namespace MBDoc
             }
             Reference.ReferenceString += "}/"+VisibleText+".mbd";
 
-            Location const& LocationToCheck = Result[0];
+            MBLSP::Location const& LocationToCheck = Result[0];
             std::filesystem::path AbsolutePath = MBLSP::URLDecodePath(LocationToCheck.uri); 
             //Kinda hacky, assumes the existance of mbpm...
             const char* MBPM_PACKET_PATH = std::getenv("MBPM_PACKETS_INSTALL_DIRECTORY");
@@ -3744,7 +3752,7 @@ namespace MBDoc
                                     ReferenceResolver.SetLSP(LSP.get());
                                     ReferenceResolver.SetDocumentURI(DocumentURI); 
 
-                                    DidOpenTextDocument_Notification OpenNotification;
+                                    MBLSP::DidOpenTextDocument_Notification OpenNotification;
                                     OpenNotification.params.textDocument.text = std::get<std::string>(BlockToModify.Content);
                                     OpenNotification.params.textDocument.uri = DocumentURI;
                                     LSP->SendNotification(OpenNotification);
@@ -3762,7 +3770,7 @@ namespace MBDoc
                                     Index, ColorConig.ColorInfo,ResolveReferences ? &ReferenceResolver : nullptr);
                             if(AssociatedLSP)
                             {
-                                DidCloseTextDocument_Notification CloseNotification;
+                                MBLSP::DidCloseTextDocument_Notification CloseNotification;
                                 CloseNotification.params.textDocument.uri = DocumentURI;
                                 AssociatedLSP->SendNotification(CloseNotification);
                             }

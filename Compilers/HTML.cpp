@@ -46,37 +46,46 @@ namespace MBDoc
         }
         return(ReturnValue);
     }
+    bool HTMLReferenceSolver::DocumentExists(DocumentPath const& CurrentPath,std::string const& PathToTest)
+    {
+        bool ReturnValue = false;
+        MBError ResolveResult = true;
+        auto Result = m_AssociatedBuild->ResolveReference(CurrentPath,PathToTest,ResolveResult);
+        return(ResolveResult);
+    }
     void HTMLReferenceSolver::Visit(URLReference const& Ref)
     {
         m_VisitResultProperties += Ref.URL;
+        m_VisitResultProperties += "\" class=\"link\"";
         m_VisitResultText = m_VisitResultProperties;
     }
     void HTMLReferenceSolver::Visit(FileReference const& Ref)
     {
        m_VisitResultProperties = GetDocumentPathURL(Ref.Path);
+       m_VisitResultProperties += "\" class=\"link\"";
        m_VisitResultText = m_VisitResultProperties;
     }
     void HTMLReferenceSolver::Visit(UnresolvedReference const& Ref)
     {
 
-        m_VisitResultProperties = "#\"";
+        m_VisitResultProperties = "javascript:void(0);\" class=\"errorLink\"";
         if (m_Colorize)
         {
-            m_VisitResultProperties += " style=\"color: red;";
+            m_VisitResultProperties += " style=\"color: red;\"";
         }
         else 
         {
-            m_VisitResultProperties += " style=\"color: inherit;";
+            m_VisitResultProperties += " style=\"color: inherit;\"";
         }
        m_VisitResultText = Ref.ReferenceString;
     }
     std::string HTMLReferenceSolver::GetReferenceString(DocReference const& ReferenceIdentifier,bool Colorize)
     {
         m_Colorize = Colorize;
-        std::string ReturnValue = "<a class=\"link\" href=\"";
+        std::string ReturnValue = "<a href=\"";
         ReferenceIdentifier.Accept(*this);
         ReturnValue += m_VisitResultProperties;
-        ReturnValue += "\">";
+        ReturnValue += ">";
         if(ReferenceIdentifier.VisibleText != "")
         {
             ReturnValue += h_EscapeHTMLText(ReferenceIdentifier.VisibleText);    
@@ -172,19 +181,23 @@ namespace MBDoc
         }
         ElementHeader += ">";
         OutStream.Write(ElementHeader.data(),ElementHeader.size());
-
-        std::string HrefURL = ReferenceSolver.GetDocumentPathURL(DirectoryToWrite.Path);
-        if (HrefURL == "")
+        
+        std::string SummaryStringContent = DirectoryToWrite.Name;
+        if(ReferenceSolver.DocumentExists(DirectoryToWrite.Path,DirectoryToWrite.Name+"/index.mbd"))
         {
-            //this means that we are in the same directory as that pointed to by the path, essentially meaning we want to point to the index of the directory
-            HrefURL = "index.html";
+            std::string HrefURL = ReferenceSolver.GetDocumentPathURL(DirectoryToWrite.Path);
+            if (HrefURL == "")
+            {
+                //this means that we are in the same directory as that pointed to by the path, essentially meaning we want to point to the index of the directory
+                HrefURL = "index.html";
+            }
+            else
+            {
+                HrefURL += "/index.html";
+            }
+            SummaryStringContent = "<a href=\""+HrefURL+"\">"+DirectoryToWrite.Name+"</a>";
         }
-        else
-        {
-            HrefURL += "/index.html";
-        }
-        std::string SummaryString = "<summary><a href=\""+ HrefURL+"\">"+
-            DirectoryToWrite.Name+"</a></summary>";
+        std::string SummaryString = "<summary>"+ SummaryStringContent+ "</summary>";
         OutStream.Write(SummaryString.data(), SummaryString.size());
         OutStream.Write("<ul>", 4);
         for(File const& FileToWrite : DirectoryToWrite.Files)
@@ -333,7 +346,7 @@ namespace MBDoc
             throw std::runtime_error("File not open");
         }
         m_OutStream = std::unique_ptr<MBUtility::MBOctetOutputStream>(new MBUtility::MBFileOutputStream(&OutStream));
-        std::string TopInfo = "<!DOCTYPE html><html><head><style>body{background-color: black; color: #00FF00;}table,th,td{border: 1px solid;}table{border-collapse: collapse;} .color .link{color: inherit !important;}</style></head><body>";
+        std::string TopInfo = "<!DOCTYPE html><html><head><style>body{background-color: black; color: #00FF00;}table,th,td{border: 1px solid;}table{border-collapse: collapse;} .color .link{color: inherit !important;} .color .errorLink {color: inherit !important; text-decoration: none;}</style></head><body>";
         OutStream.write(TopInfo.data(), TopInfo.size());
         std::string TopFlex = "<div style=\"display: flex\">";
         OutStream.write(TopFlex.data(), TopFlex.size());
@@ -364,7 +377,7 @@ namespace MBDoc
         m_OutStream->Write("<pre>", 5);
         if(std::holds_alternative<std::string>(BlockToWrite.Content))
         {
-            m_OutStream->Write(std::get<std::string>(BlockToWrite.Content).data(), std::get<std::string>(BlockToWrite.Content).size());
+            *m_OutStream<<h_EscapeHTMLText(std::get<std::string>(BlockToWrite.Content));
         }
         else if(std::holds_alternative<ResolvedCodeText>(BlockToWrite.Content))
         {
