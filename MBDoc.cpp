@@ -320,6 +320,10 @@ namespace MBDoc
         {
             Visitor.Visit(static_cast<Table const&>(*this));
         }
+        else if(IsType<List>())
+        {
+            Visitor.Visit(static_cast<List const&>(*this));
+        }
     }
     void BlockElement::Accept(BlockVisitor& Visitor) 
     {
@@ -338,6 +342,10 @@ namespace MBDoc
         else if(IsType<Table>())
         {
             Visitor.Visit(static_cast<Table&>(*this));
+        }
+        else if(IsType<List>())
+        {
+            Visitor.Visit(static_cast<List&>(*this));
         }
 
     }
@@ -971,19 +979,32 @@ namespace MBDoc
         ReturnValue = std::make_unique<Table>(std::move(ColumnNames),Width,std::move(TableElements));
         return(ReturnValue);
     }
+    std::unique_ptr<BlockElement> DocumentParsingContext::p_ParseList(ArgumentList const& Arguments,LineRetriever& Retriever)
+    {
+        std::unique_ptr<BlockElement> ReturnValue;
+        
+
+        return(ReturnValue);
+    }
     std::unique_ptr<BlockElement> DocumentParsingContext::p_ParseNamedBlockElement(LineRetriever& Retriever)
     {
         std::unique_ptr<BlockElement> ReturnValue;
         std::string HeaderLine;
         Retriever.GetLine(HeaderLine);
-        size_t FirstSpace = HeaderLine.find(' ');
+        size_t FirstSlash = HeaderLine.find('\\');
+        assert(FirstSlash != HeaderLine.npos);
+        size_t FirstSpace = HeaderLine.find(' ',FirstSlash+1);
         if(FirstSpace == HeaderLine.npos)
         {
             FirstSpace = HeaderLine.size();
         }
-        std::string Name = std::string(HeaderLine.data()+1,HeaderLine.data()+FirstSpace);
+        std::string Name = std::string(HeaderLine.data()+FirstSlash+1,HeaderLine.data()+FirstSpace);
         ArgumentList Arguments = p_ParseArgumentList(HeaderLine.data(),HeaderLine.size(),FirstSpace);
         if(Name == "table")
+        {
+            ReturnValue = p_ParseTable(Arguments,Retriever); 
+        }
+        else if(Name == "list")
         {
             ReturnValue = p_ParseTable(Arguments,Retriever); 
         }

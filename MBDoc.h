@@ -352,12 +352,15 @@ namespace MBDoc
         MediaInclude,
         Table,
         CodeBlock,
+        List,
     };
     class BlockVisitor;
-    class Paragraph;
-    class MediaInclude;
-    class CodeBlock;
-    class Table;
+
+    struct Paragraph;
+    struct MediaInclude;
+    struct CodeBlock;
+    struct Table;
+    struct List;
     struct BlockElement
     {
     protected:
@@ -384,6 +387,10 @@ namespace MBDoc
             else if constexpr(std::is_same<Table,T>::value)
             {
                 return(Type == BlockElementType::Table);
+            }
+            else if constexpr(std::is_same<List,T>::value)
+            {
+                return(Type == BlockElementType::List);
             }
             else if constexpr(true)
             {
@@ -530,6 +537,15 @@ namespace MBDoc
         Paragraph& operator()(int Row,int Column){return(m_Contents[Row*m_Width+Column]);}
         Paragraph const& operator()(int Row,int Column) const{return(m_Contents[Row*m_Width+Column]);}
     };
+    struct List : public BlockElement
+    {
+        List()
+        {
+            Type = BlockElementType::List;   
+        }
+        //Can only be either Paragraph or another List
+        std::vector<BlockElement> Parts;
+    };
     struct MediaInclude : public BlockElement
     {
         MediaInclude() 
@@ -661,6 +677,10 @@ namespace MBDoc
         {
             return(static_cast<Table&>(*this));
         }
+        else if constexpr(std::is_same<List,T>::value)
+        {
+            return(static_cast<List&>(*this));
+        }
         else
         {
             static_assert(!(sizeof(T)+1),"BlockElement cannot possibly be of supplied type");
@@ -685,6 +705,10 @@ namespace MBDoc
         {
             return(static_cast<Table const&>(*this));
         }
+        else if constexpr(std::is_same<List,T>::value)
+        {
+            return(static_cast<List const&>(*this));
+        }
         else
         {
             static_assert(!(sizeof(T)+1),"BlockElement cannot possibly be of supplied type");
@@ -699,11 +723,13 @@ namespace MBDoc
         virtual void Visit(Table const& VisitedParagraph) {};
         virtual void Visit(MediaInclude const& VisitedMedia) {};
         virtual void Visit(CodeBlock const& CodeBlock) {};
+        virtual void Visit(List const& CodeBlock) {};
 
         virtual void Visit(Paragraph& VisitedParagraph) {};
         virtual void Visit(Table& VisitedParagraph) {};
         virtual void Visit(MediaInclude& VisitedMedia) {};
         virtual void Visit(CodeBlock& CodeBlock) {};
+        virtual void Visit(List& CodeBlock) {};
         virtual ~BlockVisitor() {};
     };
     //Block elements
@@ -982,6 +1008,21 @@ namespace MBDoc
             } 
         }
 
+        void Visit(List& VisitedTable) override
+        {
+                 
+            if constexpr(std::is_invocable<T,List>::value)
+            {
+                m_Ref(VisitedTable);  
+            } 
+        }
+        void Visit(List const& VisitedList) override
+        {
+            if constexpr(std::is_invocable<T,List const>::value)
+            {
+                m_Ref(VisitedTable);  
+            } 
+        }
         void Visit(Table& VisitedTable) override
         {
                  
@@ -1014,7 +1055,7 @@ namespace MBDoc
         }
         void Visit(CodeBlock& Block) override
         {
-            if constexpr(std::is_invocable<T,CodeBlock>::value)
+            if constexpr(std::is_invocable<T,CodeBlock&>::value)
             {
                 m_Ref(Block);  
             } 
@@ -1138,6 +1179,7 @@ namespace MBDoc
         std::unique_ptr<BlockElement> p_ParseCodeBlock(LineRetriever& Retriever);
         std::unique_ptr<BlockElement> p_ParseMediaInclude(LineRetriever& Retriever);
         std::unique_ptr<BlockElement> p_ParseTable(ArgumentList const& Arguments,LineRetriever& Retriever);
+        std::unique_ptr<BlockElement> p_ParseList(ArgumentList const& Arguments,LineRetriever& Retriever);
         std::unique_ptr<BlockElement> p_ParseNamedBlockElement(LineRetriever& Retriever);
 
         std::unique_ptr<BlockElement> p_ParseBlockElement(LineRetriever& Retriever);
