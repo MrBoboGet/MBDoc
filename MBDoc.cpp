@@ -347,7 +347,6 @@ namespace MBDoc
         {
             Visitor.Visit(static_cast<List&>(*this));
         }
-
     }
     //BEGIN AttributeList
     bool AttributeList::IsEmpty() const
@@ -979,11 +978,65 @@ namespace MBDoc
         ReturnValue = std::make_unique<Table>(std::move(ColumnNames),Width,std::move(TableElements));
         return(ReturnValue);
     }
-    std::unique_ptr<BlockElement> DocumentParsingContext::p_ParseList(ArgumentList const& Arguments,LineRetriever& Retriever)
+    Paragraph DocumentParsingContext::p_ParseParagraph(std::string const& TotalParagraphData)
     {
-        std::unique_ptr<BlockElement> ReturnValue;
-        
-
+        size_t ParseOffset = 0;
+        Paragraph ReturnValue = Paragraph(
+                p_ParseTextElements(TotalParagraphData.data(),TotalParagraphData.size(),0,&ParseOffset));
+        return(ReturnValue);
+    }
+    std::unique_ptr<List> DocumentParsingContext::p_ParseList(ArgumentList const& Arguments,LineRetriever& Retriever)
+    {
+        std::unique_ptr<List> ReturnValue = std::make_unique<List>();
+        std::string CurrentLine;
+        std::string CurrentParagraphContent;
+        bool EndRecieved = false;
+        while(Retriever.GetLine(CurrentLine))
+        {
+            size_t ParseOffset = 0;
+            MBParsing::SkipWhitespace(CurrentLine,0,&ParseOffset);
+            if(ParseOffset < CurrentLine.size() && CurrentLine.compare(ParseOffset,4,"\\end") == 0)
+            {
+                EndRecieved = true;
+                break; 
+            }
+            //empty line, new paragraph
+            if(ParseOffset == CurrentLine.size())
+            {
+                if(CurrentParagraphContent != "")
+                {
+                    //create new paragraph
+                    ReturnValue->AddParagraph(p_ParseParagraph(CurrentParagraphContent));
+                }
+                CurrentParagraphContent = "";
+            }
+            else if(ParseOffset < CurrentLine.size() && CurrentLine.compare(ParseOffset,5,"\\list") == 0)
+            {
+                //create sublist
+                List::ListContent SubList;
+                if(CurrentParagraphContent != "")
+                {
+                    SubList.Text = p_ParseParagraph(CurrentParagraphContent);
+                }
+                ArgumentList Args;//empty, no currently used
+                SubList.SubList = p_ParseList(Arguments,Retriever);
+                ReturnValue->Content.push_back(std::move(SubList));
+            }
+            else
+            {
+                //add content to current paragraph
+                CurrentParagraphContent += CurrentLine;
+                CurrentParagraphContent += "\n";
+            }
+        }
+        if(!EndRecieved)
+        {
+            throw std::runtime_error("no corresponding \\end to \\list definition");
+        }
+        if(CurrentParagraphContent != "")
+        {
+            ReturnValue->AddParagraph(p_ParseParagraph(CurrentParagraphContent));
+        }
         return(ReturnValue);
     }
     std::unique_ptr<BlockElement> DocumentParsingContext::p_ParseNamedBlockElement(LineRetriever& Retriever)
@@ -1006,7 +1059,7 @@ namespace MBDoc
         }
         else if(Name == "list")
         {
-            ReturnValue = p_ParseTable(Arguments,Retriever); 
+            ReturnValue = p_ParseList(Arguments,Retriever); 
         }
         else
         {
@@ -2436,6 +2489,40 @@ namespace MBDoc
                 Visit(Cell);
                 m_AssociatedVisitor->LeaveBlock(Cell);
             }   
+        }
+    }
+    void DocumentTraverser::Visit(List const& ListToVisit)
+    {
+        m_AssociatedVisitor->Visit(ListToVisit);
+        for(auto const& Content : ListToVisit.Content)
+        {
+            m_AssociatedVisitor->EnterBlock(Content.Text);
+            this->Visit(Content.Text);
+            m_AssociatedVisitor->LeaveBlock(Content.Text);
+            //
+            if(Content.SubList != nullptr)
+            {
+                m_AssociatedVisitor->EnterBlock(*Content.SubList);
+                this->Visit(*Content.SubList);
+                m_AssociatedVisitor->LeaveBlock(*Content.SubList);
+            }
+        }
+    }
+    void DocumentTraverser::Visit(List& ListToVisit)
+    {
+        m_AssociatedVisitor->Visit(ListToVisit);
+        for(auto& Content : ListToVisit.Content)
+        {
+            m_AssociatedVisitor->EnterBlock(Content.Text);
+            this->Visit(Content.Text);
+            m_AssociatedVisitor->LeaveBlock(Content.Text);
+            //
+            if(Content.SubList != nullptr)
+            {
+                m_AssociatedVisitor->EnterBlock(*Content.SubList);
+                this->Visit(*Content.SubList);
+                m_AssociatedVisitor->LeaveBlock(*Content.SubList);
+            }
         }
     }
 

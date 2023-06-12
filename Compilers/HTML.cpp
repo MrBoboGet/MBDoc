@@ -433,6 +433,7 @@ namespace MBDoc
         {
             throw std::runtime_error("Can't deduce valid media type from extension \"" + Extension + "\"");
         }
+        *m_OutStream<<"<br>";
     }
     void HTMLCompiler::Visit(Paragraph const& ParagraphToWrite)
     {
@@ -440,6 +441,10 @@ namespace MBDoc
         {
             m_OutStream->Write("<mark>Note: </mark>", 19);
         }
+    }
+    void HTMLCompiler::Visit(List const& BlockToVisit)
+    {
+
     }
     void HTMLCompiler::EnterBlock(BlockElement const& BlockToEnter)
     {
@@ -462,6 +467,20 @@ namespace MBDoc
                 m_CurrentColumnCount++;
                 m_CurrentColumnCount = m_CurrentColumnCount%m_TableWidth;
             } 
+            else if(m_InList)
+            {
+                if(!m_FirstParagraph)
+                {
+                    *m_OutStream<<"</li>";
+                }
+                *m_OutStream<<"<li>";
+            }
+        }
+        else if(BlockToEnter.IsType<List>())
+        {
+            m_InList = true;
+            m_FirstParagraph = true;
+            *m_OutStream<<"<ul>";
         }
     }
     void HTMLCompiler::LeaveBlock(BlockElement const& BlockToLeave)
@@ -476,6 +495,10 @@ namespace MBDoc
                 } 
                 *m_OutStream<<"</td>";  
             }
+            else if(m_InList)
+            {
+                *m_OutStream<<"</li>";
+            }
             else
             {
                 m_OutStream->Write("<br><br>\n\n", 10);
@@ -487,6 +510,15 @@ namespace MBDoc
             m_TableWidth = 0;
             m_CurrentColumnCount = 0;
             *m_OutStream << "</table>";
+        }
+        else if(BlockToLeave.IsType<List>())
+        {
+            m_InList = false;
+            if(BlockToLeave.GetType<List>().Content.size() != 0)
+            {
+                *m_OutStream<<"</li>";   
+            }
+            *m_OutStream<<"</ul>";
         }
     }
     void HTMLCompiler::Visit(URLReference const& BlockToVisit)

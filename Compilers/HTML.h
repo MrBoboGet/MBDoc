@@ -93,6 +93,9 @@ namespace MBDoc
         std::unique_ptr<MBUtility::MBOctetOutputStream> m_OutStream;
         
         //really ghetto, it is what is is
+        bool m_InList = false;
+        //BEYOND ugly
+        bool m_FirstParagraph = true;
         bool m_InCodeBlock = false;
         bool m_InTable = false;
         int m_TableWidth = 0;
@@ -112,6 +115,7 @@ namespace MBDoc
         void Visit(CodeBlock const& BlockToVisit) override;
         void Visit(MediaInclude const& BlockToVisit) override;
         void Visit(Paragraph const& BlockToVisit) override;
+        void Visit(List const& BlockToVisit) override;
 
         void Visit(URLReference const& BlockToVisit) override;
         void Visit(FileReference const& BlockToVisit) override;

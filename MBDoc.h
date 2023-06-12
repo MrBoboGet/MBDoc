@@ -412,11 +412,22 @@ namespace MBDoc
         {
             Type = BlockElementType::Paragraph; 
         };
+        Paragraph(std::vector<TextElement> Content)
+        {
+            Type = BlockElementType::Paragraph;
+            TextElements = std::move(Content);
+        }
         Paragraph(Paragraph&& ParToMove) noexcept
         {
             Attributes = std::move(ParToMove.Attributes);
             TextElements = std::move(ParToMove.TextElements);  
             Type = ParToMove.Type;
+        }
+        Paragraph& operator=(Paragraph ParagraphToCopy)
+        {
+            Type = BlockElementType::Paragraph;
+            std::swap(TextElements,ParagraphToCopy.TextElements);
+            return(*this);
         }
         std::vector<TextElement> TextElements;//Can be sentences, text, inline references etc
     };
@@ -543,8 +554,19 @@ namespace MBDoc
         {
             Type = BlockElementType::List;   
         }
-        //Can only be either Paragraph or another List
-        std::vector<BlockElement> Parts;
+        //TODO, Improve, kind of arbitrary and ugly
+        struct ListContent
+        {
+            Paragraph Text;
+            std::unique_ptr<List> SubList;
+        };
+        void AddParagraph(Paragraph ParagraphToAdd)
+        {
+            ListContent NewElement;
+            NewElement.Text = std::move(ParagraphToAdd);
+            Content.push_back(std::move(NewElement));
+        }
+        std::vector<ListContent> Content;
     };
     struct MediaInclude : public BlockElement
     {
@@ -930,170 +952,121 @@ namespace MBDoc
     {
     private:
         T& m_Ref;
+
+        template<typename V>
+        void p_Visit(V const& ThingToVisit)
+        {
+            if constexpr(std::is_invocable<T,V const&>::value)
+            {
+                m_Ref(ThingToVisit);  
+            }       
+        }
+        template<typename V>
+        void p_Visit(V& ThingToVisit)
+        {
+            if constexpr(std::is_invocable<T,V&>::value)
+            {
+                m_Ref(ThingToVisit);  
+            }       
+        }
     public:
 
         LambdaVisitor(T* Ref)
             : m_Ref(*Ref)
         {
         }
+
+
+
+        
         void Visit(Directive const& DirectiveToVisit)override
         {
-            if constexpr(std::is_invocable<T,Directive const&>::value)
-            {
-                m_Ref(DirectiveToVisit);  
-            }       
+            p_Visit(DirectiveToVisit);
         }
         void Visit(Paragraph const& VisitedParagraph) override
         {
-            if constexpr(std::is_invocable<T,Paragraph const>::value)
-            {
-                m_Ref(VisitedParagraph);  
-            }       
+            p_Visit(VisitedParagraph);
         }
         void Visit(MediaInclude const& VisitedMedia) override
         {
-            if constexpr(std::is_invocable<T,MediaInclude const>::value)
-            {
-                m_Ref(VisitedMedia);  
-            }       
+            p_Visit(VisitedMedia);
         }
         void Visit(CodeBlock const& Block) override
         {
-            if constexpr(std::is_invocable<T,const CodeBlock >::value)
-            {
-                m_Ref(Block);  
-            }  
+            p_Visit(Block);
         }
         void Visit(RegularText const& VisitedText)override
         {
-            if constexpr(std::is_invocable<T,RegularText const>::value)
-            {
-                m_Ref(VisitedText);  
-            } 
+            p_Visit(VisitedText);
         }
         void Visit(DocReference const& VisitedText) override
         {
-            if constexpr(std::is_invocable<T,DocReference const>::value)
-            {
-                m_Ref(VisitedText);  
-            } 
+            p_Visit(VisitedText);
         }
         void Visit(FileReference const& FileRef) override
         {
-            if constexpr(std::is_invocable<T,FileReference const>::value)
-            {
-                m_Ref(FileRef);  
-            } 
+            p_Visit(FileRef);
         }
         void Visit(URLReference const& URLRef) override
         {
-            if constexpr(std::is_invocable<T,URLReference const>::value)
-            {
-                m_Ref(URLRef);  
-            } 
+            p_Visit(URLRef);
         }
         void Visit(UnresolvedReference const& UnresolvedRef) override
         {
-            if constexpr(std::is_invocable<T,UnresolvedReference const>::value)
-            {
-                m_Ref(UnresolvedRef);  
-            } 
+            p_Visit(UnresolvedRef);
         }
         void Visit(Directive& DirectiveToVisit)override
         {
-                   
-            if constexpr(std::is_invocable<T,Directive>::value)
-            {
-                m_Ref(DirectiveToVisit);  
-            } 
+            p_Visit(DirectiveToVisit);
         }
 
-        void Visit(List& VisitedTable) override
+        void Visit(List& VisitedList) override
         {
-                 
-            if constexpr(std::is_invocable<T,List>::value)
-            {
-                m_Ref(VisitedTable);  
-            } 
+            p_Visit(VisitedList);
         }
         void Visit(List const& VisitedList) override
         {
-            if constexpr(std::is_invocable<T,List const>::value)
-            {
-                m_Ref(VisitedTable);  
-            } 
+            p_Visit(VisitedList);
         }
         void Visit(Table& VisitedTable) override
         {
-                 
-            if constexpr(std::is_invocable<T,Table>::value)
-            {
-                m_Ref(VisitedTable);  
-            } 
+            p_Visit(VisitedTable);
         }
         void Visit(Table const& VisitedTable) override
         {
-            if constexpr(std::is_invocable<T,Table const>::value)
-            {
-                m_Ref(VisitedTable);  
-            } 
+            p_Visit(VisitedTable);
         }
         void Visit(Paragraph& VisitedParagraph) override
         {
-                 
-            if constexpr(std::is_invocable<T,Paragraph>::value)
-            {
-                m_Ref(VisitedParagraph);  
-            } 
+            p_Visit(VisitedParagraph);
         }
         void Visit(MediaInclude& VisitedMedia) override
         {
-            if constexpr(std::is_invocable<T,MediaInclude>::value)
-            {
-                m_Ref(VisitedMedia);  
-            } 
+            p_Visit(VisitedMedia);
         }
         void Visit(CodeBlock& Block) override
         {
-            if constexpr(std::is_invocable<T,CodeBlock&>::value)
-            {
-                m_Ref(Block);  
-            } 
+            p_Visit(Block);
         }
         void Visit(RegularText& VisitedText)override
         {
-            if constexpr(std::is_invocable<T,RegularText>::value)
-            {
-                m_Ref(VisitedText);  
-            } 
+            p_Visit(VisitedText);
         }
         void Visit(DocReference& VisitedText) override
         {
-            if constexpr(std::is_invocable<T,DocReference>::value)
-            {
-                m_Ref(VisitedText);  
-            } 
+            p_Visit(VisitedText);
         }
         void Visit(FileReference& FileRef) override
         {
-            if constexpr(std::is_invocable<T,FileReference>::value)
-            {
-                m_Ref(FileRef);  
-            } 
+            p_Visit(FileRef);
         }
         void Visit(URLReference & URLRef) override
         {
-            if constexpr(std::is_invocable<T,URLReference>::value)
-            {
-                m_Ref(URLRef);  
-            } 
+            p_Visit(URLRef);
         }
         void Visit(UnresolvedReference& UnresolvedRef) override
         {
-            if constexpr(std::is_invocable<T,UnresolvedReference>::value)
-            {
-                m_Ref(UnresolvedRef);  
-            } 
+            p_Visit(UnresolvedRef);
         }
     };
 
@@ -1119,6 +1092,8 @@ namespace MBDoc
         void Visit(CodeBlock& CodeBlock) override;
         void Visit(Table const& CodeBlock) override;
         void Visit(Table& CodeBlock) override;
+        void Visit(List const& ListToVisit) override;
+        void Visit(List& ListToVisit) override;
 
         void Visit(RegularText& VisitedText)override;
         void Visit(RegularText const& VisitedText)override;
@@ -1174,12 +1149,17 @@ namespace MBDoc
     class DocumentParsingContext
     {
     private:
-        TextElement p_ParseReference(void const* Data,size_t DataSize,size_t ParseOffset,size_t* OutParseOffset);
-        std::vector<TextElement> p_ParseTextElements(void const* Data,size_t DataSize,size_t ParseOffset,size_t* OutParseOffset);
+        //helpers
+        static Paragraph p_ParseParagraph(std::string const& TotalParagraphData);
+
+        
+        static TextElement p_ParseReference(void const* Data,size_t DataSize,size_t ParseOffset,size_t* OutParseOffset);
+        static std::vector<TextElement> p_ParseTextElements(void const* Data,size_t DataSize,size_t ParseOffset,size_t* OutParseOffset);
+
         std::unique_ptr<BlockElement> p_ParseCodeBlock(LineRetriever& Retriever);
         std::unique_ptr<BlockElement> p_ParseMediaInclude(LineRetriever& Retriever);
         std::unique_ptr<BlockElement> p_ParseTable(ArgumentList const& Arguments,LineRetriever& Retriever);
-        std::unique_ptr<BlockElement> p_ParseList(ArgumentList const& Arguments,LineRetriever& Retriever);
+        std::unique_ptr<List> p_ParseList(ArgumentList const& Arguments,LineRetriever& Retriever);
         std::unique_ptr<BlockElement> p_ParseNamedBlockElement(LineRetriever& Retriever);
 
         std::unique_ptr<BlockElement> p_ParseBlockElement(LineRetriever& Retriever);
