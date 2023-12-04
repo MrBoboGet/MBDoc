@@ -97,6 +97,23 @@ namespace MBDoc
         ReturnValue += "</a>";
         return(ReturnValue);
     }
+    std::string HTMLReferenceSolver::GetReferenceString(DocumentPath const& Path,std::string const& VisibleText,bool Colorize)
+    {
+        m_Colorize = Colorize;
+        std::string ReturnValue = "<a href=\"";
+        ReturnValue += GetDocumentPathURL(Path)+"\"";
+        ReturnValue += ">";
+        if(VisibleText != "")
+        {
+            ReturnValue += h_EscapeHTMLText(VisibleText);    
+        }
+        else
+        {
+            ReturnValue += h_EscapeHTMLText(m_VisitResultText);    
+        }
+        ReturnValue += "</a>";
+        return(ReturnValue);
+    }
     void HTMLReferenceSolver::Initialize(DocumentFilesystem const* Build)
     {
         m_AssociatedBuild = Build;
@@ -122,7 +139,14 @@ namespace MBDoc
             {
                 DocumentSource const& CurrentSource = FileIterator.GetDocumentInfo();
                 File NewFile;
-                NewFile.Name = CurrentSource.Name;
+                if(CurrentSource.Title != "")
+                {
+                    NewFile.Name = CurrentSource.Title;
+                }
+                else
+                {
+                    NewFile.Name = CurrentSource.Name;
+                }
                 NewFile.Path = FileIterator.GetCurrentPath();
                 ReturnValue.Files.push_back(std::move(NewFile));
                 ++FileIterator;
@@ -308,13 +332,12 @@ namespace MBDoc
             *m_OutStream<<"</span>";
         }
     }
-    DocumentPath HTMLCompiler::p_GetUniquePath(std::string const& Extension)
+    DocumentPath HTMLCompiler::p_GetUniquePath(int ID,std::string const& Extension)
     {
         DocumentPath ReturnValue;
         ReturnValue.AddDirectory("/");
         ReturnValue.AddDirectory("___Resources");
-        ReturnValue.AddDirectory(std::to_string(m_ExportedElementsCount) + "." + Extension);
-        m_ExportedElementsCount += 1;
+        ReturnValue.AddDirectory(std::to_string(ID) + "." + Extension);
         return(ReturnValue);
     }
 
@@ -346,7 +369,14 @@ namespace MBDoc
             throw std::runtime_error("File not open");
         }
         m_OutStream = std::unique_ptr<MBUtility::MBOctetOutputStream>(new MBUtility::MBFileOutputStream(&OutStream));
-        std::string TopInfo = "<!DOCTYPE html><html><head><style>body{background-color: black; color: #00FF00;}table,th,td{border: 1px solid;}table{border-collapse: collapse;} .color .link{color: inherit !important;} .color .errorLink {color: inherit !important; text-decoration: none;}</style></head><body>";
+        std::string Title;
+        if(Document.Title != "")
+        {
+            Title = "<title>" + Document.Title+"</title>";
+        }
+        std::string TopInfo = "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><style>body{background-color: black; color: #00FF00;}table,th,td{border: 1px solid;}table{border-collapse: collapse;} .color .link{color: inherit !important;} .color .errorLink {color: inherit !important; text-decoration: none;}</style>"
+            + Title +
+            "</head><body>";
         OutStream.write(TopInfo.data(), TopInfo.size());
         std::string TopFlex = "<div style=\"display: flex\">";
         OutStream.write(TopFlex.data(), TopFlex.size());
@@ -395,29 +425,38 @@ namespace MBDoc
         m_InCodeBlock = false;
         m_OutStream->Write("</pre>", 6);
     }
-    void HTMLCompiler::Visit(MediaInclude const& MediaToInclude)
+    std::string HTMLCompiler::p_GetExtension(std::string const& Path)
     {
-        std::filesystem::path MediaToIncludePath = m_SourcePath.parent_path()/MediaToInclude.MediaPath;
-        std::string CanonicalString = MBUnicode::PathToUTF8(std::filesystem::canonical(MediaToIncludePath));
-        DocumentPath& OutPath = m_MovedResources[CanonicalString];
         std::string Extension;
-        size_t DotPosition = MediaToInclude.MediaPath.find_last_of('.');
-        if (DotPosition != MediaToInclude.MediaPath.npos)
+        size_t DotPosition = Path.find_last_of('.');
+        if (DotPosition != Path.npos)
         {
-            Extension = MediaToInclude.MediaPath.substr(DotPosition + 1);
+            Extension = Path.substr(DotPosition + 1);
         }
+        return Extension;
+    }
+    DocumentPath HTMLCompiler::p_GetMediaPath(int ID,std::string const& CanonicalMediaPath)
+    {
+        DocumentPath& OutPath = m_MovedResources[CanonicalMediaPath];
+        std::string Extension = p_GetExtension(CanonicalMediaPath);
         if (OutPath.Empty())
         {
             //need to actually move the path
-            OutPath = p_GetUniquePath(Extension);
-            if (!std::filesystem::exists(MediaToIncludePath))
+            OutPath = p_GetUniquePath(ID,Extension);
+            if (!std::filesystem::exists(CanonicalMediaPath))
             {
-                throw std::runtime_error("Can't find media to include: "+MediaToInclude.MediaPath);
+                throw std::runtime_error("Can't find media to include: "+CanonicalMediaPath);
             }
             std::filesystem::copy_options Options = std::filesystem::copy_options::overwrite_existing;
             //innefficent, but / gets wacky with the std::filesystem 
-            std::filesystem::copy(MediaToIncludePath,m_CommonOptions.OutputDirectory +"/"+ OutPath.GetString().substr(1),Options);
+            std::filesystem::copy(CanonicalMediaPath,m_CommonOptions.OutputDirectory +"/"+ OutPath.GetString().substr(1),Options);
         }
+        return OutPath;
+    }
+    void HTMLCompiler::Visit(MediaInclude const& MediaToInclude)
+    {
+        DocumentPath OutPath = p_GetMediaPath(MediaToInclude.ID,MediaToInclude.MediaPath);
+        std::string Extension = p_GetExtension(MediaToInclude.MediaPath);
         MBMIME::MediaType TypeToInclude = MBMIME::GetMediaTypeFromExtension(Extension);
         if (TypeToInclude == MBMIME::MediaType::Video)
         {
@@ -545,6 +584,11 @@ namespace MBDoc
             StringToWrite = m_ReferenceSolver.GetReferenceString(BlockToVisit);
         }
         m_OutStream->Write(StringToWrite.data(), StringToWrite.size());
+    }
+    void HTMLCompiler::Visit(ResourceReference const& BlockToVisit) 
+    {
+        DocumentPath OutPath = p_GetMediaPath(BlockToVisit.ID,BlockToVisit.ResourceCanonicalPath);
+        *m_OutStream<<m_ReferenceSolver.GetReferenceString(OutPath,BlockToVisit.VisibleText);
     }
     void HTMLCompiler::Visit(DocReference const& BlockToVisit)
     {

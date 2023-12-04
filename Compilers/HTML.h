@@ -17,6 +17,7 @@ namespace MBDoc
         void Visit(FileReference const& Ref) override;
         void Visit(UnresolvedReference const& Ref) override;
         std::string GetReferenceString(DocReference const& ReferenceIdentifier,bool Colorize = true);
+        std::string GetReferenceString(DocumentPath const& Path,std::string const& VisibleText,bool Colorize = true);
         std::string GetDocumentPathURL(DocumentPath const& PathToConvert);
         bool DocumentExists(DocumentPath const& CurrentPath,std::string const& DocumentToTest);
         //Holds a reference to the build for the duration
@@ -59,6 +60,7 @@ namespace MBDoc
         void p_ToggleOpen(DocumentPath const& PathToToggle);
 
         void __PrintDirectoryStructure(Directory const& DirectoryToPrint,int Depth) const;
+
     public:
         HTMLNavigationCreator() {};
         HTMLNavigationCreator(DocumentFilesystem const& FilesystemToInspect);
@@ -73,9 +75,10 @@ namespace MBDoc
     class HTMLCompiler : public DocumentVisitor, public DocumentCompiler
     {
     private:
-        
-        int m_ExportedElementsCount = 0;
-        DocumentPath p_GetUniquePath(std::string const& Extension);
+       
+        std::string p_GetExtension(std::string const& Path); 
+        DocumentPath p_GetUniquePath(int ID,std::string const& Extension);
+        DocumentPath p_GetMediaPath(int ID,std::string const& CanonicalMediaPath);
 
         std::unordered_map<std::string, DocumentPath> m_MovedResources = {};
         CommonCompilationOptions m_CommonOptions;
@@ -120,6 +123,7 @@ namespace MBDoc
         void Visit(URLReference const& BlockToVisit) override;
         void Visit(FileReference const& BlockToVisit) override;
         void Visit(UnresolvedReference const& BlockToVisit) override;
+        void Visit(ResourceReference const& BlockToVisit) override;
         void Visit(DocReference const& BlockToVisit) override;
 
         void Visit(RegularText const& BlockToVisit) override;

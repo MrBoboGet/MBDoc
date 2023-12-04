@@ -161,6 +161,17 @@ namespace MBDoc
                
         }
     };
+    struct ResourceReference : public DocReference
+    {
+        std::string ResourceCanonicalPath;
+        int ID = -1;
+        virtual void Accept(ReferenceVisitor& Visitor) const;
+        virtual void Accept(ReferenceVisitor& Visitor);
+        ~ResourceReference()
+        {
+               
+        }
+    };
     struct URLReference : public DocReference
     {
         std::string URL; 
@@ -188,10 +199,12 @@ namespace MBDoc
         virtual void Visit(FileReference const& FileRef){};
         virtual void Visit(URLReference const& URLRef){};
         virtual void Visit(UnresolvedReference const& UnresolvedRef){};
+        virtual void Visit(ResourceReference const& UnresolvedRef){};
 
         virtual void Visit(FileReference& FileRef){};
         virtual void Visit(URLReference& URLRef){};
         virtual void Visit(UnresolvedReference& UnresolvedRef){};
+        virtual void Visit(ResourceReference& UnresolvedRef){};
 
 
         virtual ~ReferenceVisitor() {};
@@ -575,6 +588,7 @@ namespace MBDoc
             Type = BlockElementType::MediaInclude; 
         };
         std::string MediaPath;
+        int ID = -1;
     };
 
 
@@ -895,6 +909,7 @@ namespace MBDoc
         ReferenceTargetsResolver();
         ReferenceTargetsResolver(std::vector<FormatElementComponent> const& FormatsToInspect);
     };
+    
     class DocumentSource
     {
     public:
@@ -912,10 +927,38 @@ namespace MBDoc
 
         std::filesystem::path Path;
         std::string Name;
+        std::string Title;
         ReferenceTargetsResolver ReferenceTargets;
         std::unordered_set<std::string> References;
-        //TODO replace with FormatElementComponent
         std::vector<FormatElementComponent> Contents;
+    };
+    class Document
+    {
+        std::variant<DocumentSource,ResourceReference> m_Data;
+    public:
+
+        Document(){};
+        template<typename T>
+        Document(T&& Data)
+        {
+            m_Data = std::move(Data);   
+        }
+
+        template<typename T>
+        bool IsType() const
+        {
+            return std::holds_alternative<T>(m_Data);
+        }
+        template<typename T>
+        T& GetType()
+        {
+            return std::get<T>(m_Data);   
+        }
+        template<typename T>
+        T const& GetType() const
+        {
+            return std::get<T>(m_Data);   
+        }
     };
 
     class ReferenceResolver
@@ -1392,6 +1435,25 @@ namespace MBDoc
         std::vector<DocumentDirectoryInfo> m_DirectoryInfos;   
         std::vector<FilesystemDocumentInfo> m_TotalSources;
 
+        class ResourceMap
+        {
+        private:
+            int m_CurrentID = 1;
+            std::unordered_map<std::string,int> m_ResourceMap;
+        public:
+            int GetResourceID(std::string const& CanonicalPath)
+            {
+                int& ReturnValue = m_ResourceMap[CanonicalPath];   
+                if(ReturnValue == 0)
+                {
+                    ReturnValue = m_CurrentID;
+                    m_CurrentID++;   
+                }
+                return ReturnValue;
+            }
+        };
+        ResourceMap m_ResourceMap;
+        
         struct FSSearchResult
         {
             DocumentFSType Type = DocumentFSType::Null; 
@@ -1403,12 +1465,17 @@ namespace MBDoc
         private:
             DocumentFilesystem* m_AssociatedFilesystem = nullptr;
             DocumentPath m_CurrentPath;
+            std::filesystem::path m_DocumentPath;
             TextElement m_Result;
             bool m_ShouldUpdate = false;
+            ResourceMap* m_ResourceMapping = nullptr;
         public:
             void Visit(UnresolvedReference& Ref) override;
             void Visit(CodeBlock& CodeBlock) override;
-            DocumentFilesystemReferenceResolver(DocumentFilesystem* AssociatedFilesystem,DocumentPath CurrentPath);
+            void Visit(ResourceReference& Ref) override;
+            void Visit(MediaInclude& MediaInclude) override;
+            //TODO slightly hacky
+            DocumentFilesystemReferenceResolver(DocumentFilesystem* AssociatedFilesystem,DocumentPath CurrentPath,std::filesystem::path DocumentPath,ResourceMap* ResourceMapping);
             void ResolveReference(TextElement& ReferenceToResolve) override;
         };
 

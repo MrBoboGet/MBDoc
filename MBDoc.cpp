@@ -277,6 +277,14 @@ namespace MBDoc
     {
         Visitor.Visit(*this);
     }
+    void ResourceReference::Accept(ReferenceVisitor& Visitor) const
+    {
+        Visitor.Visit(*this);
+    }
+    void ResourceReference::Accept(ReferenceVisitor& Visitor) 
+    {
+        Visitor.Visit(*this);
+    }
     //BEGIN TextElement
     void TextElement::Accept(TextVisitor& Visitor) const
     {
@@ -1039,6 +1047,7 @@ namespace MBDoc
         }
         return(ReturnValue);
     }
+
     std::unique_ptr<BlockElement> DocumentParsingContext::p_ParseNamedBlockElement(LineRetriever& Retriever)
     {
         std::unique_ptr<BlockElement> ReturnValue;
@@ -1644,8 +1653,21 @@ namespace MBDoc
         DocumentTraverser Traverser;
         ReferenceExtractor Extractor;
         Traverser.Traverse(SourceToModify,Extractor);
+        //multiple traversal Inefficient, but it is what it is 
         SourceToModify.References = std::move(Extractor.References);
         SourceToModify.ReferenceTargets = ReferenceTargetsResolver(SourceToModify.Contents);
+        auto VisitFunc = [&](Directive const& Directive)
+        {
+            if(Directive.DirectiveName == "title" && Directive.Arguments.PositionalArgumentsCount() > 0)
+            {
+                if(SourceToModify.Title == "")
+                {
+                    SourceToModify.Title = Directive.Arguments[0];
+                }
+            }
+        };
+        auto Visitor = LambdaVisitor(&VisitFunc);
+        Traverser.Traverse(SourceToModify,Visitor);
     }
     DocumentSource DocumentParsingContext::ParseSource(MBUtility::MBOctetInputStream& InputStream,std::string FileName,MBError& OutError)
     {
@@ -3319,10 +3341,12 @@ namespace MBDoc
         }
         return(ReturnValue);  
     }
-    DocumentFilesystem::DocumentFilesystemReferenceResolver::DocumentFilesystemReferenceResolver(DocumentFilesystem* AssociatedFilesystem,DocumentPath CurrentPath)
+    DocumentFilesystem::DocumentFilesystemReferenceResolver::DocumentFilesystemReferenceResolver(DocumentFilesystem* AssociatedFilesystem,DocumentPath CurrentPath,std::filesystem::path DocumentPath,ResourceMap* ResourceMappinwg)
     {
         m_AssociatedFilesystem = AssociatedFilesystem;
+        m_DocumentPath = DocumentPath;
         m_CurrentPath = CurrentPath;
+        m_ResourceMapping = ResourceMappinwg;
     }
     void DocumentFilesystem::DocumentFilesystemReferenceResolver::Visit(UnresolvedReference& Ref)
     {
@@ -3336,6 +3360,18 @@ namespace MBDoc
             NewRef.VisibleText = Ref.VisibleText;
             NewRef.Path = NewPath;
             m_Result = TextElement(std::unique_ptr<DocReference>(new FileReference(std::move(NewRef))));
+        }
+        else
+        {
+            if(std::filesystem::is_regular_file(m_DocumentPath/Ref.ReferenceString))
+            {
+                ResourceReference NewRef;
+                NewRef.Color = Ref.Color;
+                NewRef.Modifiers = Ref.Modifiers;
+                NewRef.VisibleText = Ref.VisibleText;
+                NewRef.ResourceCanonicalPath = MBUnicode::PathToUTF8(std::filesystem::canonical(m_DocumentPath.parent_path()/Ref.ReferenceString));
+                m_Result = TextElement(std::unique_ptr<DocReference>(new ResourceReference(std::move(NewRef))));
+            }
         }
         m_ShouldUpdate = Result;
     }
@@ -3365,6 +3401,15 @@ namespace MBDoc
             }
         }
     }
+    void DocumentFilesystem::DocumentFilesystemReferenceResolver::Visit(ResourceReference& Ref) 
+    {
+        Ref.ID = m_ResourceMapping->GetResourceID(Ref.ResourceCanonicalPath);
+    }
+    void DocumentFilesystem::DocumentFilesystemReferenceResolver::Visit(MediaInclude& MediaInclude) 
+    {
+        MediaInclude.MediaPath = MBUnicode::PathToUTF8(std::filesystem::canonical(m_DocumentPath.parent_path()/MediaInclude.MediaPath));
+        MediaInclude.ID = m_ResourceMapping->GetResourceID(MediaInclude.MediaPath);
+    }
     void DocumentFilesystem::p_ResolveReferences()
     {
         DocumentFilesystemIterator Iterator(0); 
@@ -3378,7 +3423,7 @@ namespace MBDoc
                 //yikes
                 DocumentSource& CurrentDoc = const_cast<DocumentSource&>(Iterator.GetDocumentInfo());
                 
-                DocumentFilesystemReferenceResolver Resolver(this,CurrentPath);
+                DocumentFilesystemReferenceResolver Resolver(this,CurrentPath,CurrentDoc.Path,&m_ResourceMap);
                 Traverser.Traverse(CurrentDoc,Resolver);
             }
             Iterator++; 
