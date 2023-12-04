@@ -915,14 +915,8 @@ namespace MBDoc
     public:
         DocumentSource(DocumentSource const&) = delete;
         DocumentSource(DocumentSource&&) noexcept = default;
-        DocumentSource& operator=(DocumentSource OtherSource)
-        {
-            std::swap(Name, OtherSource.Name);
-            std::swap(References, OtherSource.References);
-            std::swap(ReferenceTargets, OtherSource.ReferenceTargets);
-            std::swap(Contents, OtherSource.Contents);
-            return(*this);
-        }
+        DocumentSource& operator=(DocumentSource&& OtherSource) = default;
+        DocumentSource& operator=(DocumentSource const& OtherSource) = delete;
         DocumentSource() {};
 
         std::filesystem::path Path;
@@ -1050,6 +1044,10 @@ namespace MBDoc
         {
             p_Visit(FileRef);
         }
+        void Visit(ResourceReference const& FileRef) override
+        {
+            p_Visit(FileRef);
+        }
         void Visit(URLReference const& URLRef) override
         {
             p_Visit(URLRef);
@@ -1103,6 +1101,10 @@ namespace MBDoc
         {
             p_Visit(FileRef);
         }
+        void Visit(ResourceReference& FileRef) override
+        {
+            p_Visit(FileRef);
+        }
         void Visit(URLReference & URLRef) override
         {
             p_Visit(URLRef);
@@ -1147,6 +1149,8 @@ namespace MBDoc
         void Visit(FileReference const& FileRef) override;
         void Visit(URLReference& URLRef) override;
         void Visit(URLReference const& URLRef) override;
+        void Visit(ResourceReference& URLRef) override;
+        void Visit(ResourceReference const& URLRef) override;
         void Visit(UnresolvedReference& UnresolvedRef) override;
         void Visit(UnresolvedReference const& UnresolvedRef) override;
         
@@ -1472,7 +1476,6 @@ namespace MBDoc
         public:
             void Visit(UnresolvedReference& Ref) override;
             void Visit(CodeBlock& CodeBlock) override;
-            void Visit(ResourceReference& Ref) override;
             void Visit(MediaInclude& MediaInclude) override;
             //TODO slightly hacky
             DocumentFilesystemReferenceResolver(DocumentFilesystem* AssociatedFilesystem,DocumentPath CurrentPath,std::filesystem::path DocumentPath,ResourceMap* ResourceMapping);

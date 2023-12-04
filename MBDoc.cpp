@@ -2581,6 +2581,14 @@ namespace MBDoc
     {
         m_AssociatedVisitor->Visit(URLRef);
     }
+    void DocumentTraverser::Visit(ResourceReference& URLRef) 
+    {
+        m_AssociatedVisitor->Visit(URLRef);
+    }
+    void DocumentTraverser::Visit(ResourceReference const& URLRef) 
+    {
+        m_AssociatedVisitor->Visit(URLRef);
+    }
     void DocumentTraverser::Visit(UnresolvedReference const& UnresolvedRef) 
     {
         m_AssociatedVisitor->Visit(UnresolvedRef);
@@ -3352,6 +3360,7 @@ namespace MBDoc
     {
         MBError Result = true;
         DocumentPath NewPath = m_AssociatedFilesystem->ResolveReference(m_CurrentPath,Ref.ReferenceString,Result);
+        m_ShouldUpdate = false;
         if(Result)
         {
             FileReference NewRef;
@@ -3360,20 +3369,22 @@ namespace MBDoc
             NewRef.VisibleText = Ref.VisibleText;
             NewRef.Path = NewPath;
             m_Result = TextElement(std::unique_ptr<DocReference>(new FileReference(std::move(NewRef))));
+            m_ShouldUpdate = true;
         }
         else
         {
-            if(std::filesystem::is_regular_file(m_DocumentPath/Ref.ReferenceString))
+            if(std::filesystem::is_regular_file(m_DocumentPath.parent_path()/Ref.ReferenceString))
             {
                 ResourceReference NewRef;
                 NewRef.Color = Ref.Color;
                 NewRef.Modifiers = Ref.Modifiers;
                 NewRef.VisibleText = Ref.VisibleText;
                 NewRef.ResourceCanonicalPath = MBUnicode::PathToUTF8(std::filesystem::canonical(m_DocumentPath.parent_path()/Ref.ReferenceString));
+                NewRef.ID = m_ResourceMapping->GetResourceID(NewRef.ResourceCanonicalPath);
                 m_Result = TextElement(std::unique_ptr<DocReference>(new ResourceReference(std::move(NewRef))));
+                m_ShouldUpdate = true;
             }
         }
-        m_ShouldUpdate = Result;
     }
     void DocumentFilesystem::DocumentFilesystemReferenceResolver::ResolveReference(TextElement& ReferenceToResolve)
     {
@@ -3400,10 +3411,6 @@ namespace MBDoc
                 }
             }
         }
-    }
-    void DocumentFilesystem::DocumentFilesystemReferenceResolver::Visit(ResourceReference& Ref) 
-    {
-        Ref.ID = m_ResourceMapping->GetResourceID(Ref.ResourceCanonicalPath);
     }
     void DocumentFilesystem::DocumentFilesystemReferenceResolver::Visit(MediaInclude& MediaInclude) 
     {

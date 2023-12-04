@@ -460,12 +460,12 @@ namespace MBDoc
         MBMIME::MediaType TypeToInclude = MBMIME::GetMediaTypeFromExtension(Extension);
         if (TypeToInclude == MBMIME::MediaType::Video)
         {
-            std::string TotalElementData = "<video src=\"" + m_ReferenceSolver.GetDocumentPathURL(OutPath) + "\" controls style=\"display: block; margin: auto\"></video>";
+            std::string TotalElementData = "<video src=\"" + m_ReferenceSolver.GetDocumentPathURL(OutPath) + "\" controls style=\"display: block; width: 100%\"></video>";
             m_OutStream->Write(TotalElementData.data(), TotalElementData.size());
         }
         else if (TypeToInclude == MBMIME::MediaType::Image)
         {
-            std::string TotalElementData = "<img src=\"" + m_ReferenceSolver.GetDocumentPathURL(OutPath) + "\" style=\"display: block; margin: auto\">";
+            std::string TotalElementData = "<img src=\"" + m_ReferenceSolver.GetDocumentPathURL(OutPath) + "\" style=\"display: block; width: 100%\">";
             m_OutStream->Write(TotalElementData.data(), TotalElementData.size());
         }
         else
