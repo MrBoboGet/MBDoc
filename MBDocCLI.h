@@ -18,7 +18,7 @@ namespace MBDoc
         CommonCompilationOptions p_GetOptions(std::vector<MBCLI::ArgumentListCLIInput> const& Inputs);
         std::vector<MBCLI::ArgumentListCLIInput> p_GetInputs(const char** argv,int argc);
         DocumentBuild p_GetBuild(MBCLI::ArgumentListCLIInput const& CommandInput);
-        DocumentFilesystem p_GetFilesystem(DocumentBuild const& Build,MBCLI::ArgumentListCLIInput const& CommandInput);
+        DocumentFilesystem p_GetFilesystem(DocumentBuild const& Build,std::filesystem::path const& OldBuildPath ,MBCLI::ArgumentListCLIInput const& CommandInput,std::vector<IndexType>& UpdatedFiles);
         std::unique_ptr<DocumentCompiler> p_GetCompiler(MBCLI::ArgumentListCLIInput const& CommandInput);  
 
         void p_Help(MBCLI::ArgumentListCLIInput const& Input);

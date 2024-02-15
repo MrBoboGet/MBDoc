@@ -1645,6 +1645,48 @@ namespace MBDoc
     {
         m_Nodes = p_GetFlatLabelNodes(p_GetDocumentLabelNodes(FormatsToInspect));
     }
+
+    MBParsing::JSONObject ReferenceTargetsResolver::p_ToJSON(std::vector<ReferenceTargetsResolver::FlatLabelNode> const& Nodes, size_t Index)
+    {
+        MBParsing::JSONObject ReturnValue(MBParsing::JSONObjectType::Aggregate);
+        FlatLabelNode const& CurrentNode = Nodes[Index];
+        ReturnValue["Name"] = CurrentNode.Name;
+        std::vector<MBParsing::JSONObject> Children;
+        Children.reserve(CurrentNode.ChildrenEnd - CurrentNode.ChildrenBegin);
+        for(auto i = CurrentNode.ChildrenBegin; i < CurrentNode.ChildrenEnd;i++)
+        {
+            Children.emplace_back(p_ToJSON(Nodes,i));
+        }
+        ReturnValue["Children"] = std::move(Children);
+        return ReturnValue;
+    }
+    MBParsing::JSONObject ReferenceTargetsResolver::ToJSON(ReferenceTargetsResolver const& ObjectToConvert)
+    {
+        if (ObjectToConvert.m_Nodes.size() == 0)
+        {
+            return std::vector<MBParsing::JSONObject>();
+        }
+        return p_ToJSON(ObjectToConvert.m_Nodes,0)["Children"];
+    }
+    ReferenceTargetsResolver::LabelNode ReferenceTargetsResolver::p_FromJSON(MBParsing::JSONObject const& ObjectToParse)
+    {
+        LabelNode CurrentNode;
+        CurrentNode.Name = ObjectToParse["Name"].GetStringData();
+        for(auto const& Child : ObjectToParse["Children"].GetArrayData())
+        {
+            CurrentNode.Children.push_back(p_FromJSON(Child));
+        }
+        return CurrentNode;
+    }
+    void ReferenceTargetsResolver::FromJSON(ReferenceTargetsResolver& Result,MBParsing::JSONObject const& ObjectToParse)
+    {
+        std::vector<LabelNode> Labels;
+        for(auto const& Child : ObjectToParse.GetArrayData())
+        {
+            Labels.emplace_back(p_FromJSON(Child));
+        }
+        Result.m_Nodes = p_GetFlatLabelNodes(Labels);
+    }
     //END ReferenceTargetsResolver 
 
 
@@ -1654,7 +1696,7 @@ namespace MBDoc
         ReferenceExtractor Extractor;
         Traverser.Traverse(SourceToModify,Extractor);
         //multiple traversal Inefficient, but it is what it is 
-        SourceToModify.References = std::move(Extractor.References);
+        //SourceToModify.References = std::move(Extractor.References);
         SourceToModify.ReferenceTargets = ReferenceTargetsResolver(SourceToModify.Contents);
         auto VisitFunc = [&](Directive const& Directive)
         {
@@ -1700,6 +1742,7 @@ namespace MBDoc
         MBUtility::MBFileInputStream InputStream(&FileStream);
         DocumentSource ReturnValue = ParseSource(InputStream, MBUnicode::PathToUTF8(InputFile.filename()), OutError);
         ReturnValue.Path = InputFile;
+        ReturnValue.Timestamp = uint64_t( std::filesystem::directory_entry(ReturnValue.Path).last_write_time().time_since_epoch().count());
         return(ReturnValue);
     }
     DocumentSource DocumentParsingContext::ParseSource(const void* Data,size_t DataSize,std::string FileName,MBError& OutError)
@@ -2253,6 +2296,10 @@ namespace MBDoc
     bool DocumentFilesystemIterator::EntryIsDirectory() const
     {
         return(m_DirectoryFilePosition == -1);       
+    }
+    IndexType DocumentFilesystemIterator::GetFileIndex() const
+    {
+        return m_AssociatedFilesystem->m_DirectoryInfos[m_CurrentDirectoryIndex].DirectoryIndexBegin+m_DirectoryFilePosition;
     }
     std::string DocumentFilesystemIterator::GetEntryName() const
     {
@@ -2973,6 +3020,40 @@ namespace MBDoc
         ReturnValue.UseUserOrder();
         return(ReturnValue);
     }
+    bool DocumentFilesystem::DocumentExists(DocumentPath const& DocumentPath) const
+    {
+        IndexType OutIndex = 0;
+        return DocumentExists(DocumentPath,OutIndex);
+    }
+    bool DocumentFilesystem::DocumentExists(DocumentPath const& DocumentPath,IndexType& OutIndex) const
+    {
+        bool ReturnValue = true;
+        size_t DirIndex = 0;
+        size_t PartIndex = 0;
+        while(PartIndex < DocumentPath.ComponentCount())
+        {
+            DocumentDirectoryInfo const& Dir = m_DirectoryInfos[DirIndex];
+            auto DirIt = std::lower_bound(m_DirectoryInfos.begin()+Dir.DirectoryIndexBegin,m_DirectoryInfos.begin()+Dir.DirectoryIndexEnd,
+                    DocumentPath[PartIndex],
+                    [](DocumentDirectoryInfo const& SubDir,std::string const& Name){return SubDir.Name < Name;});
+            auto FileIt = std::lower_bound(m_TotalSources.begin()+Dir.FileIndexBegin,m_TotalSources.begin()+Dir.FileIndexEnd,
+                    DocumentPath[PartIndex],
+                    [](FilesystemDocumentInfo const& File,std::string const& Name){return File.Document.Name < Name;});
+            if(DirIt != m_DirectoryInfos.begin()+Dir.DirectoryIndexEnd)
+            {
+                DirIndex = DirIt - (m_DirectoryInfos.begin());
+            }
+            else
+            {
+                if(PartIndex + 1 == DocumentPath.ComponentCount() && FileIt != m_TotalSources.begin()+Dir.FileIndexEnd)
+                {
+                    return true;
+                }
+            }
+            PartIndex++;
+        }
+        return ReturnValue;
+    }
     DocumentPath DocumentFilesystem::ResolveReference(DocumentPath const& Path,std::string const& PathIdentifier,MBError& OutResult) const
     {
         //TEMP
@@ -3202,7 +3283,7 @@ namespace MBDoc
         }
         return(ReturnValue);
     }
-    DocumentDirectoryInfo DocumentFilesystem::p_UpdateOverDirectory(DocumentBuild const& Directory, IndexType FileIndexBegin, IndexType DirectoryIndex)
+    DocumentDirectoryInfo DocumentFilesystem::p_UpdateOverDirectory(DocumentBuild const& Directory, IndexType FileIndexBegin, IndexType DirectoryIndex,bool ParseSource)
     {
         DocumentDirectoryInfo ReturnValue;
         IndexType NewDirectoryIndexBegin = m_DirectoryInfos.size();
@@ -3226,14 +3307,21 @@ namespace MBDoc
             size_t SortedIndex = SortedFileIndexes[i];   
             std::filesystem::path const& File = Directory.DirectoryFiles[SortedIndex];
             DocumentParsingContext Parser;
-            DocumentSource NewFile = Parser.ParseSource(File, ParseError);
+            DocumentSource NewFile;
+            if(ParseSource)
+            {
+                NewFile = Parser.ParseSource(File, ParseError);
+            }
             if (!ParseError)
             {
                 throw std::runtime_error("Error parsing file "+MBUnicode::PathToUTF8(File) +": " + ParseError.ErrorMessage);
             }
-            //LIBRARY BUG? seems like std::move(NewFile) produces a file with empty path, weird
+            //library bug? seems like std::move(NewFile) produces a file with empty path on msvc, weird
             m_TotalSources[FileIndexBegin + FileIndex].Document = std::move(NewFile);
             m_TotalSources[FileIndexBegin + FileIndex].Document.Path = File;
+            m_TotalSources[FileIndexBegin + FileIndex].Document.Name = MBUnicode::PathToUTF8(File.filename());
+            m_TotalSources[FileIndexBegin + FileIndex].Document.Timestamp = 
+                std::filesystem::directory_entry(File).last_write_time().time_since_epoch().count();
             FileIndex++;
         }
         auto OriginalFileMap = h_GetOriginalMap(SortedFileIndexes);
@@ -3272,7 +3360,7 @@ namespace MBDoc
         {
             size_t SortedDirectoryIndex = SortedDirectoryIndexes[i];    
             auto const& SubDirectory = Directory.SubDirectories[SortedDirectoryIndex];
-            m_DirectoryInfos[NewDirectoryIndexBegin + DirectoryOffset] = p_UpdateOverDirectory(SubDirectory.second, NewFileIndexBegin + FileOffset, NewDirectoryIndexBegin + DirectoryOffset);
+            m_DirectoryInfos[NewDirectoryIndexBegin + DirectoryOffset] = p_UpdateOverDirectory(SubDirectory.second, NewFileIndexBegin + FileOffset, NewDirectoryIndexBegin + DirectoryOffset,ParseSource);
             m_DirectoryInfos[NewDirectoryIndexBegin + DirectoryOffset].Name = SubDirectory.first;
             m_DirectoryInfos[NewDirectoryIndexBegin + DirectoryOffset].ParentDirectoryIndex = DirectoryIndex;
             DirectoryOffset++;
@@ -3318,24 +3406,35 @@ namespace MBDoc
         DocumentDirectoryInfo const& CurrentInfo = m_DirectoryInfos[0];
         __PrintDirectoryStructure(CurrentInfo, 0);
     }
+    void DocumentFilesystem::p_CreateDirectoryStructure(DocumentFilesystem& OutFilesystem,DocumentBuild const& BuildToParse,bool ParseSources)
+    {
+        OutFilesystem.m_DirectoryInfos.resize(1);
+        //BuildDirectory Directory = p_ParseBuildDirectory(BuildToParse);
+        OutFilesystem.m_TotalSources.resize(BuildToParse.GetTotalFiles());
+        DocumentDirectoryInfo TopInfo = OutFilesystem.p_UpdateOverDirectory(BuildToParse, 0, 0,ParseSources);
+        OutFilesystem.m_DirectoryInfos[0] = TopInfo;
+        OutFilesystem.m_DirectoryInfos[0].Name = "/";
+        assert(std::is_sorted(OutFilesystem.m_DirectoryInfos.begin(), OutFilesystem.m_DirectoryInfos.end(), h_DirectoryOrder));
+    }
+    void DocumentFilesystem::p_PostProcessSources(DocumentFilesystem& OutFilesystem, LSPInfo const& LSPConf, ProcessedColorConfiguration const& ColorConf,std::vector<IndexType> const& SourcesToUpdate)
+    {
+        if(SourcesToUpdate.size() == 0)
+        {
+            return;   
+        }
+        OutFilesystem.p_ColorizeLSP(ColorConf,LSPConf,SourcesToUpdate);
+        OutFilesystem.p_ResolveReferences(SourcesToUpdate);
+    }
     MBError DocumentFilesystem::CreateDocumentFilesystem(DocumentBuild const& BuildToParse,LSPInfo const& LSPConf,ProcessedColorConfiguration const& 
-                ColorConf,DocumentFilesystem& OutFilesystem)
+                ColorConf,DocumentFilesystem& OutFilesystem,bool ParseSource)
     {
         MBError ReturnValue = true;
         try 
         {
             DocumentFilesystem Result;
-            Result.m_DirectoryInfos.resize(1);
-            //BuildDirectory Directory = p_ParseBuildDirectory(BuildToParse);
-            Result.m_TotalSources.resize(BuildToParse.GetTotalFiles());
-            DocumentDirectoryInfo TopInfo = Result.p_UpdateOverDirectory(BuildToParse, 0, 0);
-            Result.m_DirectoryInfos[0] = TopInfo;
-            Result.m_DirectoryInfos[0].Name = "/";
-            assert(std::is_sorted(Result.m_DirectoryInfos.begin(), Result.m_DirectoryInfos.end(), h_DirectoryOrder));
-            
-            
-            Result.p_ColorizeLSP(ColorConf,LSPConf);
-            Result.p_ResolveReferences(); 
+            p_CreateDirectoryStructure(Result,BuildToParse,ParseSource);
+            Result.p_ColorizeLSP(ColorConf,LSPConf,{});
+            Result.p_ResolveReferences({}); 
             if (ReturnValue)
             {
                 OutFilesystem = std::move(Result);
@@ -3349,6 +3448,214 @@ namespace MBDoc
         }
         return(ReturnValue);  
     }
+    void DocumentFilesystem::p_UpdateDirectoryFiles(DocumentFilesystem& NewFilesystem,DocumentFilesystem& OldFilesystem,DocumentDirectoryInfo const& NewDir,DocumentDirectoryInfo const& OldDir,std::vector<IndexType>& UpdatedFiles,std::vector<bool>& NewFileUpdated)
+    {
+        IndexType NewFileIndex = NewDir.FileIndexBegin;
+        IndexType OldFileIndex = OldDir.FileIndexBegin;
+        while(NewFileIndex < NewDir.FileIndexEnd && OldFileIndex < OldDir.FileIndexEnd)
+        {
+            FilesystemDocumentInfo& NewFile = NewFilesystem.m_TotalSources[NewFileIndex];
+            FilesystemDocumentInfo& OldFile = OldFilesystem.m_TotalSources[OldFileIndex];
+            if(NewFile.Document.Name < OldFile.Document.Name)
+            {
+                UpdatedFiles.push_back(NewFileIndex);
+                NewFileIndex++;
+            }
+            else if(OldFile.Document.Name < NewFile.Document.Name)
+            {
+                OldFileIndex++;
+            }
+            else if(NewFile.Document.Name == OldFile.Document.Name)
+            {
+                bool FileUpdated = false;
+                if(NewFile.Document.Path != OldFile.Document.Path || NewFile.Document.Timestamp > OldFile.Document.Timestamp)
+                {
+                    FileUpdated = true;
+                }
+                else
+                {
+                    //check wheter all references of the old file exists, if it has a reference part also 
+                    //ensure that the refernced file hasnt been updated.
+                    for(auto const& ExtRef : OldFile.Document.ExternalReferences)
+                    {
+                        IndexType FileIndex = 0;
+                        if(!NewFilesystem.DocumentExists(ExtRef,FileIndex))
+                        {
+                            FileUpdated = true;
+                        }
+                        else
+                        {
+                            //check existance, WIP
+                        }
+                    }
+                }
+                if(!FileUpdated)
+                {
+                    std::swap(NewFile.Document,OldFile.Document);
+                }
+                else
+                {
+                    UpdatedFiles.push_back(NewFileIndex);   
+                }
+                OldFileIndex++;
+                NewFileIndex++;
+            }
+        }
+        while(NewFileIndex != NewDir.FileIndexEnd)
+        {
+            UpdatedFiles.push_back(NewFileIndex);
+            NewFileIndex++;
+        }
+    }
+    void DocumentFilesystem::p_UpdateOverDirectory(DocumentFilesystem& NewFilesystem,DocumentFilesystem& OldFilesystem,IndexType NewDirIndex,IndexType OldDirIndex,std::vector<IndexType>& UpdatedFiles,std::vector<bool>& NewFileUpdated)
+    {
+        DocumentDirectoryInfo const& NewDir = NewFilesystem.m_DirectoryInfos[NewDirIndex];
+        DocumentDirectoryInfo const& OldDir = OldFilesystem.m_DirectoryInfos[OldDirIndex];
+        p_UpdateDirectoryFiles(NewFilesystem,OldFilesystem,NewDir,OldDir,UpdatedFiles,NewFileUpdated);
+        IndexType NewSubDirIndex = NewDir.DirectoryIndexBegin;
+        IndexType OldSubDirIndex = OldDir.DirectoryIndexBegin;
+        while(NewSubDirIndex < NewDir.DirectoryIndexEnd && OldSubDirIndex < OldDir.DirectoryIndexEnd)
+        {
+            DocumentDirectoryInfo const& NewSubDir = NewFilesystem.m_DirectoryInfos[NewSubDirIndex];
+            DocumentDirectoryInfo const& OldSubDir = OldFilesystem.m_DirectoryInfos[OldDirIndex];
+            if(NewSubDir.Name < OldSubDir.Name)
+            {
+                //all files are to be considered new
+                if(NewSubDir.DirectoryIndexBegin != NewSubDir.DirectoryIndexEnd)
+                {
+                    IndexType FileBegin = NewFilesystem.m_DirectoryInfos[NewSubDir.DirectoryIndexBegin].FileIndexBegin;
+                    IndexType FileEnd = NewFilesystem.m_DirectoryInfos[NewSubDir.DirectoryIndexEnd-1].FileIndexEnd;
+                    for(auto i = FileBegin; i < FileEnd;i++)
+                    {
+                        UpdatedFiles.push_back(i);
+                        NewFileUpdated[i] = true;
+                    }
+                }
+                NewSubDirIndex++;
+            }
+            else if(OldSubDir.Name < NewSubDir.Name)
+            {
+                OldSubDirIndex++;
+            }
+            else
+            {
+                p_UpdateOverDirectory(NewFilesystem,OldFilesystem,NewSubDirIndex,OldSubDirIndex,UpdatedFiles,NewFileUpdated);
+                NewSubDirIndex++;
+                OldSubDirIndex++;
+            }
+        }
+        while(NewSubDirIndex < NewDir.DirectoryIndexEnd)
+        {
+
+            NewSubDirIndex++;
+        }
+    }
+    MBError DocumentFilesystem::CreateDocumentFilesystem(DocumentBuild const& BuildToParse,LSPInfo const& LSPConf,ProcessedColorConfiguration const& ColorConf,DocumentFilesystem& OutBuild,DocumentFilesystem& PreviousBuild,std::vector<IndexType>& OutOutdatedFiles)
+    {
+        MBError ReturnValue = true;
+        try 
+        {
+            std::vector<IndexType> OutdatedFiles;
+            std::vector NewFileUpdated = std::vector(OutBuild.m_TotalSources.size(),false);
+            p_UpdateOverDirectory(OutBuild,PreviousBuild,0,0,OutdatedFiles,NewFileUpdated);
+            MBError ParseError = true;
+            for(auto const& Index : OutdatedFiles)
+            {
+                DocumentParsingContext Parser;
+                OutBuild.m_TotalSources[Index].Document = Parser.ParseSource(OutBuild.m_TotalSources[Index].Document.Path, ParseError);
+                if(!ParseError)
+                {
+                    return ParseError;   
+                }
+            }
+            p_PostProcessSources(OutBuild,LSPConf,ColorConf,OutdatedFiles);
+            std::swap(OutOutdatedFiles,OutdatedFiles);
+        }
+        catch (std::exception const& e) 
+        {
+            ReturnValue = false;
+            ReturnValue.ErrorMessage = e.what();
+        }
+        return(ReturnValue);  
+    }
+    MBParsing::JSONObject ToJSON(DocumentSource const& Source)
+    {
+        MBParsing::JSONObject Result(MBParsing::JSONObjectType::Aggregate);
+        Result["Path"] = MBUnicode::PathToUTF8(Source.Path);
+        Result["Name"] = Source.Name;
+        Result["Title"] = Source.Title;
+        Result["Timestamp"] = intmax_t(Source.Timestamp);
+        std::vector<MBParsing::JSONObject> ExternalReferences;
+        for(auto const& Reference : Source.ExternalReferences)
+        {
+            ExternalReferences.emplace_back(Reference.GetString());
+        }
+        Result["ExternalReferences"] = std::move(ExternalReferences);
+        Result["ReferenceTargets"] = ReferenceTargetsResolver::ToJSON(Source.ReferenceTargets);
+        return Result;
+    }
+    MBParsing::JSONObject ToJSON(DocumentDirectoryInfo const& Source)
+    {
+        MBParsing::JSONObject Result(MBParsing::JSONObjectType::Aggregate);
+        Result["Name"] = MBParsing::ToJSON(Source.Name);
+        Result["ParentDirectoryIndex"] = MBParsing::ToJSON(Source.ParentDirectoryIndex);
+        Result["FileIndexBegin"] = MBParsing::ToJSON(Source.FileIndexBegin);
+        Result["FileIndexEnd"] = MBParsing::ToJSON(Source.FileIndexEnd);
+        Result["DirectoryIndexBegin"] = MBParsing::ToJSON(Source.DirectoryIndexBegin);
+        Result["DirectoryIndexEnd"] = MBParsing::ToJSON(Source.DirectoryIndexEnd);
+        Result["NextDirectory"] = MBParsing::ToJSON(Source.NextDirectory);
+        Result["FirstFileIndex"] = MBParsing::ToJSON(Source.FirstFileIndex);
+        Result["FirstSubDirIndex"] = MBParsing::ToJSON(Source.FirstSubDirIndex);
+        return Result;
+    }
+    MBParsing::JSONObject ToJSON(DocumentFilesystem const& Filesystem)
+    {
+        MBParsing::JSONObject ReturnValue(MBParsing::JSONObjectType::Aggregate);
+        ReturnValue["ResourceMap"] = DocumentFilesystem::ResourceMap::ToJSON(Filesystem.m_ResourceMap);
+        ReturnValue["Files"] = MBParsing::ToJSON(Filesystem.m_TotalSources);
+        ReturnValue["Directories"] = MBParsing::ToJSON(Filesystem.m_DirectoryInfos);
+        return ReturnValue;
+    }
+    void FromJSON(DocumentSource& Source, MBParsing::JSONObject const& ObjectToParse)
+    {
+        std::string PathString;
+        MBParsing::FromJSON(PathString,ObjectToParse["Path"]);
+        Source.Path = PathString;
+        MBParsing::FromJSON(Source.Name,ObjectToParse["Name"]);
+        MBParsing::FromJSON(Source.Timestamp,ObjectToParse["Timestamp"]);
+        MBParsing::FromJSON(Source.Title,ObjectToParse["Title"]);
+        std::vector<std::string> ReferenceStrings;
+        MBParsing::FromJSON(ReferenceStrings,ObjectToParse["ExternalReferences"]);
+        for(auto const& Reference : ReferenceStrings)
+        {
+            MBError Result = true;
+            Source.ExternalReferences.push_back(DocumentPath::ParsePath(Reference,Result));
+            if(!Result)
+            {
+                throw std::runtime_error("Error parsing reference: "+Result.ErrorMessage);   
+            }
+        }
+        ReferenceTargetsResolver::FromJSON(Source.ReferenceTargets,ObjectToParse["ReferenceTargets"]);
+    }
+    void FromJSON(DocumentDirectoryInfo& Directory, MBParsing::JSONObject const& ObjectToParse)
+    {
+        MBParsing::FromJSON(Directory.Name,ObjectToParse["Name"]);
+        MBParsing::FromJSON(Directory.ParentDirectoryIndex,ObjectToParse["ParentDirectoryIndex"]);
+        MBParsing::FromJSON(Directory.FileIndexBegin,ObjectToParse["FileIndexBegin"]);
+        MBParsing::FromJSON(Directory.FileIndexEnd,ObjectToParse["FileIndexEnd"]);
+        MBParsing::FromJSON(Directory.DirectoryIndexBegin,ObjectToParse["DirectoryIndexBegin"]);
+        MBParsing::FromJSON(Directory.DirectoryIndexEnd,ObjectToParse["DirectoryIndexEnd"]);
+        MBParsing::FromJSON(Directory.NextDirectory,ObjectToParse["NextDirectory"]);
+        MBParsing::FromJSON(Directory.FirstFileIndex,ObjectToParse["FirstFileIndex"]);
+        MBParsing::FromJSON(Directory.FirstSubDirIndex,ObjectToParse["FirstSubDirIndex"]);
+    }
+    void FromJSON(DocumentFilesystem& Filesystem, MBParsing::JSONObject const& ObjectToParse)
+    {
+        MBParsing::FromJSON(Filesystem.m_DirectoryInfos,ObjectToParse["Directories"]);
+        DocumentFilesystem::ResourceMap::FromJSON(Filesystem.m_ResourceMap,ObjectToParse["ResourceMap"]);
+        MBParsing::FromJSON(Filesystem.m_TotalSources,ObjectToParse["Files"]);
+    }
+
     DocumentFilesystem::DocumentFilesystemReferenceResolver::DocumentFilesystemReferenceResolver(DocumentFilesystem* AssociatedFilesystem,DocumentPath CurrentPath,std::filesystem::path DocumentPath,ResourceMap* ResourceMappinwg)
     {
         m_AssociatedFilesystem = AssociatedFilesystem;
@@ -3417,11 +3724,12 @@ namespace MBDoc
         MediaInclude.MediaPath = MBUnicode::PathToUTF8(std::filesystem::canonical(m_DocumentPath.parent_path()/MediaInclude.MediaPath));
         MediaInclude.ID = m_ResourceMapping->GetResourceID(MediaInclude.MediaPath);
     }
-    void DocumentFilesystem::p_ResolveReferences()
+    void DocumentFilesystem::p_ResolveReferences(std::vector<IndexType> const& ModifiedSources)
     {
         DocumentFilesystemIterator Iterator(0); 
         Iterator.m_AssociatedFilesystem = this;
         DocumentTraverser Traverser; 
+        std::unordered_set<bool> ModifiedMap = std::unordered_set<bool>(ModifiedSources.begin(),ModifiedSources.end());
         while(Iterator.HasEnded() == false)
         {
             if(!Iterator.EntryIsDirectory())
@@ -3429,9 +3737,11 @@ namespace MBDoc
                 DocumentPath CurrentPath = Iterator.GetCurrentPath();
                 //yikes
                 DocumentSource& CurrentDoc = const_cast<DocumentSource&>(Iterator.GetDocumentInfo());
-                
-                DocumentFilesystemReferenceResolver Resolver(this,CurrentPath,CurrentDoc.Path,&m_ResourceMap);
-                Traverser.Traverse(CurrentDoc,Resolver);
+                if(ModifiedSources.size() == 0 && ModifiedMap.find(Iterator.GetCurrentFileIndex())  != ModifiedMap.end())
+                {
+                    DocumentFilesystemReferenceResolver Resolver(this,CurrentPath,CurrentDoc.Path,&m_ResourceMap);
+                    Traverser.Traverse(CurrentDoc,Resolver);
+                }
             }
             Iterator++; 
         }
@@ -3846,7 +4156,7 @@ namespace MBDoc
         }
         return(ReturnValue);
     }
-    void DocumentFilesystem::p_ColorizeLSP(ProcessedColorConfiguration const& ColorConig,LSPInfo const& LSPConfig)
+    void DocumentFilesystem::p_ColorizeLSP(ProcessedColorConfiguration const& ColorConig,LSPInfo const& LSPConfig,std::vector<IndexType> const& ModifiedSources)
     {
         //how to create these is not completelty obvious
         std::unordered_map<std::string,std::unique_ptr<MBLSP::LSP_Client>> InitialziedLSPs;
@@ -3858,8 +4168,14 @@ namespace MBDoc
         //        std::make_unique<MBUtility::NonOwningOutputStream>(&SubProcess));
         //InitialziedLSPs["clangd"]->InitializeServer(Init);
         LSPReferenceResolver ReferenceResolver;
-        for(auto& Entry : m_TotalSources)
+        //for(auto& Entry : m_TotalSources)
+        for(int i = 0; i < m_TotalSources.size();i++)
         {
+            if(ModifiedSources.size() > 0 && i >= ModifiedSources.size())
+            {
+                break;   
+            }
+            auto& Entry = ModifiedSources.size() == 0 ? m_TotalSources[i] : m_TotalSources[ModifiedSources[i]];
             std::filesystem::path DocumentPath = Entry.Document.Path;
             auto Lambda = [&](CodeBlock& BlockToModify) -> void
                     {

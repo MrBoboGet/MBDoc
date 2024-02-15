@@ -25,6 +25,8 @@
 #include "ColorConf.h"
 #include "LSP.h"
 #include "MBLSP/LSP_Structs.h"
+
+#include "MBParsing/JSON.h"
 namespace MBDoc
 {
 
@@ -898,13 +900,17 @@ namespace MBDoc
         };
         std::vector<FlatLabelNode> m_Nodes;
         
-        static LabelNode p_ExtractLabelNode(FormatElement const& ElementToConvert);
+        static MBParsing::JSONObject p_ToJSON(std::vector<FlatLabelNode> const&, size_t Index);
+        static LabelNode p_FromJSON(MBParsing::JSONObject const& ObjectToParse);
+        static LabelNode p_ExtractLabelNode(FormatElement const& ElementToConvert);;
         static std::vector<LabelNode> p_GetDocumentLabelNodes(std::vector<FormatElementComponent>  const& SourceToConvert);
         static FlatLabelNode p_UpdateFlatNodeList(std::vector<FlatLabelNode>& OutNodes,LabelNode const& NodeToFlatten);
         static std::vector<FlatLabelNode> p_GetFlatLabelNodes(std::vector<LabelNode> NodeToConvert);
 
         bool p_ContainsLabel(LabelNodeIndex NodeIndex,std::vector<std::string> const& Labels,int LabelIndex) const;
     public:      
+        static MBParsing::JSONObject ToJSON(ReferenceTargetsResolver const& ObjectToConvert);
+        static void FromJSON(ReferenceTargetsResolver& Result,MBParsing::JSONObject const& ObjectToParse);
         bool ContainsLabels(std::vector<std::string> const& Labels) const;
         ReferenceTargetsResolver();
         ReferenceTargetsResolver(std::vector<FormatElementComponent> const& FormatsToInspect);
@@ -919,12 +925,21 @@ namespace MBDoc
         DocumentSource& operator=(DocumentSource const& OtherSource) = delete;
         DocumentSource() {};
 
+
+        //"meta data", stored on disk when doing incremental builds
         std::filesystem::path Path;
         std::string Name;
-        std::string Title;
+        uint64_t Timestamp = 0;
         ReferenceTargetsResolver ReferenceTargets;
-        std::unordered_set<std::string> References;
+        //doesnt include refernces internal to the file, such as @[here](#foo). 
+        //used for implementing 
+        std::vector<DocumentPath> ExternalReferences;
+        std::string Title;
+        
+        //actual content, may not be filled when doing incremental builds
         std::vector<FormatElementComponent> Contents;
+        friend MBParsing::JSONObject ToJSON(DocumentSource const& Source);
+        friend void FromJSON(DocumentSource& Source, MBParsing::JSONObject const& ObjectToParse);
     };
     class Document
     {
@@ -1256,7 +1271,8 @@ namespace MBDoc
         static DocumentBuild ParseDocumentBuild(MBUtility::MBOctetInputStream& InputStream,std::filesystem::path const& BuildDirectory,MBError& OutError);
         static DocumentBuild ParseDocumentBuild(std::filesystem::path const& FilePath,MBError& OutError);
     };
-    typedef std::int_least32_t IndexType;
+    //typedef std::int_least32_t IndexType;
+    typedef int IndexType;
     struct PathSpecifier
     {
         bool AnyRoot = false;
@@ -1283,11 +1299,25 @@ namespace MBDoc
         IndexType NextDirectory = -1;
         IndexType FirstFileIndex = -1;
         IndexType FirstSubDirIndex = -1;
+        friend MBParsing::JSONObject ToJSON(DocumentDirectoryInfo const& Source);
+        friend void FromJSON(DocumentDirectoryInfo& Directory, MBParsing::JSONObject const& ObjectToParse);
     };
     struct FilesystemDocumentInfo
     {
         DocumentSource Document;
         IndexType NextFile = -1;
+        friend MBParsing::JSONObject ToJSON(FilesystemDocumentInfo const& DocumentInfo)
+        {
+            MBParsing::JSONObject ReturnValue(MBParsing::JSONObjectType::Aggregate);
+            ReturnValue["Document"] = ToJSON(DocumentInfo.Document);
+            ReturnValue["NextFile"] = MBParsing::ToJSON(intmax_t(DocumentInfo.NextFile));
+            return ReturnValue;
+        }
+        friend void FromJSON(FilesystemDocumentInfo& Result,MBParsing::JSONObject const& ObjectToParse)
+        {
+            FromJSON(Result.Document,ObjectToParse["Document"]);
+            FromJSON(Result.NextFile,ObjectToParse["NextFile"]);
+        }
     };
     class DocumentFilesystem;
     class DocumentFilesystemIterator
@@ -1312,6 +1342,7 @@ namespace MBDoc
         //Accessors
         DocumentPath GetCurrentPath() const;
         bool EntryIsDirectory() const;
+        IndexType GetFileIndex() const;
         std::string GetEntryName() const;
         DocumentSource const& GetDocumentInfo() const;
         bool HasEnded() const;
@@ -1433,12 +1464,6 @@ namespace MBDoc
         //};
     private:
         friend class DocumentFilesystemIterator;
-
-        std::unordered_map<std::string,DocumentPath> m_CachedPathsConversions;
-
-        std::vector<DocumentDirectoryInfo> m_DirectoryInfos;   
-        std::vector<FilesystemDocumentInfo> m_TotalSources;
-
         class ResourceMap
         {
         private:
@@ -1455,8 +1480,22 @@ namespace MBDoc
                 }
                 return ReturnValue;
             }
+            static MBParsing::JSONObject ToJSON(ResourceMap const& Source)
+            {
+                MBParsing::JSONObject ReturnValue(MBParsing::JSONObjectType::Aggregate);
+                ReturnValue["ResourceMap"] = MBParsing::ToJSON(Source.m_ResourceMap);
+                ReturnValue["CurrentID"] = MBParsing::ToJSON(Source.m_CurrentID);
+                return ReturnValue;
+            }
+            static void FromJSON(ResourceMap& Map, MBParsing::JSONObject const& ObjectToParse)
+            {
+                MBParsing::FromJSON(Map.m_CurrentID,ObjectToParse["CurrentID"]);
+                MBParsing::FromJSON(Map.m_ResourceMap,ObjectToParse["ResourceMap"]);
+            }
         };
         ResourceMap m_ResourceMap;
+        std::vector<DocumentDirectoryInfo> m_DirectoryInfos;   
+        std::vector<FilesystemDocumentInfo> m_TotalSources;
         
         struct FSSearchResult
         {
@@ -1518,12 +1557,16 @@ namespace MBDoc
         //DocumentDirectoryInfo p_UpdateFilesystemOverBuild(DocumentBuild const& BuildToAppend,size_t FileIndexBegin,size_t DirectoryIndex,std::string DirectoryName,MBError& OutError);
 
         //static BuildDirectory p_ParseBuildDirectory(DocumentBuild const&  BuildToParse);
-        DocumentDirectoryInfo p_UpdateOverDirectory(DocumentBuild const& Directory,IndexType FileIndexBegin,IndexType DirectoryIndex);
+        DocumentDirectoryInfo p_UpdateOverDirectory(DocumentBuild const& Directory,IndexType FileIndexBegin,IndexType DirectoryIndex,bool ParseSource);
+        static void p_CreateDirectoryStructure(DocumentFilesystem& OutFilesystem,DocumentBuild const& BuildToParse,bool ParseSources);
+        static void p_PostProcessSources(DocumentFilesystem& OutFilesystem, LSPInfo const& LSPConf, ProcessedColorConfiguration const& ColorConf,std::vector<IndexType> const& SourcesToUpdate = {});
+        static void p_UpdateOverDirectory(DocumentFilesystem& NewFilesystem,DocumentFilesystem& OldBuild,IndexType NewDirIndex,IndexType OldDirIndex,std::vector<IndexType>& UpdatedFiles,std::vector<bool>& NewFileUpdated);
+        static void p_UpdateDirectoryFiles(DocumentFilesystem& NewFilesystem,DocumentFilesystem& OldBuild,DocumentDirectoryInfo const& NewDir,DocumentDirectoryInfo const& OldDir,std::vector<IndexType>& UpdatedFiles,std::vector<bool>& NewFileUpdated);
 
         void __PrintDirectoryStructure(DocumentDirectoryInfo const& CurrentDir,int Depth) const;
 
 
-        void p_ResolveReferences();
+        void p_ResolveReferences(std::vector<IndexType> const& ModifiedSources);
         
 
         static std::vector<Coloring> p_GetRegexColorings(std::vector<Coloring> const& PreviousColorings,
@@ -1533,17 +1576,33 @@ namespace MBDoc
         
         static std::vector<Coloring> p_GetLSPColoring(MBLSP::LSP_Client& ClientToUse,std::string const& URI,std::string const& TextContent,ProcessedColorInfo const& ColorInfo,LineIndex const& Index);
         //Kinda ugly, should probably make this a bit more clean but it is what it is
-        static ResolvedCodeText p_CombineColorings(std::vector<Coloring> const& RegexColoring,std::vector<Coloring> const& LSPColoring,std::string const& 
+        static ResolvedCodeText p_CombineColorings(std::vector<Coloring> const& RegexColoring,
+                std::vector<Coloring> const& LSPColoring,std::string const& 
                 OriginalContent,LineIndex const& Index,ProcessedColorInfo const& ColorInfo,LSPReferenceResolver* OptionalResolver);
 
-        void p_ColorizeLSP(ProcessedColorConfiguration const& ColoringConfiguration,LSPInfo const& LSPConfig);
+        void p_ColorizeLSP(ProcessedColorConfiguration const& ColoringConfiguration,LSPInfo const& LSPConfig,std::vector<IndexType> const& ModifiedSources);
+
+
+
+        //Incremental builds
+        
+        //ensures that all indecies are within bounds, that directories content doesn't overlap,
+        //and that no cycles exists
+        static bool p_VerifyParsedFilesystem(DocumentFilesystem const& FilesystemToCheck);
     public: 
+        friend MBParsing::JSONObject ToJSON(DocumentFilesystem const& Filesystem);
+        friend void FromJSON(DocumentFilesystem& Filesystem, MBParsing::JSONObject const& ObjectToParse);
+
+
         DocumentFilesystemIterator begin() const;
         DocumentPath ResolveReference(DocumentPath const& DocumentPath,std::string const& PathIdentifier,MBError& OutResult) const;
-        [[nodiscard]] 
-        static MBError CreateDocumentFilesystem(DocumentBuild const& BuildToParse,LSPInfo const& LSPConf,ProcessedColorConfiguration const& 
-                ColorConf,DocumentFilesystem& OutBuild);
+        bool DocumentExists(DocumentPath const& DocumentPath) const;
+        bool DocumentExists(DocumentPath const& DocumentPath,IndexType& OutIndex) const;
 
+        [[nodiscard]] 
+        static MBError CreateDocumentFilesystem(DocumentBuild const& BuildToParse,LSPInfo const& LSPConf,ProcessedColorConfiguration const& ColorConf,DocumentFilesystem& OutBuild,bool ParseSource = true);
+        //previous build is modified, transfering it's metadata to the new build 
+        static MBError CreateDocumentFilesystem(DocumentBuild const& BuildToParse,LSPInfo const& LSPConf,ProcessedColorConfiguration const& ColorConf,DocumentFilesystem& OutBuild,DocumentFilesystem& PreviousBuild,std::vector<IndexType>& OutdatedFiles);
         void __PrintDirectoryStructure() const;
     };
 

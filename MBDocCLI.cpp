@@ -118,11 +118,27 @@ namespace MBDoc
         }
         return(ReturnValue);
     }
-    DocumentFilesystem DocCLI::p_GetFilesystem(DocumentBuild const& Build,MBCLI::ArgumentListCLIInput const& CommandInput)
+    DocumentFilesystem DocCLI::p_GetFilesystem(DocumentBuild const& Build,std::filesystem::path const& OldBuildPath ,MBCLI::ArgumentListCLIInput const& CommandInput,std::vector<IndexType>& UpdatedFiles)
     {
         DocumentFilesystem ReturnValue; 
         MBError ParseResult = true;
-        ParseResult = DocumentFilesystem::CreateDocumentFilesystem(Build,m_LSPConf,m_ColorConfiguration,ReturnValue);
+        if(!std::filesystem::exists(OldBuildPath))
+        {
+            ParseResult = DocumentFilesystem::CreateDocumentFilesystem(Build,m_LSPConf,m_ColorConfiguration,ReturnValue);
+        }
+        else
+        {
+            MBError ParseError = false;
+            MBParsing::JSONObject OldBuildInfo = MBParsing::ParseJSONObject(OldBuildPath,&ParseError);
+            if(!ParseError)
+            {
+                throw std::runtime_error("Error parsing BuildInfo.json: "+ParseError.ErrorMessage);
+            }
+            DocumentFilesystem OldBuild;
+            FromJSON(OldBuild,OldBuildInfo);
+            ParseResult = DocumentFilesystem::CreateDocumentFilesystem(Build,m_LSPConf,m_ColorConfiguration,ReturnValue,false);
+            ParseResult = DocumentFilesystem::CreateDocumentFilesystem(Build,m_LSPConf,m_ColorConfiguration,ReturnValue,OldBuild,UpdatedFiles);
+        }
         if(!ParseResult)
         {
             m_AssociatedTerminal.PrintLine("Error creating build document filesystem: "+ParseResult.ErrorMessage);   
@@ -299,7 +315,16 @@ namespace MBDoc
             CommonCompilationOptions CompileOptions = p_GetOptions(CommandInputs);
             std::unique_ptr<DocumentCompiler> CompilerToUse = p_GetCompiler(CommandInputs[0]);
             DocumentBuild BuildToCompile = p_GetBuild(CommandInputs[0]);
-            DocumentFilesystem BuildFilesystem = p_GetFilesystem(BuildToCompile, CommandInputs[0]);
+            std::filesystem::path OutDir = CompileOptions.OutputDirectory;
+            std::filesystem::path BuildInfoPath = OutDir/"BuildInfo.json";
+            bool UsingBuildInfo = false;
+            if(std::filesystem::exists(BuildInfoPath))
+            {
+                UsingBuildInfo = true;
+            }
+            std::vector<IndexType> UpdatedFiles;
+            DocumentFilesystem BuildFilesystem = p_GetFilesystem(BuildToCompile, BuildInfoPath, CommandInputs[0],UpdatedFiles);
+            std::unordered_set<bool> FileIsUpdated = std::unordered_set<bool>(UpdatedFiles.begin(),UpdatedFiles.end());
             if (CommandInputs[0].CommandOptions.find("check-references") != CommandInputs[0].CommandOptions.end())
             {
                 auto Iterator = BuildFilesystem.begin();
@@ -309,15 +334,15 @@ namespace MBDoc
                     {
                         MBDoc::DocumentPath CurrentPath = Iterator.GetCurrentPath();
                         MBDoc::DocumentSource const& CurrentSource = Iterator.GetDocumentInfo();
-                        for (std::string const& Reference : CurrentSource.References)
-                        {
-                            MBError ReferenceResult = true;
-                            BuildFilesystem.ResolveReference(CurrentPath, Reference, ReferenceResult);
-                            if (!ReferenceResult)
-                            {
-                                std::cout << "Error resolving reference " + Reference + " in file " + CurrentPath.GetString() << std::endl;
-                            }
-                        }
+                        //for (std::string const& Reference : CurrentSource.References)
+                        //{
+                        //    MBError ReferenceResult = true;
+                        //    BuildFilesystem.ResolveReference(CurrentPath, Reference, ReferenceResult);
+                        //    if (!ReferenceResult)
+                        //    {
+                        //        std::cout << "Error resolving reference " + Reference + " in file " + CurrentPath.GetString() << std::endl;
+                        //    }
+                        //}
                     }
                     Iterator++;
                 }
@@ -330,12 +355,18 @@ namespace MBDoc
                 auto FilesystemIterator = BuildFilesystem.begin();
                 while(!FilesystemIterator.HasEnded())
                 {
-                    if(!FilesystemIterator.EntryIsDirectory())
+                    if(!FilesystemIterator.EntryIsDirectory() && 
+                            (!UsingBuildInfo || FileIsUpdated.find(FilesystemIterator.GetFileIndex()) != FileIsUpdated.end()))
                     {
                         DocumentPath CurrentPath = FilesystemIterator.GetCurrentPath();
                         CompilerToUse->CompileDocument(CurrentPath,FilesystemIterator.GetDocumentInfo());
                     } 
                     FilesystemIterator++;        
+                }
+                if(BuildInfoPath != "")
+                {
+                    std::ofstream OutFile(BuildInfoPath);
+                    OutFile<<ToJSON(BuildFilesystem).ToString();;
                 }
                 //CompilerToUse->Compile(BuildFilesystem, CompileOptions);
             }
