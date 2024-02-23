@@ -1880,10 +1880,14 @@ namespace MBDoc
         MBParsing::JSONObject JSONData = MBParsing::ParseJSONObject(TotalFileData,0,nullptr,&OutError);
         if(!OutError)
         {
-            return(ReturnValue);   
+            return(ReturnValue);
         }
         try
         {
+            if(JSONData.HasAttribute("Name") && JSONData["Name"].GetType() == MBParsing::JSONObjectType::String)
+            {
+                ReturnValue.Name = JSONData["Name"].GetStringData();
+            }
             MBParsing::JSONObject const& TopDirectory = JSONData["TopDirectory"];
             p_ParseDocumentBuildDirectory(ReturnValue,TopDirectory,BuildDirectory,OutError);
         }
@@ -2063,6 +2067,41 @@ namespace MBDoc
     //END DocumentPath
 
     //BEGIN DocumentReference
+    std::vector<std::string> DocumentReference::ParseHomeSpecifier(std::string_view Data, size_t InParseOffset,size_t DataSize,size_t& OutParseOffset,MBError& OutError)
+    {
+        std::vector<std::string> ReturnValue;
+        //only enter this function given that Data[ParseOffset] == '~'
+        size_t ParseOffset = InParseOffset + 1;
+        std::string CurrentDirectoryId = "";
+        while(ParseOffset < Data.size())
+        {
+            if(Data[ParseOffset] == '/')
+            {
+                ParseOffset += 1;
+                break;   
+            }
+            else if(Data[ParseOffset] == '{')
+            {
+                OutError = false;   
+                OutError.ErrorMessage = "Invalid character '{' in home specifier";
+                break;
+            }
+            else if(Data[ParseOffset] == '.')
+            {
+                ReturnValue.push_back(CurrentDirectoryId);
+                CurrentDirectoryId = "";
+                ParseOffset += 1;
+            }
+            else
+            {
+                CurrentDirectoryId += Data[ParseOffset];
+                ParseOffset += 1;
+            }
+        }
+        ReturnValue.push_back(CurrentDirectoryId);
+        OutParseOffset = ParseOffset;
+        return ReturnValue;
+    }
     DocumentReference DocumentReference::ParseReference(std::string StringToParse,MBError& OutError)
     {
         DocumentReference ReturnValue;
@@ -2084,7 +2123,16 @@ namespace MBDoc
         }
         size_t ParseOffset = 0;
         MBParsing::SkipWhitespace(StringToParse,ParseOffset,&ParseOffset);
-        if(ParseOffset < StringToParse.size() && StringToParse[ParseOffset] == '/')
+
+        if(ParseOffset < StringToParse.size() && StringToParse[ParseOffset] == '~')
+        {
+            ReturnValue.HomeSpecifier = ParseHomeSpecifier(StringToParse,ParseOffset,StringToParse.size(),ParseOffset,OutError);
+            if(!OutError)
+            {
+                return ReturnValue;   
+            }
+        }
+        else if(ParseOffset < StringToParse.size() && StringToParse[ParseOffset] == '/')
         {
             PathSpecifier NewSpecifier;
             NewSpecifier.PathNames.push_back("/");
@@ -2830,6 +2878,68 @@ namespace MBDoc
         }
         return(ReturnValue);
     }
+    bool DocumentFilesystem::p_HomeSatisifesSpecification(IndexType HomeIndex, std::vector<std::string> const& HomeSpecifier,int Offset) const
+    {
+        bool ReturnValue = false;
+        if(Offset >= HomeSpecifier.size() || HomeIndex == -1)
+        {
+            return false;   
+        }
+        auto const& CurrentPart = HomeSpecifier[(HomeSpecifier.size() - 1) - Offset];
+        if(CurrentPart == "")
+        {
+            return true;   
+        }
+        if(m_HomeIntervalls[HomeIndex].Name == CurrentPart)
+        {
+            if(Offset + 1 == HomeSpecifier.size())
+            {
+                return true;   
+            }
+            else
+            {
+                return p_HomeSatisifesSpecification( m_HomeIntervalls[HomeIndex].ParentIndex,HomeSpecifier,Offset+1);
+            }
+        }
+        return ReturnValue;
+    }
+    DocumentFilesystem::FSSearchResult DocumentFilesystem::p_ResolveHomeSpecifier(IndexType FileIndex,std::vector<std::string> const& HomeSpecifier) const
+    {
+        FSSearchResult ReturnValue;
+        if(m_HomeIntervalls.size() == 0)
+        {
+            return ReturnValue;   
+        }
+        auto FirstHomeIt = std::lower_bound(m_HomeIntervalls.begin(),m_HomeIntervalls.end(),FileIndex,
+                [&](HomeIntervall const& Lhs,IndexType Index)
+                {
+                    auto const& CurrentDir = m_DirectoryInfos[Lhs.DirIndex];
+                    return CurrentDir.FileIndexBegin <= Index;
+                });
+        if((FirstHomeIt - m_HomeIntervalls.begin()) == 0)
+        {
+            return ReturnValue;   
+        }
+        IndexType CurrentHomeIndex = (FirstHomeIt - m_HomeIntervalls.begin())-1;
+        if(!(m_DirectoryInfos[m_HomeIntervalls[CurrentHomeIndex].DirIndex].FileIndexBegin <= FileIndex && FileIndex < m_DirectoryInfos[m_HomeIntervalls[CurrentHomeIndex].DirIndex].FileIndexEnd))
+        {
+            return ReturnValue;
+        }
+        while(CurrentHomeIndex != -1)
+        {
+            if(p_HomeSatisifesSpecification(CurrentHomeIndex,HomeSpecifier,0))
+            {
+                ReturnValue.Index = m_HomeIntervalls[CurrentHomeIndex].DirIndex;
+                ReturnValue.Type = DocumentFSType::Directory;
+                return ReturnValue;
+            }
+            else
+            {
+                CurrentHomeIndex = m_HomeIntervalls[CurrentHomeIndex].ParentIndex;
+            }
+        }
+        return ReturnValue;
+    }
     bool h_ContainFileComp(DocumentDirectoryInfo const& DirectoryToCheck, size_t FileToContain)
     { 
         if (DirectoryToCheck.FileIndexBegin == DirectoryToCheck.FileIndexEnd)
@@ -2924,12 +3034,23 @@ namespace MBDoc
         SearchRoot.Type = DocumentFSType::Directory;
         SearchRoot.Index = 0;//Root directory
         IndexType SpecifierOffset = 0;
+
+        if(ReferenceIdentifier.HomeSpecifier.size() != 0)
+        {
+            auto FileIndex = p_GetFileIndex(FilePath);
+            SearchRoot = p_ResolveHomeSpecifier(FileIndex,ReferenceIdentifier.HomeSpecifier);
+            if(SearchRoot.Type == DocumentFSType::Null)
+            {
+                *OutResult = false;   
+                return ReturnValue;
+            }
+        }
         if (ReferenceIdentifier.PathSpecifiers.size() > 0)
         {
             if (ReferenceIdentifier.PathSpecifiers[0].AnyRoot == false)
             {
                 SpecifierOffset = 1;
-                if (ReferenceIdentifier.PathSpecifiers[0].PathNames.front() != "/")
+                if (ReferenceIdentifier.PathSpecifiers[0].PathNames.front() != "/" && ReferenceIdentifier.HomeSpecifier.size() == 0)
                 {
                     //The current directory needs to be resolved 
                     SearchRoot.Index = p_GetFileDirectoryIndex(FilePath);
@@ -3342,6 +3463,7 @@ namespace MBDoc
         {
             TotalSubFiles += SubDirectory.second.DirectoryFiles.size();
         }
+
         IndexType NewFileIndexBegin = m_TotalSources.size();
         m_TotalSources.resize(TotalSubFiles + m_TotalSources.size());
         m_DirectoryInfos.resize(m_DirectoryInfos.size() + Directory.SubDirectories.size());
@@ -3355,14 +3477,26 @@ namespace MBDoc
                 {
                     return(Directory.SubDirectories[Left].first < Directory.SubDirectories[Right].first);     
                 });
-        //for (auto const& SubDirectory : Directory.SubDirectories)
+        IndexType HomeIndex = -1;
+        if(Directory.Name != "")
+        {
+            HomeIndex = m_HomeIntervalls.size();   
+            m_HomeIntervalls.emplace_back();
+            m_HomeIntervalls.back().Name = Directory.Name;
+            m_HomeIntervalls.back().DirIndex = DirectoryIndex;
+        }
         for(size_t i = 0; i < SortedDirectoryIndexes.size();i++)
         {
+            IndexType PrevHomeSize = m_HomeIntervalls.size();
             size_t SortedDirectoryIndex = SortedDirectoryIndexes[i];    
             auto const& SubDirectory = Directory.SubDirectories[SortedDirectoryIndex];
             m_DirectoryInfos[NewDirectoryIndexBegin + DirectoryOffset] = p_UpdateOverDirectory(SubDirectory.second, NewFileIndexBegin + FileOffset, NewDirectoryIndexBegin + DirectoryOffset,ParseSource);
             m_DirectoryInfos[NewDirectoryIndexBegin + DirectoryOffset].Name = SubDirectory.first;
             m_DirectoryInfos[NewDirectoryIndexBegin + DirectoryOffset].ParentDirectoryIndex = DirectoryIndex;
+            if(PrevHomeSize < m_HomeIntervalls.size() && HomeIndex != -1)
+            {
+                m_HomeIntervalls[PrevHomeSize].ParentIndex = HomeIndex;
+            }
             DirectoryOffset++;
             FileOffset += SubDirectory.second.DirectoryFiles.size();
         }
@@ -3737,7 +3871,7 @@ namespace MBDoc
                 DocumentPath CurrentPath = Iterator.GetCurrentPath();
                 //yikes
                 DocumentSource& CurrentDoc = const_cast<DocumentSource&>(Iterator.GetDocumentInfo());
-                if(ModifiedSources.size() == 0 && ModifiedMap.find(Iterator.GetCurrentFileIndex())  != ModifiedMap.end())
+                if(ModifiedSources.size() == 0 || ModifiedMap.find(Iterator.GetCurrentFileIndex())  != ModifiedMap.end())
                 {
                     DocumentFilesystemReferenceResolver Resolver(this,CurrentPath,CurrentDoc.Path,&m_ResourceMap);
                     Traverser.Traverse(CurrentDoc,Resolver);

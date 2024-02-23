@@ -58,12 +58,14 @@ namespace MBDoc
         m_VisitResultProperties += Ref.URL;
         m_VisitResultProperties += "\" class=\"link\"";
         m_VisitResultText = m_VisitResultProperties;
+        m_VisitLinkText = Ref.URL;
     }
     void HTMLReferenceSolver::Visit(FileReference const& Ref)
     {
        m_VisitResultProperties = GetDocumentPathURL(Ref.Path);
        m_VisitResultProperties += "\" class=\"link\"";
        m_VisitResultText = m_VisitResultProperties;
+       m_VisitLinkText = Ref.Path.GetString();
     }
     void HTMLReferenceSolver::Visit(UnresolvedReference const& Ref)
     {
@@ -78,6 +80,7 @@ namespace MBDoc
             m_VisitResultProperties += " style=\"color: inherit;\"";
         }
        m_VisitResultText = Ref.ReferenceString;
+       m_VisitLinkText = Ref.ReferenceString;
     }
     std::string HTMLReferenceSolver::GetReferenceString(DocReference const& ReferenceIdentifier,bool Colorize)
     {
@@ -92,7 +95,7 @@ namespace MBDoc
         }
         else
         {
-            ReturnValue += h_EscapeHTMLText(m_VisitResultText);    
+            ReturnValue += h_EscapeHTMLText(m_VisitLinkText);    
         }
         ReturnValue += "</a>";
         return(ReturnValue);

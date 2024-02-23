@@ -9,6 +9,8 @@ namespace MBDoc
     private:
         std::string m_VisitResultProperties;
         std::string m_VisitResultText;
+        std::string m_VisitLinkText = "";
+
         DocumentFilesystem const* m_AssociatedBuild = nullptr;
         DocumentPath m_CurrentPath;
         bool m_Colorize = true;

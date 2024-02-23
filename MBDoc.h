@@ -1258,7 +1258,9 @@ namespace MBDoc
         //std::filesystem::path BuildRootDirectory;
         //std::vector<DocumentPath> BuildFiles = {};
         //The first part is the "MountPoint", the directory prefix. Currently only supports a single directory name
-        
+
+        //used for home references with ~
+        std::string Name; 
         std::vector<std::filesystem::path> DirectoryFiles;
         //Guranteeed sorting
         std::vector<std::pair<std::string,DocumentBuild>> SubDirectories;
@@ -1280,8 +1282,10 @@ namespace MBDoc
     };
     struct DocumentReference
     {
+        std::vector<std::string> HomeSpecifier;
         std::vector<PathSpecifier> PathSpecifiers;
         std::vector<std::string> PartSpecifier; 
+        static std::vector<std::string> ParseHomeSpecifier(std::string_view Data, size_t ParseOffset,size_t DataSize,size_t& OutOffset,MBError& OutError);
         static DocumentReference ParseReference(std::string StringToParse,MBError& OutError);
     };
     //Usage assumptions: never modified, only created and read from. Optimize for access and assume no modification 
@@ -1493,16 +1497,6 @@ namespace MBDoc
                 MBParsing::FromJSON(Map.m_ResourceMap,ObjectToParse["ResourceMap"]);
             }
         };
-        ResourceMap m_ResourceMap;
-        std::vector<DocumentDirectoryInfo> m_DirectoryInfos;   
-        std::vector<FilesystemDocumentInfo> m_TotalSources;
-        
-        struct FSSearchResult
-        {
-            DocumentFSType Type = DocumentFSType::Null; 
-            IndexType Index = -1;
-        };
-        
         class DocumentFilesystemReferenceResolver : public MBDoc::DocumentVisitor
         {
         private:
@@ -1520,7 +1514,6 @@ namespace MBDoc
             DocumentFilesystemReferenceResolver(DocumentFilesystem* AssociatedFilesystem,DocumentPath CurrentPath,std::filesystem::path DocumentPath,ResourceMap* ResourceMapping);
             void ResolveReference(TextElement& ReferenceToResolve) override;
         };
-
         //only code of specific semantics are resolved, in order to make it 
         //generic
         enum class CodeReferenceType
@@ -1539,6 +1532,22 @@ namespace MBDoc
             bool ResolvesReferences();
             TextElement CreateReference(int Line,int Offset,std::string const& VisibleText,CodeReferenceType ReferenceType);
         };
+        struct HomeIntervall
+        {
+            std::string Name;
+            IndexType DirIndex = 0;
+            IndexType ParentIndex = -1;
+        };
+        struct FSSearchResult
+        {
+            DocumentFSType Type = DocumentFSType::Null; 
+            IndexType Index = -1;
+        };
+
+        ResourceMap m_ResourceMap;
+        std::vector<DocumentDirectoryInfo> m_DirectoryInfos;   
+        std::vector<FilesystemDocumentInfo> m_TotalSources;
+        std::vector<HomeIntervall> m_HomeIntervalls;
         
         IndexType p_DirectorySubdirectoryIndex(IndexType DirectoryIndex,std::string const& SubdirectoryName) const;
         IndexType p_DirectoryFileIndex(IndexType DirectoryIndex,std::string const& FileName) const;
@@ -1546,6 +1555,9 @@ namespace MBDoc
         FSSearchResult p_ResolveDirectorySpecifier(IndexType RootDirectoryIndex,DocumentReference const& ReferenceToResolve,IndexType SpecifierOffset) const;
         FSSearchResult p_ResolveAbsoluteDirectory(IndexType RootDirectoryIndex,PathSpecifier const& Path) const;
         FSSearchResult p_ResolvePartSpecifier(FSSearchResult CurrentResult,std::vector<std::string> const& PartSpecifier) const;
+
+        bool p_HomeSatisifesSpecification(IndexType HomeIndex, std::vector<std::string> const& HomeSpecifier,int Offset) const;
+        FSSearchResult p_ResolveHomeSpecifier(IndexType FileIndex,std::vector<std::string> const& HomeSpecifier) const;
         
         DocumentPath p_GetFileIndexPath(IndexType FileIndex) const;
         IndexType p_GetFileDirectoryIndex(DocumentPath const& PathToSearch) const;

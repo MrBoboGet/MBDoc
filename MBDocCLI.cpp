@@ -21,7 +21,7 @@ namespace MBDoc
     bool DocCLI::p_VerifyArguments(MBCLI::ArgumentListCLIInput const& ArgumentsToVerfiy)
     {
         bool ReturnValue = true;
-        std::unordered_set<std::string> ValidFlags = { "check-references","help"};
+        std::unordered_set<std::string> ValidFlags = { "check-references","help","clean"};
         for(auto const& Option : ArgumentsToVerfiy.CommandOptions)
         {
             if(ValidFlags.find(Option.first) == ValidFlags.end())
@@ -122,11 +122,11 @@ namespace MBDoc
     {
         DocumentFilesystem ReturnValue; 
         MBError ParseResult = true;
-        if(!std::filesystem::exists(OldBuildPath))
+        if(!std::filesystem::exists(OldBuildPath) || CommandInput.CommandOptions.find("clean") != CommandInput.CommandOptions.end())
         {
             ParseResult = DocumentFilesystem::CreateDocumentFilesystem(Build,m_LSPConf,m_ColorConfiguration,ReturnValue);
         }
-        else
+        else 
         {
             MBError ParseError = false;
             MBParsing::JSONObject OldBuildInfo = MBParsing::ParseJSONObject(OldBuildPath,&ParseError);
@@ -318,7 +318,7 @@ namespace MBDoc
             std::filesystem::path OutDir = CompileOptions.OutputDirectory;
             std::filesystem::path BuildInfoPath = OutDir/"BuildInfo.json";
             bool UsingBuildInfo = false;
-            if(std::filesystem::exists(BuildInfoPath))
+            if(std::filesystem::exists(BuildInfoPath) && CommandInputs[0].CommandOptions.find("clean") == CommandInputs[0].CommandOptions.end())
             {
                 UsingBuildInfo = true;
             }
