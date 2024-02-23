@@ -1535,8 +1535,9 @@ namespace MBDoc
         struct HomeIntervall
         {
             std::string Name;
+            std::vector<IndexType> Children;
             IndexType DirIndex = 0;
-            IndexType ParentIndex = -1;
+            IndexType ParentIndex = 0;
         };
         struct FSSearchResult
         {
@@ -1556,7 +1557,7 @@ namespace MBDoc
         FSSearchResult p_ResolveAbsoluteDirectory(IndexType RootDirectoryIndex,PathSpecifier const& Path) const;
         FSSearchResult p_ResolvePartSpecifier(FSSearchResult CurrentResult,std::vector<std::string> const& PartSpecifier) const;
 
-        bool p_HomeSatisifesSpecification(IndexType HomeIndex, std::vector<std::string> const& HomeSpecifier,int Offset) const;
+        IndexType p_GetSatisfyingHomeSubdir(IndexType HomeIndex, std::vector<std::string> const& HomeSpecifier,int Offset) const;
         FSSearchResult p_ResolveHomeSpecifier(IndexType FileIndex,std::vector<std::string> const& HomeSpecifier) const;
         
         DocumentPath p_GetFileIndexPath(IndexType FileIndex) const;

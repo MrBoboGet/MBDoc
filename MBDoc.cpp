@@ -2878,27 +2878,31 @@ namespace MBDoc
         }
         return(ReturnValue);
     }
-    bool DocumentFilesystem::p_HomeSatisifesSpecification(IndexType HomeIndex, std::vector<std::string> const& HomeSpecifier,int Offset) const
+    IndexType DocumentFilesystem::p_GetSatisfyingHomeSubdir(IndexType HomeIndex, std::vector<std::string> const& HomeSpecifier,int Offset) const
     {
-        bool ReturnValue = false;
-        if(Offset >= HomeSpecifier.size() || HomeIndex == -1)
-        {
-            return false;   
-        }
-        auto const& CurrentPart = HomeSpecifier[(HomeSpecifier.size() - 1) - Offset];
+        IndexType ReturnValue = -1;
+        auto const& CurrentPart = HomeSpecifier[Offset];
         if(CurrentPart == "")
         {
-            return true;   
+            return HomeIndex;   
         }
-        if(m_HomeIntervalls[HomeIndex].Name == CurrentPart)
+        for(auto const& ChildIndex : m_HomeIntervalls[HomeIndex].Children)
         {
-            if(Offset + 1 == HomeSpecifier.size())
+            auto const& SubDir = m_HomeIntervalls[ChildIndex];
+            if(SubDir.Name == CurrentPart)
             {
-                return true;   
-            }
-            else
-            {
-                return p_HomeSatisifesSpecification( m_HomeIntervalls[HomeIndex].ParentIndex,HomeSpecifier,Offset+1);
+                if(Offset + 1 == HomeSpecifier.size())
+                {
+                    return ChildIndex;
+                }
+                else 
+                {
+                    IndexType SubDirSatisfying = p_GetSatisfyingHomeSubdir(ChildIndex,HomeSpecifier,Offset+1);
+                    if(SubDirSatisfying != -1)
+                    {
+                        return SubDirSatisfying;
+                    }
+                }
             }
         }
         return ReturnValue;
@@ -2927,9 +2931,10 @@ namespace MBDoc
         }
         while(CurrentHomeIndex != -1)
         {
-            if(p_HomeSatisifesSpecification(CurrentHomeIndex,HomeSpecifier,0))
+            IndexType SatisfyingSubdir = p_GetSatisfyingHomeSubdir(CurrentHomeIndex,HomeSpecifier,0);
+            if(SatisfyingSubdir != -1)
             {
-                ReturnValue.Index = m_HomeIntervalls[CurrentHomeIndex].DirIndex;
+                ReturnValue.Index = m_HomeIntervalls[SatisfyingSubdir].DirIndex;
                 ReturnValue.Type = DocumentFSType::Directory;
                 return ReturnValue;
             }
@@ -3496,6 +3501,7 @@ namespace MBDoc
             if(PrevHomeSize < m_HomeIntervalls.size() && HomeIndex != -1)
             {
                 m_HomeIntervalls[PrevHomeSize].ParentIndex = HomeIndex;
+                m_HomeIntervalls[HomeIndex].Children.push_back(PrevHomeSize);
             }
             DirectoryOffset++;
             FileOffset += SubDirectory.second.DirectoryFiles.size();
@@ -3543,9 +3549,17 @@ namespace MBDoc
     void DocumentFilesystem::p_CreateDirectoryStructure(DocumentFilesystem& OutFilesystem,DocumentBuild const& BuildToParse,bool ParseSources)
     {
         OutFilesystem.m_DirectoryInfos.resize(1);
+        OutFilesystem.m_HomeIntervalls.resize(1);
+        OutFilesystem.m_HomeIntervalls.front().DirIndex = 0;
+        OutFilesystem.m_HomeIntervalls.front().ParentIndex = -1;
+        OutFilesystem.m_HomeIntervalls.front().Name = "/";
         //BuildDirectory Directory = p_ParseBuildDirectory(BuildToParse);
         OutFilesystem.m_TotalSources.resize(BuildToParse.GetTotalFiles());
         DocumentDirectoryInfo TopInfo = OutFilesystem.p_UpdateOverDirectory(BuildToParse, 0, 0,ParseSources);
+        if(OutFilesystem.m_HomeIntervalls.size() > 1)
+        {
+            OutFilesystem.m_HomeIntervalls.front().Children.push_back(1);   
+        }
         OutFilesystem.m_DirectoryInfos[0] = TopInfo;
         OutFilesystem.m_DirectoryInfos[0].Name = "/";
         assert(std::is_sorted(OutFilesystem.m_DirectoryInfos.begin(), OutFilesystem.m_DirectoryInfos.end(), h_DirectoryOrder));
