@@ -3762,6 +3762,7 @@ namespace MBDoc
         ReturnValue["ResourceMap"] = DocumentFilesystem::ResourceMap::ToJSON(Filesystem.m_ResourceMap);
         ReturnValue["Files"] = MBParsing::ToJSON(Filesystem.m_TotalSources);
         ReturnValue["Directories"] = MBParsing::ToJSON(Filesystem.m_DirectoryInfos);
+        ReturnValue["HomeIntervalls"] = MBParsing::ToJSON(Filesystem.m_HomeIntervalls);
         return ReturnValue;
     }
     void FromJSON(DocumentSource& Source, MBParsing::JSONObject const& ObjectToParse)
@@ -3802,6 +3803,112 @@ namespace MBDoc
         MBParsing::FromJSON(Filesystem.m_DirectoryInfos,ObjectToParse["Directories"]);
         DocumentFilesystem::ResourceMap::FromJSON(Filesystem.m_ResourceMap,ObjectToParse["ResourceMap"]);
         MBParsing::FromJSON(Filesystem.m_TotalSources,ObjectToParse["Files"]);
+        MBParsing::FromJSON(Filesystem.m_HomeIntervalls,ObjectToParse["HomeIntervalls"]);
+        if(!Filesystem.p_VerifyParsedFilesystem())
+        {
+            throw std::runtime_error("Error reading BuildInfo.json: invalid serialized state");
+        }
+    }
+    bool DocumentFilesystem::p_VerifyParsedFilesystem()
+    {
+        bool ReturnValue = true;
+        if(m_DirectoryInfos.size() < 0)
+        {
+            return false;   
+        }
+        if(m_DirectoryInfos[0].ParentDirectoryIndex != -1)
+        {
+            return false;   
+        }
+        DocumentDirectoryInfo const* PreviousDirectory = nullptr;
+        //Verify directories
+        for(int i = 0; i < m_DirectoryInfos.size();i++)
+        {
+            auto const& CurrentDirInfo = m_DirectoryInfos[i];
+            if(!(CurrentDirInfo.FileIndexBegin <= CurrentDirInfo.FileIndexEnd) || CurrentDirInfo.FileIndexBegin < 0 || CurrentDirInfo.FileIndexEnd < 0 || CurrentDirInfo.FileIndexEnd > m_TotalSources.size())
+            {
+                return false;
+            }
+            if(!(CurrentDirInfo.DirectoryIndexBegin <= CurrentDirInfo.DirectoryIndexEnd) || CurrentDirInfo.DirectoryIndexBegin < 0 || CurrentDirInfo.DirectoryIndexEnd < 0 || CurrentDirInfo.DirectoryIndexEnd > m_DirectoryInfos.size())
+            {
+                return false;
+            }
+            if(! (CurrentDirInfo.DirectoryIndexBegin >= i))
+            {
+                return false;
+            }
+            if( (CurrentDirInfo.FirstFileIndex != -1 && CurrentDirInfo.FirstFileIndex < 0) || (CurrentDirInfo.FirstFileIndex >= (CurrentDirInfo.FileIndexEnd-CurrentDirInfo.FileIndexBegin)))
+            {
+                return false;   
+            }
+            if( (CurrentDirInfo.FirstSubDirIndex != -1 && CurrentDirInfo.FirstSubDirIndex < 0) || (CurrentDirInfo.FirstSubDirIndex >= (CurrentDirInfo.DirectoryIndexEnd-CurrentDirInfo.DirectoryIndexBegin)))
+            {
+                return false;   
+            }
+            if( (CurrentDirInfo.ParentDirectoryIndex != -1 && CurrentDirInfo.ParentDirectoryIndex < 0) || CurrentDirInfo.ParentDirectoryIndex >= i || 
+                    (CurrentDirInfo.ParentDirectoryIndex >= 0 && CurrentDirInfo.ParentDirectoryIndex >= m_DirectoryInfos.size()))
+            {
+                return false;
+            }
+            //TODO should also check for cycles in NextDir...
+            if(CurrentDirInfo.ParentDirectoryIndex != -1)
+            {
+                auto const& ParentDir = m_DirectoryInfos[CurrentDirInfo.ParentDirectoryIndex];
+                if( !(ParentDir.DirectoryIndexBegin <= i && i < ParentDir.DirectoryIndexEnd))
+                {
+                    return false;   
+                }
+            }
+            if(PreviousDirectory != nullptr)
+            {
+                auto const& PreviousDirectoryInfo = *PreviousDirectory;
+                if(PreviousDirectoryInfo.DirectoryIndexEnd > CurrentDirInfo.DirectoryIndexBegin || PreviousDirectoryInfo.FileIndexEnd > CurrentDirInfo.FileIndexEnd)
+                {
+                    return false;   
+                }
+            }
+            PreviousDirectory = &CurrentDirInfo;
+        }
+        //Verify home intervalls
+        HomeIntervall const* PreviousHome = nullptr;
+        for(int i = 0; i < m_HomeIntervalls.size();i++)
+        {
+            auto const& CurrentInterval = m_HomeIntervalls[i];
+            if(CurrentInterval.DirIndex < 0 || CurrentInterval.DirIndex >= m_DirectoryInfos.size())
+            {
+                return false;   
+            }
+            for(auto const& ChildIndex : CurrentInterval.Children)
+            {
+                if(ChildIndex <= CurrentInterval.DirIndex || ChildIndex < 0 || ChildIndex >= m_HomeIntervalls.size())
+                {
+                    return false;   
+                }
+            }
+            if( (CurrentInterval.ParentIndex != -1 && CurrentInterval.ParentIndex < 0) || CurrentInterval.ParentIndex >= i)
+            {
+                return false;   
+            }
+            if(CurrentInterval.ParentIndex != -1)
+            {
+                auto const& ParentInfo = m_HomeIntervalls[CurrentInterval.ParentIndex];
+                bool ContainsThis = false;
+                for(auto const& Child : ParentInfo.Children)
+                {
+                    if(Child == i)
+                    {
+                        ContainsThis = true;
+                        break;   
+                    }
+                }
+                if(!ContainsThis)
+                {
+                    return false;   
+                }
+            }
+        }
+        
+        return ReturnValue;
     }
 
     DocumentFilesystem::DocumentFilesystemReferenceResolver::DocumentFilesystemReferenceResolver(DocumentFilesystem* AssociatedFilesystem,DocumentPath CurrentPath,std::filesystem::path DocumentPath,ResourceMap* ResourceMappinwg)

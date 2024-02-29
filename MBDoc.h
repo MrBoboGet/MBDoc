@@ -1484,6 +1484,18 @@ namespace MBDoc
                 }
                 return ReturnValue;
             }
+            int GetResourceUpdateTime(std::string const& CanonicalPath)
+            {
+                auto It = m_ResourceMap.find(CanonicalPath);
+                if(It != m_ResourceMap.end())
+                {
+                    return 0;   
+                }
+                else
+                {
+                    return 0;   
+                }
+            }
             static MBParsing::JSONObject ToJSON(ResourceMap const& Source)
             {
                 MBParsing::JSONObject ReturnValue(MBParsing::JSONObjectType::Aggregate);
@@ -1538,6 +1550,22 @@ namespace MBDoc
             std::vector<IndexType> Children;
             IndexType DirIndex = 0;
             IndexType ParentIndex = 0;
+            friend MBParsing::JSONObject ToJSON(HomeIntervall const& IntervalToConvert)
+            {
+                MBParsing::JSONObject ReturnValue(MBParsing::JSONObjectType::Aggregate);
+                ReturnValue["Name"] = MBParsing::ToJSON(IntervalToConvert.Name);
+                ReturnValue["Children"] = MBParsing::ToJSON(IntervalToConvert.Children);
+                ReturnValue["DirIndex"] = MBParsing::ToJSON(IntervalToConvert.DirIndex);
+                ReturnValue["ParentIndex"] = MBParsing::ToJSON(IntervalToConvert.ParentIndex);
+                return ReturnValue;
+            }
+            friend void FromJSON(HomeIntervall& OutInterval,MBParsing::JSONObject const& ObjectToParse)
+            {
+                MBParsing::FromJSON(OutInterval.Name,ObjectToParse["Name"]);
+                MBParsing::FromJSON(OutInterval.Children,ObjectToParse["Children"]);
+                MBParsing::FromJSON(OutInterval.DirIndex,ObjectToParse["DirIndex"]);
+                MBParsing::FromJSON(OutInterval.ParentIndex,ObjectToParse["ParentIndex"]);
+            }
         };
         struct FSSearchResult
         {
@@ -1601,7 +1629,7 @@ namespace MBDoc
         
         //ensures that all indecies are within bounds, that directories content doesn't overlap,
         //and that no cycles exists
-        static bool p_VerifyParsedFilesystem(DocumentFilesystem const& FilesystemToCheck);
+        bool p_VerifyParsedFilesystem();
     public: 
         friend MBParsing::JSONObject ToJSON(DocumentFilesystem const& Filesystem);
         friend void FromJSON(DocumentFilesystem& Filesystem, MBParsing::JSONObject const& ObjectToParse);

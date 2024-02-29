@@ -450,7 +450,7 @@ namespace MBDoc
             {
                 throw std::runtime_error("Can't find media to include: "+CanonicalMediaPath);
             }
-            std::filesystem::copy_options Options = std::filesystem::copy_options::overwrite_existing;
+            std::filesystem::copy_options Options = std::filesystem::copy_options::update_existing;
             //innefficent, but / gets wacky with the std::filesystem 
             std::filesystem::copy(CanonicalMediaPath,m_CommonOptions.OutputDirectory +"/"+ OutPath.GetString().substr(1),Options);
         }
