@@ -39,6 +39,25 @@
                 "/Compilers/HTML.cpp",
                 "/Compilers/Markdown.cpp",
                 "/ColorConf.cpp",
+                "/LSP/MBDocLSP.cpp",
+                "/LSPUtils.cpp",
+                "/LSP.cpp"
+            ],
+            "TargetType":"Executable"
+        },
+        "MBDocd": 
+        {
+            "OutputName":"mbdocd",
+            "Sources": 
+            [
+                "/MBDoc.cpp",
+                "/MBDocCLI.cpp",
+                "/Compilers/HTML.cpp",
+                "/Compilers/Markdown.cpp",
+                "/LSP/MBDocLSP.cpp",
+                "/LSP/LSPMain.cpp",
+                "/ColorConf.cpp",
+                "/LSPUtils.cpp",
                 "/LSP.cpp"
             ],
             "TargetType":"Executable"
@@ -54,6 +73,8 @@
                 "/Compilers/HTML.cpp",
                 "/Compilers/Markdown.cpp",
                 "/ColorConf.cpp",
+                "/LSP/MBDocLSP.cpp",
+                "/LSPUtils.cpp",
                 "/LSP.cpp"
             ],
             "TargetType":"Library"

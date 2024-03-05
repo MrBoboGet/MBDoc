@@ -408,13 +408,13 @@ namespace MBDoc
     {
         m_InCodeBlock = true;
         m_OutStream->Write("<pre>", 5);
-        if(std::holds_alternative<std::string>(BlockToWrite.Content))
+        if(!BlockToWrite.HighlightedText.IsInitalized())
         {
-            *m_OutStream<<h_EscapeHTMLText(std::get<std::string>(BlockToWrite.Content));
+            *m_OutStream<<h_EscapeHTMLText(BlockToWrite.Content);
         }
-        else if(std::holds_alternative<ResolvedCodeText>(BlockToWrite.Content))
+        else
         {
-            for(auto const& Row : std::get<ResolvedCodeText>(BlockToWrite.Content))
+            for(auto const& Row : BlockToWrite.HighlightedText.Value())
             {
                 for(auto const& Text : Row)
                 {

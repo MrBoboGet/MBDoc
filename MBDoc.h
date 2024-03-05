@@ -27,6 +27,13 @@
 #include "MBLSP/LSP_Structs.h"
 
 #include "MBParsing/JSON.h"
+
+
+#include <MBLSP/MBLSP.h>
+
+#include <MBUtility/Optional.h>
+#include <MBUtility/LineRetriever.h>
+
 namespace MBDoc
 {
 
@@ -145,11 +152,36 @@ namespace MBDoc
         //all references can be overriden with visible text, but may 
         //not neccesarilly be neccessary for references
         std::string VisibleText;
+        MBLSP::Position Begin;
+        //sentinel for use in LSP when determining of there was a parser error
+        MBLSP::Position End = MBLSP::Position{-1,-1};
         virtual void Accept(ReferenceVisitor& Visitor) const = 0;
         virtual void Accept(ReferenceVisitor& Visitor) = 0;
+        virtual std::unique_ptr<DocReference> Copy() = 0;
         virtual ~DocReference()
         {
                
+        }
+        template<typename T>
+        bool IsType() const
+        {
+            //TODO make so this interface is not necessary...
+            if(dynamic_cast<T const*>(this) != nullptr)
+            {
+                return true;
+            }
+            return false;
+        }
+        template<typename T>
+        T const& GetType() const
+        {
+            //TODO make so this interface is not necessary...
+            auto Pointer = dynamic_cast<T const*>(this);
+            if(Pointer != nullptr)
+            {
+                return *Pointer;
+            }
+            throw std::runtime_error("Invalid type cast when using DocReference");
         }
     };
 
@@ -158,6 +190,10 @@ namespace MBDoc
         DocumentPath Path;
         virtual void Accept(ReferenceVisitor& Visitor) const;
         virtual void Accept(ReferenceVisitor& Visitor);
+        std::unique_ptr<DocReference> Copy()
+        {
+            return std::make_unique<FileReference>(*this);
+        }
         ~FileReference()
         {
                
@@ -169,6 +205,10 @@ namespace MBDoc
         int ID = -1;
         virtual void Accept(ReferenceVisitor& Visitor) const;
         virtual void Accept(ReferenceVisitor& Visitor);
+        std::unique_ptr<DocReference> Copy()
+        {
+            return std::make_unique<ResourceReference>(*this);
+        }
         ~ResourceReference()
         {
                
@@ -179,6 +219,10 @@ namespace MBDoc
         std::string URL; 
         virtual void Accept(ReferenceVisitor& Visitor) const;
         virtual void Accept(ReferenceVisitor& Visitor);
+        std::unique_ptr<DocReference> Copy()
+        {
+            return std::make_unique<URLReference>(*this);
+        }
         ~URLReference()
         {
                
@@ -189,6 +233,10 @@ namespace MBDoc
         std::string ReferenceString;         
         virtual void Accept(ReferenceVisitor& Visitor) const;
         virtual void Accept(ReferenceVisitor& Visitor);
+        std::unique_ptr<DocReference> Copy()
+        {
+            return std::make_unique<UnresolvedReference>(*this);
+        }
         ~UnresolvedReference()
         {
                
@@ -222,7 +270,17 @@ namespace MBDoc
         {
             m_Content = std::move(ElemToMove.m_Content);    
         }
-        TextElement(TextElement const&) = delete;
+        TextElement(TextElement const& OtherElement)
+        {
+            if(std::holds_alternative<RegularText>(OtherElement.m_Content))
+            {
+                m_Content = std::get<RegularText>(OtherElement.m_Content);
+            }
+            else
+            {
+                m_Content = std::get<std::unique_ptr<DocReference>>(OtherElement.m_Content)->Copy();
+            }
+        }
         template<typename T>
         TextElement(T ValueToStore)
         {
@@ -693,8 +751,11 @@ namespace MBDoc
         {
             Type = BlockElementType::CodeBlock;
         }
+        int LineBegin = 0;
+        int LineEnd = 0;
         std::string CodeType;
-        std::variant<std::string,ResolvedCodeText> Content;
+        std::string Content;
+        MBUtility::Optional<ResolvedCodeText> HighlightedText;
     };
     template<typename T>
     T& BlockElement::GetType()
@@ -1205,6 +1266,7 @@ namespace MBDoc
         bool Finished();
         bool GetLine(std::string& OutLine);
         void DiscardLine();
+        int GetLineIndex() const;
         std::string& PeekLine();
     };
 
@@ -1212,11 +1274,11 @@ namespace MBDoc
     {
     private:
         //helpers
-        static Paragraph p_ParseParagraph(std::string const& TotalParagraphData);
+        static Paragraph p_ParseParagraph(int InitialLine,int InitialLineCharacterOffset,std::string const& TotalParagraphData);
 
         
-        static TextElement p_ParseReference(void const* Data,size_t DataSize,size_t ParseOffset,size_t* OutParseOffset);
-        static std::vector<TextElement> p_ParseTextElements(void const* Data,size_t DataSize,size_t ParseOffset,size_t* OutParseOffset);
+        static TextElement p_ParseReference(int InitialLine,int InitialLineOffset,char const* Data,size_t DataSize,size_t ParseOffset,size_t* OutParseOffset);
+        static std::vector<TextElement> p_ParseTextElements(int InitialLine,int InitialCharacterOffset,char const* Data,size_t DataSize,size_t ParseOffset,size_t* OutParseOffset);
 
         std::unique_ptr<BlockElement> p_ParseCodeBlock(LineRetriever& Retriever);
         std::unique_ptr<BlockElement> p_ParseMediaInclude(LineRetriever& Retriever);
@@ -1227,7 +1289,7 @@ namespace MBDoc
         std::unique_ptr<BlockElement> p_ParseBlockElement(LineRetriever& Retriever);
         AttributeList p_ParseAttributeList(LineRetriever& Retriever);
 
-        ArgumentList p_ParseArgumentList(void const* Data,size_t DataSize,size_t InOffset);
+        ArgumentList p_ParseArgumentList(char const* Data,size_t DataSize,size_t InOffset);
         Directive p_ParseDirective(LineRetriever& Retriever);
         //Incredibly ugly, but the alternative for the current syntax is to include 2 lines look ahead
         FormatElementComponent p_ParseFormatElement(LineRetriever& Retriever,AttributeList* OutCurrentList);
@@ -1245,7 +1307,7 @@ namespace MBDoc
     public:
         DocumentSource ParseSource(MBUtility::MBOctetInputStream& InputStream,std::string FileName,MBError& OutError);
         DocumentSource ParseSource(std::filesystem::path const& InputFile,MBError& OutError);
-        DocumentSource ParseSource(const void* Data,size_t DataSize,std::string FileName,MBError& OutError);
+        DocumentSource ParseSource(const char* Data,size_t DataSize,std::string FileName,MBError& OutError);
     };
 
     class DocumentBuild
@@ -1454,9 +1516,10 @@ namespace MBDoc
             return(m_LineToOffset[Index]);
         }
     };
+
+
     ProcessedColorConfiguration ProcessColorConfig(ColorConfiguration const& Config);
-    std::unique_ptr<MBLSP::LSP_Client> StartLSPServer(LSPServer const& ServerToStart,MBLSP::InitializeRequest const& InitReq);
-    std::unique_ptr<MBLSP::LSP_Client> StartLSPServer(LSPServer const& ServerToStart);
+
     class DocumentFilesystem 
     {
     public:
@@ -1635,6 +1698,9 @@ namespace MBDoc
         friend void FromJSON(DocumentFilesystem& Filesystem, MBParsing::JSONObject const& ObjectToParse);
 
 
+        std::vector<std::pair<std::string,IndexType>> GetAllDocuments() const;
+        DocumentPath GetDocumentPath(IndexType FileID) const;
+
         DocumentFilesystemIterator begin() const;
         DocumentPath ResolveReference(DocumentPath const& DocumentPath,std::string const& PathIdentifier,MBError& OutResult) const;
         bool DocumentExists(DocumentPath const& DocumentPath) const;
@@ -1663,4 +1729,12 @@ namespace MBDoc
         virtual ~DocumentCompiler() {};
         //virtual void Compile(DocumentFilesystem const& FilesystemToCompile,CommonCompilationOptions const& Options) = 0;
     };
+
+
+
+
+
+
+
+
 }

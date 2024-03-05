@@ -27,6 +27,8 @@
 
 #include <regex>
 
+#include "LSPUtils.h"
+
 
 namespace MBDoc
 {
@@ -155,6 +157,10 @@ namespace MBDoc
     {
         p_IteratorNextNonComment(); 
         return(m_UnderlyingRetriever.Finished());
+    }
+    int LineRetriever::GetLineIndex() const
+    {
+        return m_UnderlyingRetriever.GetLineIndex();
     }
     bool LineRetriever::GetLine(std::string& OutLine)
     {
@@ -555,9 +561,14 @@ namespace MBDoc
         }
     }
     //END FormatElementComponent
-    TextElement DocumentParsingContext::p_ParseReference(void const* Data,size_t DataSize,size_t ParseOffset,size_t* OutParseOffset)
+    TextElement DocumentParsingContext::p_ParseReference(int InitialLine,int InitialLineOffset,char const* Data,size_t DataSize,size_t ParseOffset,size_t* OutParseOffset)
     {
         TextElement ReturnValue;
+        MBLSP::Position Begin;
+        Begin.line = InitialLine;
+        Begin.character = InitialLineOffset;
+        std::unique_ptr<DocReference> Reference;
+        size_t InitialParseOffset = ParseOffset;
         //ASSUMPTION reference is not escaped 
         if(!(ParseOffset + 1 < DataSize))
         {
@@ -617,16 +628,22 @@ namespace MBDoc
              UnresolvedReference NewRef;
              NewRef.ReferenceString = ReferenceString;
              NewRef.VisibleText = VisibleText;
-             ReturnValue = TextElement(std::unique_ptr<DocReference>(new UnresolvedReference(std::move(NewRef))));
+             Reference = std::unique_ptr<DocReference>(new UnresolvedReference(std::move(NewRef)));
+             //ReturnValue = TextElement(std::unique_ptr<DocReference>(new UnresolvedReference(std::move(NewRef))));
         }
         else
         {
              URLReference NewRef;
              NewRef.VisibleText = VisibleText;
              NewRef.URL = ReferenceString;
-             ReturnValue = TextElement(std::unique_ptr<DocReference>(new URLReference(std::move(NewRef))));
+             Reference = std::unique_ptr<DocReference>(new URLReference(std::move(NewRef)));
+             //ReturnValue = TextElement(std::unique_ptr<DocReference>(new URLReference(std::move(NewRef))));
                
         }
+        Reference->Begin = Begin;
+        Reference->End.line = InitialLine;
+        Reference->End.character = Reference->Begin.character+(ParseOffset-InitialLineOffset);
+        ReturnValue = TextElement(std::move(Reference));
         *OutParseOffset = ParseOffset;
         return(ReturnValue);    
     }
@@ -763,7 +780,7 @@ namespace MBDoc
         }
         return(ReturnValue);
     }
-    std::vector<TextElement> DocumentParsingContext::p_ParseTextElements(void const* Data, size_t DataSize, size_t ParseOffset, size_t* OutParseOffset)
+    std::vector<TextElement> DocumentParsingContext::p_ParseTextElements(int InitialLine,int InitialLineOffset,char const* Data, size_t DataSize, size_t ParseOffset, size_t* OutParseOffset)
     {
         std::vector<TextElement> ReturnValue;
         //ASSUMPTION no # or block delimiter present, guaranteed text element data 
@@ -771,6 +788,8 @@ namespace MBDoc
         TextColor CurrentTextColor;
         TextModifier CurrentTextModifier = TextModifier(0);
         bool KeepSpace = false;
+        int CurrentExtraLines = 0;
+        size_t InitialParseOffset = ParseOffset;
         while (ParseOffset < DataSize)
         {
             size_t FindTextModifierDelimiterOffset = ParseOffset;
@@ -813,6 +832,8 @@ namespace MBDoc
 
                 //TODO fix efficiently, jank
                 ReturnValue.push_back(std::move(NewText));
+                //increase line count
+                CurrentExtraLines = std::count(Data+ParseOffset,Data+NextTextModifier,'\n');
                 ParseOffset = NextModifier;
             }
             if (NextModifier >= DataSize)
@@ -821,7 +842,22 @@ namespace MBDoc
             }
             if (NextReferenceDeclaration == NextModifier)
             {
-                TextElement NewReference = p_ParseReference(Data, DataSize, ParseOffset, &ParseOffset);
+                //kinda cringe, but easiest way to backport it
+                size_t LastNewLinePosition = ParseOffset;
+                int NewLineOffset = 0;
+                while(LastNewLinePosition > InitialParseOffset)
+                {
+                    if(Data[LastNewLinePosition] == '\n')
+                    {
+                        NewLineOffset = (ParseOffset-LastNewLinePosition)-1;
+                    }
+                    LastNewLinePosition--;
+                }
+                if(LastNewLinePosition == InitialParseOffset)
+                {
+                    NewLineOffset = InitialLineOffset;
+                }
+                TextElement NewReference = p_ParseReference( InitialLine + CurrentExtraLines,NewLineOffset,Data, DataSize, ParseOffset, &ParseOffset);
                 KeepSpace = true;
                 NewReference.GetBase().Color = CurrentTextColor;
                 NewReference.GetBase().Modifiers = CurrentTextModifier;
@@ -874,6 +910,7 @@ namespace MBDoc
     {
         std::unique_ptr<BlockElement> ReturnValue = std::make_unique<CodeBlock>();
         CodeBlock& NewCodeBlock = static_cast<CodeBlock&>(*ReturnValue.get());
+        NewCodeBlock.LineBegin = Retriever.GetLineIndex();
         std::string CodeBlockHeader;
         Retriever.GetLine(CodeBlockHeader);
         size_t ParseOffset = 0;
@@ -890,7 +927,7 @@ namespace MBDoc
                 NewCodeBlock.CodeType = CodeBlockHeader.substr(ParseOffset + 3, LastCodeName - (ParseOffset + 2));
             }
         }
-        NewCodeBlock.Content = std::string();
+        //NewCodeBlock.Content = std::string();
         while (!Retriever.Finished())
         {
             std::string NewLine;
@@ -900,15 +937,16 @@ namespace MBDoc
             {
                 break;
             }
-            std::get<std::string>(NewCodeBlock.Content) += NewLine;
-            std::get<std::string>(NewCodeBlock.Content).insert(std::get<std::string>(NewCodeBlock.Content).end(), '\n');
+            NewCodeBlock.Content += NewLine;
+            NewCodeBlock.Content.insert(NewCodeBlock.Content.end(), '\n');
         }
         //there is always 1 extra newline
-        if (std::get<std::string>(NewCodeBlock.Content).size() > 0)
+        if (NewCodeBlock.Content.size() > 0)
         {
-            std::get<std::string>(NewCodeBlock.Content).resize(std::get<std::string>(NewCodeBlock.Content).size() - 1);
+            NewCodeBlock.Content.resize(NewCodeBlock.Content.size() - 1);
         }
-        return(ReturnValue);
+        NewCodeBlock.LineEnd = Retriever.GetLineIndex();
+        return ReturnValue;
     }
 
 
@@ -938,9 +976,17 @@ namespace MBDoc
             throw std::runtime_error("Error parsing table: All column must be given names as positional arguments if atleast one is specified");
         }
         std::string TotalContent;
-        std::vector<std::string> TextElementData;
+        struct TableElementInfo
+        {
+            int LineIndex = 0;
+            int LineCharacterOffset = 0;
+            std::string Text;
+        };
+        std::vector<TableElementInfo> TextElementData;
         std::vector<std::vector<TextElement>> TableElements;
         std::string CurrentLine;
+
+        int CurrentLineIndex = Retriever.GetLineIndex();
         while(Retriever.GetLine(CurrentLine))
         {
             size_t ParseOffset = 0;
@@ -950,6 +996,7 @@ namespace MBDoc
                 break; 
             }
             TotalContent += CurrentLine;
+            TotalContent += '\n';
         }
         size_t ParseOffset = 0;
         while(ParseOffset < TotalContent.size())
@@ -968,29 +1015,55 @@ namespace MBDoc
             }
             if(NextAmpersand == TotalContent.npos)
             {
-                TextElementData.push_back(TotalContent.substr(ParseOffset));
+                TableElementInfo& NewInfo = TextElementData.emplace_back();
+                NewInfo.LineIndex = CurrentLineIndex;
+                NewInfo.Text = TotalContent.substr(ParseOffset);
+                size_t LastNewLine = ParseOffset;
+                while(LastNewLine > 0)
+                {
+                    if(TotalContent[LastNewLine] == '\n')
+                    {
+                        NewInfo.LineCharacterOffset = (ParseOffset-LastNewLine)-1;   
+                    }
+                    LastNewLine--;
+                }
+
                 break;
             }
             else
             {
-                TextElementData.push_back(h_UnescapeText(TotalContent.data(),TotalContent.size(),ParseOffset,NextAmpersand,'&'));
-                ParseOffset = NextAmpersand+1;
+                TableElementInfo& NewInfo = TextElementData.emplace_back();
+                NewInfo.LineIndex = CurrentLineIndex;
+
+                size_t LastNewLine = ParseOffset;
+                while(LastNewLine > 0)
+                {
+                    if(TotalContent[LastNewLine] == '\n')
+                    {
+                        NewInfo.LineCharacterOffset = (ParseOffset-LastNewLine)-1;   
+                    }
+                    LastNewLine--;
+                }
+
+                NewInfo.Text = h_UnescapeText(TotalContent.data(),TotalContent.size(),ParseOffset,NextAmpersand,'&');
             }
+            CurrentLineIndex += std::count(TotalContent.data()+ParseOffset,TotalContent.data()+NextAmpersand,'\n');
+            ParseOffset = NextAmpersand+1;
         }
         TableElements.reserve(TextElementData.size());
         size_t TempOffset = 0;
-        for(auto const& Text : TextElementData)
+        for(auto const& Element : TextElementData)
         {
-            TableElements.push_back(p_ParseTextElements(Text.data(),Text.size(),0,&TempOffset));
+            TableElements.push_back(p_ParseTextElements(Element.LineIndex,Element.LineCharacterOffset,Element.Text.data(),Element.Text.size(),0,&TempOffset));
         }
         ReturnValue = std::make_unique<Table>(std::move(ColumnNames),Width,std::move(TableElements));
         return(ReturnValue);
     }
-    Paragraph DocumentParsingContext::p_ParseParagraph(std::string const& TotalParagraphData)
+    Paragraph DocumentParsingContext::p_ParseParagraph(int InitialLine,int InitialLineCharacterOffset,std::string const& TotalParagraphData)
     {
         size_t ParseOffset = 0;
         Paragraph ReturnValue = Paragraph(
-                p_ParseTextElements(TotalParagraphData.data(),TotalParagraphData.size(),0,&ParseOffset));
+                p_ParseTextElements(InitialLine,InitialLineCharacterOffset,TotalParagraphData.data(),TotalParagraphData.size(),0,&ParseOffset));
         return(ReturnValue);
     }
     std::unique_ptr<List> DocumentParsingContext::p_ParseList(ArgumentList const& Arguments,LineRetriever& Retriever)
@@ -999,6 +1072,9 @@ namespace MBDoc
         std::string CurrentLine;
         std::string CurrentParagraphContent;
         bool EndRecieved = false;
+
+        int CurrentLineIndex = 0;
+        int CurrentLineOffset = 0;
         while(Retriever.GetLine(CurrentLine))
         {
             size_t ParseOffset = 0;
@@ -1014,7 +1090,7 @@ namespace MBDoc
                 if(CurrentParagraphContent != "")
                 {
                     //create new paragraph
-                    ReturnValue->AddParagraph(p_ParseParagraph(CurrentParagraphContent));
+                    ReturnValue->AddParagraph(p_ParseParagraph(CurrentLineIndex,CurrentLineOffset, CurrentParagraphContent));
                 }
                 CurrentParagraphContent = "";
             }
@@ -1024,7 +1100,7 @@ namespace MBDoc
                 List::ListContent SubList;
                 if(CurrentParagraphContent != "")
                 {
-                    SubList.Text = p_ParseParagraph(CurrentParagraphContent);
+                    SubList.Text = p_ParseParagraph(CurrentLineIndex,CurrentLineOffset,CurrentParagraphContent);
                 }
                 ArgumentList Args;//empty, no currently used
                 SubList.SubList = p_ParseList(Arguments,Retriever);
@@ -1033,6 +1109,11 @@ namespace MBDoc
             else
             {
                 //add content to current paragraph
+                if(CurrentParagraphContent.size() == 0)
+                {
+                    CurrentLine = Retriever.GetLineIndex() - 1;   
+                    CurrentLineOffset = ParseOffset;
+                }
                 CurrentParagraphContent += CurrentLine;
                 CurrentParagraphContent += "\n";
             }
@@ -1043,7 +1124,7 @@ namespace MBDoc
         }
         if(CurrentParagraphContent != "")
         {
-            ReturnValue->AddParagraph(p_ParseParagraph(CurrentParagraphContent));
+            ReturnValue->AddParagraph(p_ParseParagraph(CurrentLineIndex,CurrentLineOffset,CurrentParagraphContent));
         }
         return(ReturnValue);
     }
@@ -1080,6 +1161,8 @@ namespace MBDoc
     {
         std::unique_ptr<BlockElement> ReturnValue;
         std::string TotalParagraphData;
+        int InitialLine = Retriever.GetLineIndex();
+        int InitialLineOffset = -1;
         while(!Retriever.Finished())
         {
             std::string const& CurrentLine = Retriever.PeekLine();
@@ -1169,6 +1252,10 @@ namespace MBDoc
                     }
                 } 
             }
+            if(TotalParagraphData.size() == 0)
+            {
+                InitialLineOffset = ParseOffset;   
+            }
             TotalParagraphData += CurrentLine+"\n";
             Retriever.DiscardLine();
         }
@@ -1177,7 +1264,7 @@ namespace MBDoc
         if(TotalParagraphData.size() > 0)
         {
             std::unique_ptr<Paragraph> NewBlock = std::make_unique<Paragraph>();
-            NewBlock->TextElements = p_ParseTextElements(TotalParagraphData.data(),TotalParagraphData.size(),0,nullptr);
+            NewBlock->TextElements = p_ParseTextElements(InitialLine,InitialLineOffset,TotalParagraphData.data(),TotalParagraphData.size(),0,nullptr);
             ReturnValue = std::move(NewBlock);
         }
         return(ReturnValue); 
@@ -1192,7 +1279,7 @@ namespace MBDoc
         ReturnValue = NameToNormalize.substr(Start, 1+End - Start);
         return(ReturnValue);
     }
-    ArgumentList DocumentParsingContext::p_ParseArgumentList(void const* Data, size_t DataSize,size_t InOffset)
+    ArgumentList DocumentParsingContext::p_ParseArgumentList(char const* Data, size_t DataSize,size_t InOffset)
     {
         ArgumentList ReturnValue;
         size_t ParseOffset = InOffset;
@@ -1745,7 +1832,7 @@ namespace MBDoc
         ReturnValue.Timestamp = uint64_t( std::filesystem::directory_entry(ReturnValue.Path).last_write_time().time_since_epoch().count());
         return(ReturnValue);
     }
-    DocumentSource DocumentParsingContext::ParseSource(const void* Data,size_t DataSize,std::string FileName,MBError& OutError)
+    DocumentSource DocumentParsingContext::ParseSource(const char* Data,size_t DataSize,std::string FileName,MBError& OutError)
     {
         MBUtility::MBBufferInputStream BufferStream(Data,DataSize);
         return(ParseSource(BufferStream,std::move(FileName),OutError));
@@ -3960,9 +4047,9 @@ namespace MBDoc
     }
     void DocumentFilesystem::DocumentFilesystemReferenceResolver::Visit(CodeBlock& CodeBlock)
     {
-        if(std::holds_alternative<ResolvedCodeText>(CodeBlock.Content))
+        if(CodeBlock.HighlightedText)
         {
-            for(auto& Row : std::get<ResolvedCodeText>(CodeBlock.Content))
+            for(auto& Row : CodeBlock.HighlightedText.Value())
             {
                 for(auto& Element : Row)
                 {
@@ -4305,26 +4392,6 @@ namespace MBDoc
         std::sort(ReturnValue.begin(),ReturnValue.end());
         return(ReturnValue);
     }
-    std::unique_ptr<MBLSP::LSP_Client> StartLSPServer(LSPServer const& ServerToStart)
-    {
-        MBLSP::InitializeRequest InitReq;    
-        InitReq.params.rootUri = MBLSP::URLEncodePath(std::filesystem::current_path());
-        if(ServerToStart.initializationOptions)
-        {
-            InitReq.params.initializationOptions = ServerToStart.initializationOptions.Value();   
-        }
-        return(StartLSPServer(ServerToStart,InitReq));
-    }
-    std::unique_ptr<MBLSP::LSP_Client> StartLSPServer(LSPServer const& ServerToStart,MBLSP::InitializeRequest const& InitReq)
-    {
-        std::unique_ptr<MBLSP::LSP_Client> ReturnValue;
-        std::unique_ptr<MBSystem::BiDirectionalSubProcess> SubProcess = 
-            std::make_unique<MBSystem::BiDirectionalSubProcess>(ServerToStart.CommandName,ServerToStart.CommandArguments);
-        std::unique_ptr<MBUtility::IndeterminateInputStream> InputStream = std::make_unique<MBUtility::NonOwningIndeterminateInputStream>(SubProcess.get());
-        ReturnValue = std::make_unique<MBLSP::LSP_Client>(std::move(InputStream),std::move(SubProcess));
-        ReturnValue->InitializeServer(InitReq);
-        return(ReturnValue);
-    }
     void DocumentFilesystem::LSPReferenceResolver::SetLSP(MBLSP::LSP_Client* AssociatedLSP)
     {
         m_AssociatedLSP = AssociatedLSP;
@@ -4438,7 +4505,7 @@ namespace MBDoc
                         std::string DocumentURI;
                         if(HandlesIt != ColorConig.LanguageConfigs.end())
                         {
-                            LineIndex Index(std::get<std::string>(BlockToModify.Content));
+                            LineIndex Index(BlockToModify.Content);
                             std::vector<Coloring> LSPColorings;
                             bool ResolveReferences = false;
                             MBLSP::LSP_Client* AssociatedLSP = nullptr;
@@ -4484,20 +4551,20 @@ namespace MBDoc
                                     ReferenceResolver.SetDocumentURI(DocumentURI); 
 
                                     MBLSP::DidOpenTextDocument_Notification OpenNotification;
-                                    OpenNotification.params.textDocument.text = std::get<std::string>(BlockToModify.Content);
+                                    OpenNotification.params.textDocument.text = BlockToModify.Content;
                                     OpenNotification.params.textDocument.uri = DocumentURI;
                                     LSP->SendNotification(OpenNotification);
 
 
                                     ResolveReferences = true;
-                                    LSPColorings = p_GetLSPColoring(*LSP,DocumentURI,std::get<std::string>(BlockToModify.Content),ColorConig.ColorInfo,Index);
+                                    LSPColorings = p_GetLSPColoring(*LSP,DocumentURI,BlockToModify.Content,ColorConig.ColorInfo,Index);
                                     AssociatedLSP = LSP.get();
                                 }
                             }
                             std::vector<Coloring> RegexColorings = p_GetRegexColorings(LSPColorings,HandlesIt->second.RegexColoring,
-                                    ColorConig.ColorInfo.ColorMap,std::get<std::string>(BlockToModify.Content));
+                                    ColorConig.ColorInfo.ColorMap,BlockToModify.Content);
                             //std::vector<std::vector<Coloring>> TotalColorings = {std::move(LSPColorings),std::move(RegexColorings)};
-                            BlockToModify.Content = p_CombineColorings(RegexColorings,LSPColorings,std::get<std::string>(BlockToModify.Content),
+                            BlockToModify.HighlightedText = p_CombineColorings(RegexColorings,LSPColorings,BlockToModify.Content,
                                     Index, ColorConig.ColorInfo,ResolveReferences ? &ReferenceResolver : nullptr);
                             if(AssociatedLSP)
                             {

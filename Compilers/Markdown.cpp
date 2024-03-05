@@ -94,23 +94,23 @@ namespace MBDoc
     void MarkdownCompiler::Visit(CodeBlock const& BlockToVisit)
     {
         *m_OutStream << "```"<<BlockToVisit.CodeType<<"\n"; 
-        if(std::holds_alternative<std::string>(BlockToVisit.Content))
-        {
-            *m_OutStream << std::get<std::string>(BlockToVisit.Content)<<"\n";
-        }
-        else if(std::holds_alternative<ResolvedCodeText>(BlockToVisit.Content))
-        {
-            for(auto const& Row : std::get<ResolvedCodeText>(BlockToVisit.Content))
-            {
-                for(auto const& Element : Row)
-                {
-                    EnterText(Element.GetBase());
-                    Element.Accept(*this);
-                    LeaveText(Element.GetBase());
-                }
-                *m_OutStream<<"\n";
-            }
-        }
+        //if(std::holds_alternative<std::string>(BlockToVisit.Content))
+        //{
+            *m_OutStream << BlockToVisit.Content<<"\n";
+        //}
+        //else if(std::holds_alternative<ResolvedCodeText>(BlockToVisit.Content))
+        //{
+        //    for(auto const& Row : std::get<ResolvedCodeText>(BlockToVisit.Content))
+        //    {
+        //        for(auto const& Element : Row)
+        //        {
+        //            EnterText(Element.GetBase());
+        //            Element.Accept(*this);
+        //            LeaveText(Element.GetBase());
+        //        }
+        //        *m_OutStream<<"\n";
+        //    }
+        //}
         *m_OutStream << "```\n";
     }
     void MarkdownCompiler::Visit(MediaInclude const& BlockToVisit)
