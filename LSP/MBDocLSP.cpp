@@ -12,19 +12,29 @@ namespace MBDoc
     {
         return m_OpenedFiles.find(FilePath) != m_OpenedFiles.end();
     }
-    void MBDocLSP::LoadedServer::LoadFile(std::string const& FilePath,std::vector<CodeBlock> const& CodeBlocks)
+    void MBDocLSP::LoadedServer::LoadFile(std::string const& FilePath,int TotalLines,std::vector<CodeBlock> const& CodeBlocks)
     {
         std::string TotalData;
-        m_OpenedFiles.insert(FilePath);
+        if(m_OpenedFiles.find(FilePath) != m_OpenedFiles.end())
+        {
+            MBLSP::DidCloseTextDocument_Notification CloseNotification;
+            CloseNotification.params.textDocument.uri = MBLSP::URLEncodePath(FilePath);
+            m_AssociatedServer->SendNotification(CloseNotification);
+        }
+        else
+        {
+            m_OpenedFiles.insert(FilePath);
+        }
         int PreviousLine = 0;
         for(auto const& Block : CodeBlocks)
         {
             TotalData += std::string( (Block.LineBegin - PreviousLine)+1,'\n');
             TotalData += Block.Content;
             TotalData += "\n";
-            PreviousLine = Block.LineEnd;
+            PreviousLine = Block.LineEnd+1;
             assert(PreviousLine >= 0);
         }
+        TotalData += std::string(TotalLines-PreviousLine,'\n');
         MBLSP::DidOpenTextDocument_Notification OpenNotification;
         OpenNotification.params.textDocument.text = TotalData;
         OpenNotification.params.textDocument.uri = MBLSP::URLEncodePath(FilePath);
@@ -42,11 +52,11 @@ namespace MBDoc
         }
         return ReturnValue;
     }
-    void MBDocLSP::LoadedServer::UpdateContent(std::string const& FilePath,std::vector<CodeBlock> const& OldBlock,std::vector<MBLSP::TextChange> const& Changes)
+    void MBDocLSP::LoadedServer::UpdateContent(std::string const& FilePath,int TotalLines,std::vector<CodeBlock> const& OldBlock,std::vector<MBLSP::TextChange> const& Changes)
     {
         if(!FileLoaded(FilePath))
         {
-            LoadFile(FilePath,OldBlock);
+            LoadFile(FilePath,TotalLines,OldBlock);
             return;
         }
         MBLSP::ChangeIndex ChangesResult(Changes);
@@ -60,9 +70,9 @@ namespace MBDoc
                 MBLSP::DidChangeTextDocument_Notification RemoveCodeblockChange;
                 RemoveCodeblockChange.params.textDocument.uri = MBLSP::URLEncodePath(FilePath);
                 MBLSP::TextDocumentContentChangeEvent Change;
-                Change.text = std::string(CodeBlock.LineEnd - CodeBlock.LineBegin,'\n');
+                Change.text = std::string( (CodeBlock.LineEnd - CodeBlock.LineBegin)-1,'\n');
                 Change.range = MBLSP::Range();
-                Change.range->start = MBLSP::Position{CodeBlock.LineBegin,0};
+                Change.range->start = MBLSP::Position{CodeBlock.LineBegin+1,0};
                 Change.range->end = MBLSP::Position{CodeBlock.LineEnd,0};
                 m_AssociatedServer->SendNotification(RemoveCodeblockChange);
             }
@@ -98,9 +108,15 @@ namespace MBDoc
         MBLSP::DidChangeTextDocument_Notification UpdateNotification;
         UpdateNotification.params.textDocument.uri = MBLSP::URLEncodePath(FilePath);
         UpdateNotification.params.contentChanges = MBLSP::LineChangesToChangeEvents(NewChanges);
+        m_AssociatedServer->SendNotification(UpdateNotification);
     }
-    void MBDocLSP::LoadedServer::UpdateNewBlocks(std::string const& FilePath,std::vector<CodeBlock> const& NewBlocks,std::vector<MBLSP::TextChange> const& Changes)
+    void MBDocLSP::LoadedServer::UpdateNewBlocks(std::string const& FilePath,int TotalLines,std::vector<CodeBlock> const& NewBlocks,std::vector<MBLSP::TextChange> const& Changes)
     {
+        if(!FileLoaded(FilePath))
+        {
+            LoadFile(FilePath,TotalLines,NewBlocks);
+            return;
+        }
         MBLSP::ChangeIndex ChangesResult(Changes);
         for(auto const& CodeBlock : NewBlocks)
         {
@@ -199,13 +215,14 @@ namespace MBDoc
         //extract codeblocks
         NewFile.LangaugeCodeblocks = p_ExtractCodeblocks(NewFile.Source);
         //initialize server, and get opening content
+        int TotalLines = std::count(Content.begin(),Content.end(),'\n');
         for(auto const& Language : NewFile.LangaugeCodeblocks)
         {
             p_InitializeLSP(Language.first);
             auto It = m_LoadedServers.find(Language.first);
             if(It != m_LoadedServers.end())
             {
-                It->second.LoadFile(MBUnicode::PathToUTF8(CanonicalPath),Language.second);
+                It->second.LoadFile(MBUnicode::PathToUTF8(CanonicalPath),TotalLines,Language.second);
             }
         }
     }
@@ -224,12 +241,16 @@ namespace MBDoc
         MBLSP::DidChangeTextDocument_Notification GenericChanges;
         GenericChanges.params.textDocument.uri = MBLSP::URLEncodePath(CanonicalPath);
         GenericChanges.params.contentChanges = MBLSP::LineChangesToChangeEvents(Changes);
+
+
+        int TotalLines = std::count(Content.begin(),Content.end(),'\n') + 1;
+
         for(auto const& Language : CurrentFile.LangaugeCodeblocks)
         {
             p_InitializeLSP(Language.first);
             if(auto ServerIt = m_LoadedServers.find(Language.first); ServerIt != m_LoadedServers.end())
             {
-                ServerIt->second.UpdateContent(CanonicalString,Language.second,Changes);
+                ServerIt->second.UpdateContent(CanonicalString,TotalLines,Language.second,Changes);
             }
         }
         
@@ -250,7 +271,7 @@ namespace MBDoc
                 p_InitializeLSP(Language.first);    
                 if(auto LangIt = m_LoadedServers.find(Language.first); LangIt != m_LoadedServers.end())
                 {
-                    LangIt->second.UpdateNewBlocks(CanonicalString,Language.second,Changes);
+                    LangIt->second.UpdateNewBlocks(CanonicalString,TotalLines,Language.second,Changes);
                 }
             }
         }
@@ -339,6 +360,11 @@ namespace MBDoc
                     {
                         throw std::runtime_error("Server sent semantic tokens count not divisible by 5");
                     }
+                }
+                else if(Response.error.IsInitalized())
+                {
+                    auto const& Debug = Response.error.Value();
+                    int hej = 1;
                 }
             }
             //merge results, taking into account that different languages might be interwoven

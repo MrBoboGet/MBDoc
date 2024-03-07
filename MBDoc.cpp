@@ -938,14 +938,14 @@ namespace MBDoc
                 break;
             }
             NewCodeBlock.Content += NewLine;
-            NewCodeBlock.Content.insert(NewCodeBlock.Content.end(), '\n');
+            NewCodeBlock.Content += '\n';
         }
         //there is always 1 extra newline
-        if (NewCodeBlock.Content.size() > 0)
-        {
-            NewCodeBlock.Content.resize(NewCodeBlock.Content.size() - 1);
-        }
-        NewCodeBlock.LineEnd = Retriever.GetLineIndex();
+        //if (NewCodeBlock.Content.size() > 0)
+        //{
+        //    NewCodeBlock.Content.resize(NewCodeBlock.Content.size() - 1);
+        //}
+        NewCodeBlock.LineEnd = Retriever.GetLineIndex()-1;
         return ReturnValue;
     }
 

@@ -53,9 +53,9 @@ namespace MBDoc
             LoadedServer(std::unique_ptr<MBLSP::LSP_Client> Client) : m_AssociatedServer(std::move(Client)){};
 
             bool FileLoaded(std::string const& FilePath);
-            void LoadFile(std::string const& FilePath,std::vector<CodeBlock> const& CodeBlocks);
-            void UpdateContent(std::string const& FilePath,std::vector<CodeBlock> const& OldBlock,std::vector<MBLSP::TextChange> const& Changes);
-            void UpdateNewBlocks(std::string const& FilePath,std::vector<CodeBlock> const& NewBlocks,std::vector<MBLSP::TextChange> const& Changes);
+            void LoadFile(std::string const& FilePath,int TotalLines,std::vector<CodeBlock> const& CodeBlocks);
+            void UpdateContent(std::string const& FilePath,int TotalLines,std::vector<CodeBlock> const& OldBlock,std::vector<MBLSP::TextChange> const& Changes);
+            void UpdateNewBlocks(std::string const& FilePath,int TotalLines,std::vector<CodeBlock> const& NewBlocks,std::vector<MBLSP::TextChange> const& Changes);
 
             MBLSP::LSP_Client& GetClient() { return *m_AssociatedServer;};
         };
