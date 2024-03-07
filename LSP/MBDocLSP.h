@@ -37,6 +37,8 @@ namespace MBDoc
             DocumentSource Source;
             bool ParseError = false;
             std::vector<int> Tokens;
+            MBLSP::LineIndex Index;
+            std::string Content;
             std::unordered_map<std::string,std::vector<CodeBlock>> LangaugeCodeblocks;
         };
         struct LoadedServer
@@ -52,10 +54,10 @@ namespace MBDoc
             LoadedServer& operator=(LoadedServer&&) noexcept = default;
             LoadedServer(std::unique_ptr<MBLSP::LSP_Client> Client) : m_AssociatedServer(std::move(Client)){};
 
-            bool FileLoaded(std::string const& FilePath);
-            void LoadFile(std::string const& FilePath,int TotalLines,std::vector<CodeBlock> const& CodeBlocks);
-            void UpdateContent(std::string const& FilePath,int TotalLines,std::vector<CodeBlock> const& OldBlock,std::vector<MBLSP::TextChange> const& Changes);
-            void UpdateNewBlocks(std::string const& FilePath,int TotalLines,std::vector<CodeBlock> const& NewBlocks,std::vector<MBLSP::TextChange> const& Changes);
+            bool FileLoaded(std::string const& URI);
+            void LoadFile(std::string const& URI,int TotalLines,std::vector<CodeBlock> const& CodeBlocks);
+            void UpdateContent(std::string const& URI,int TotalLines,std::vector<CodeBlock> const& OldBlock,std::vector<MBLSP::TextChange> const& Changes);
+            void UpdateNewBlocks(std::string const& URI,int TotalLines,std::vector<CodeBlock> const& NewBlocks,std::vector<MBLSP::TextChange> const& Changes);
 
             MBLSP::LSP_Client& GetClient() { return *m_AssociatedServer;};
         };
@@ -63,6 +65,7 @@ namespace MBDoc
         MBLSP::LSP_ServerHandler* m_Handler = nullptr;
 
         LSPInfo m_UserLSPInfo;
+        ProcessedColorConfiguration m_UserColorInfo;
         std::unordered_map<std::string,int> m_TokenToIndex;
         
         std::unordered_map<std::string,LoadedBuild> m_LoadedBuilds;
@@ -75,19 +78,51 @@ namespace MBDoc
 
         LoadedBuild const& p_GetBuild(std::string const& CanonicalPath);
         void p_InitializeLSP(std::string const& LanguageName);
-        void p_InitializeFile(std::string const& FilePath,std::string const& Content);
-        void p_UpdateFile(std::string const& FilePath,std::string const& Content,std::vector<MBLSP::TextChange> const& Changes);
+        void p_InitializeFile(std::string const& URI,std::string const& Content);
+        void p_UpdateFile(std::string const& URI,std::string const& Content,std::vector<MBLSP::TextChange> const& Changes);
 
         std::unordered_map<std::string,std::vector<CodeBlock>> p_ExtractCodeblocks(DocumentSource const& SourceToInspect);
 
-        std::vector<int> p_CalculateDocumentTokens(std::string const& DocumentPath,LoadedFile& File);
+        std::vector<int> p_CalculateDocumentTokens(std::string const& DocumentPath,LoadedFile const& File);
+        void p_NormalizeTypes(std::vector<int>& LSPTokens,std::vector<std::string> const& LSPTypes);
         std::vector<int> p_MergeTokens(std::vector<std::pair<std::string,std::vector<int>>> const& TotalTokens);
         std::vector<std::string> p_PossibleResponses(DocumentFilesystem const& AssociatedFilesystem,std::string const& ReferenceString,
                 DocumentPath const& AssociatedFile);
+       
+
+        template<typename T>
+        bool p_DelegatePositionRequest(MBLSP::Position const& TargetPosition,LoadedFile const& File,T const& Request,decltype(MBLSP::GetRequestResponseType<T>())& Response)
+        {
+            bool ReturnValue = false;
+            for(auto const& Language : File.LangaugeCodeblocks)
+            {
+                auto ServerIt = m_LoadedServers.find(Language.first);
+                if(ServerIt == m_LoadedServers.end())
+                {
+                    continue;   
+                }
+                for(auto const& Block : Language.second)
+                {
+                    if(MBLSP::Contains(MBLSP::Position{Block.LineBegin,0},MBLSP::Position{Block.LineEnd,0},Request.params.position))
+                    {
+                        Response = ServerIt->second.GetClient().SendRequest(Request);
+                        //DEBUG
+                        if(Response.error.IsInitalized())
+                        {
+                            auto const& Error = Response.error.Value();
+                            int hej = 2;
+                        }
+                        return true;
+                    }
+                }
+            }
+            return ReturnValue;
+        }
     public:
         MBDocLSP()
         {
             m_UserLSPInfo = LoadLSPConfig();   
+            m_UserColorInfo = LoadColorConfig();   
         }
         
         void SetHandler(MBLSP::LSP_ServerHandler* NewHandler){m_Handler = NewHandler;};
@@ -103,5 +138,8 @@ namespace MBDoc
         virtual MBLSP::SemanticToken_Response HandleRequest(MBLSP::SemanticToken_Request const& Request);
         virtual MBLSP::SemanticTokensRange_Response HandleRequest(MBLSP::SemanticTokensRange_Request const& Request);
         virtual MBLSP::Completion_Response HandleRequest(MBLSP::Completion_Request const& Request);
+
+
+
     };
 }

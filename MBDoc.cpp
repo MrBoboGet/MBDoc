@@ -197,64 +197,6 @@ namespace MBDoc
         ReturnValue = TextColor(Data[0],Data[1],Data[2]);
         return(ReturnValue);
     }
-    TextColor h_ParseTextColor(std::string const& TextString)
-    {
-        TextColor ReturnValue;    
-        if(TextString.size() != 6)
-        {
-            throw std::runtime_error("Error parsing color: unrecognized color \""+TextString+"\"");
-        }
-        bool Result = true;
-        char Data[3];
-        for(int i = 0; i < 3;i++)
-        {
-            Data[i] = MBUtility::HexValueToByte(TextString[i*2],TextString[i*2+1],&Result);
-            if(!Result)
-            {
-                throw std::runtime_error("Error parsing color: unrecognized color \""+TextString+"\"");
-            }
-        }
-        ReturnValue = TextColor(Data[0],Data[1],Data[2]);
-        return(ReturnValue);
-    }
-    ProcessedColorConfiguration ProcessColorConfig(ColorConfiguration const& Config)
-    {
-        ProcessedColorConfiguration ReturnValue;
-        ReturnValue.ColorInfo.DefaultColor = h_ParseTextColor(Config.Coloring.DefaultColor); 
-        ReturnValue.ColorInfo.ColoringNameToIndex["Default"] = 0;
-        ReturnValue.ColorInfo.ColorMap.push_back(ReturnValue.ColorInfo.DefaultColor);
-        for(auto const& LangConf : Config.LanguageColorings)
-        {
-            ProcessedLanguageColorConfig NewConf;
-            NewConf.LSP = LangConf.second.LSP;
-            for(auto const& RegexList : LangConf.second.Regexes)
-            {
-                ColorTypeIndex& RegexColorType = ReturnValue.ColorInfo.ColoringNameToIndex[RegexList.first]; 
-                if(RegexColorType == 0)
-                {
-                    RegexColorType = ReturnValue.ColorInfo.ColorMap.size();
-                    ReturnValue.ColorInfo.ColorMap.push_back(TextColor());
-                }
-                auto& Regexes = NewConf.RegexColoring.Regexes[RegexColorType];
-                for(auto const& Regex : RegexList.second)
-                {
-                    Regexes.push_back(std::regex(Regex,std::regex_constants::ECMAScript|std::regex_constants::nosubs));
-                }
-            }
-            ReturnValue.LanguageConfigs[LangConf.first] = std::move(NewConf);
-        }
-        for(auto const& Color : Config.Coloring.ColorMap)
-        {
-            ColorTypeIndex& Index = ReturnValue.ColorInfo.ColoringNameToIndex[Color.first];
-            if(Index == 0)
-            {
-                Index = ReturnValue.ColorInfo.ColorMap.size();   
-                ReturnValue.ColorInfo.ColorMap.push_back(TextColor());
-            }
-            ReturnValue.ColorInfo.ColorMap[Index] = h_ParseTextColor(Color.second);
-        }
-        return(ReturnValue);
-    }
 
 
 
@@ -4088,66 +4030,6 @@ namespace MBDoc
             Iterator++; 
         }
     }
-    std::vector<Coloring> h_RemoveDuplicates(std::vector<Coloring> const& ColoringsToPrune)
-    {
-        std::vector<Coloring> ReturnValue;
-        ReturnValue.reserve(ColoringsToPrune.size());
-        size_t ParseOffset = 0;
-        size_t ColorIndex = 0;
-        while(ColorIndex < ColoringsToPrune.size())
-        {
-            if(ParseOffset <= ColoringsToPrune[ColorIndex].ByteOffset)
-            {
-                ReturnValue.push_back(ColoringsToPrune[ColorIndex]);
-                ParseOffset = ColoringsToPrune[ColorIndex].ByteOffset + ColoringsToPrune[ColorIndex].Length;
-            }
-            ColorIndex++;
-        }
-        return(ReturnValue);
-    }
-    bool h_Overlaps(Coloring const& Lhs,Coloring const& Rhs)
-    {
-        size_t RhsLeftmost = Rhs.ByteOffset;
-        size_t RhsRightmost = Rhs.ByteOffset+Rhs.Length;
-        if(Lhs.ByteOffset >= RhsLeftmost && Lhs.ByteOffset <= RhsRightmost)
-        {
-            return(true);   
-        }
-        else if((Lhs.ByteOffset+Lhs.Length) >= RhsLeftmost && (Lhs.ByteOffset+Lhs.Length) <= RhsRightmost)
-        {
-            return(true);
-        }
-        return(false);
-    }
-    std::vector<Coloring> h_RemoveDuplicates(std::vector<Coloring> const& PrioColoring,std::vector<Coloring> const& ColoringsToPrune)
-    {
-        std::vector<Coloring> ReturnValue;
-        ReturnValue.reserve(ColoringsToPrune.size());
-        size_t PrioColoringIndex = 0;
-        size_t PruneIndex = 0;
-        while(PrioColoringIndex < PrioColoring.size() && PruneIndex < ColoringsToPrune.size())
-        {
-            if(h_Overlaps(PrioColoring[PrioColoringIndex],ColoringsToPrune[PruneIndex]))
-            {
-                PruneIndex++;    
-            }
-            else if(PrioColoring[PrioColoringIndex].ByteOffset < ColoringsToPrune[PruneIndex].ByteOffset)
-            {
-                PrioColoringIndex++;   
-            }
-            else
-            {
-                ReturnValue.push_back(ColoringsToPrune[PruneIndex]);
-                PruneIndex++;
-            }
-        }
-        while(PruneIndex < ColoringsToPrune.size())
-        {
-            ReturnValue.push_back(ColoringsToPrune[PruneIndex]);   
-            PruneIndex++;
-        }
-        return(ReturnValue);
-    }
     ResolvedCodeText DocumentFilesystem::p_CombineColorings(std::vector<Coloring> const& RegexColoring,std::vector<Coloring> const& LSPColoring,
             std::string const& OriginalContent,LineIndex const& Index,ProcessedColorInfo const& ColorInfo,LSPReferenceResolver* OptionalLSPResolver)
     {
@@ -4159,11 +4041,11 @@ namespace MBDoc
         assert(std::is_sorted(RegexColoring.begin(),RegexColoring.end()));
         assert(std::is_sorted(LSPColoring.begin(),LSPColoring.end()));
         
-        std::vector<Coloring> PrunedRegexColoring = h_RemoveDuplicates(LSPColoring,RegexColoring);
+        std::vector<Coloring> PrunedRegexColoring = RemoveDuplicates(LSPColoring,RegexColoring);
         std::vector<Coloring> TotalColorings;
         TotalColorings.resize(PrunedRegexColoring.size()+LSPColoring.size());
         std::merge(PrunedRegexColoring.begin(),PrunedRegexColoring.end(),LSPColoring.begin(),LSPColoring.end(),TotalColorings.begin());
-        TotalColorings = h_RemoveDuplicates(TotalColorings); 
+        TotalColorings = RemoveDuplicates(TotalColorings); 
         assert(std::is_sorted(TotalColorings.begin(),TotalColorings.end()));
         std::vector<TextElement> CurrentRow;
         size_t ParseOffset = 0; 

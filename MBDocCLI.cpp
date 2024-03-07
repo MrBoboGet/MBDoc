@@ -246,48 +246,6 @@ namespace MBDoc
         }
 
     }
-    LSPInfo DocCLI::p_ParseLSPConfig(std::filesystem::path const& PathToParse)
-    {
-        LSPInfo ReturnValue;
-        std::string Data = MBUtility::ReadWholeFile(MBUnicode::PathToUTF8(PathToParse));
-        MBError ParseResult = true;
-        MBParsing::JSONObject JSONData = MBParsing::ParseJSONObject(Data,0,nullptr,&ParseResult);
-        if(!ParseResult)
-        {
-            throw std::runtime_error("Error parsing LSPConf.json as json file: "+ParseResult.ErrorMessage);
-        }
-        try
-        {
-            ReturnValue.FillObject(JSONData);
-        }
-        catch(std::exception const& e)
-        {
-            throw std::runtime_error("Error parsing LSPConf.json: "+std::string(e.what())); 
-        }
-        return(ReturnValue);
-    }
-    ProcessedColorConfiguration DocCLI::p_ParseColorConfiguration(std::filesystem::path const& PathToParse)
-    {
-        ProcessedColorConfiguration ReturnValue;
-        std::string Data = MBUtility::ReadWholeFile(MBUnicode::PathToUTF8(PathToParse));
-        MBError ParseResult = true;
-        MBParsing::JSONObject JSONData = MBParsing::ParseJSONObject(Data,0,nullptr,&ParseResult);
-        if(!ParseResult)
-        {
-            throw std::runtime_error("Error parsing ColorConfig.json as json file: "+ParseResult.ErrorMessage);
-        }
-        try
-        {
-            ColorConfiguration DefaultConf;
-            DefaultConf.FillObject(JSONData);
-            ReturnValue = ProcessColorConfig(DefaultConf);
-        }
-        catch(std::exception const& e)
-        {
-            throw std::runtime_error("Error parsing LSPConf.json: "+std::string(e.what())); 
-        }
-        return(ReturnValue);
-    }
     int DocCLI::Run(const char** argv,int argc)
     {
         try 
@@ -295,11 +253,11 @@ namespace MBDoc
             std::filesystem::path HomeDir = MBSystem::GetUserHomeDirectory()/".mbdoc";
             if(std::filesystem::is_regular_file(HomeDir/"LSPConfig.json"))
             {
-                m_LSPConf = p_ParseLSPConfig(HomeDir/"LSPConfig.json");
+                m_LSPConf = LoadLSPConfig(HomeDir/"LSPConfig.json");
             }
             if(std::filesystem::is_regular_file(HomeDir/"ColorConfig.json"))
             {
-                m_ColorConfiguration = p_ParseColorConfiguration(HomeDir/"ColorConfig.json");
+                m_ColorConfiguration = LoadColorConfig(HomeDir/"ColorConfig.json");
             }
 
             std::vector<MBCLI::ArgumentListCLIInput> CommandInputs = p_GetInputs(argv, argc);

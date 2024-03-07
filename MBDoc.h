@@ -34,6 +34,9 @@
 #include <MBUtility/Optional.h>
 #include <MBUtility/LineRetriever.h>
 
+#include "Coloring.h"
+#include "LSPUtils.h"
+
 namespace MBDoc
 {
 
@@ -103,28 +106,6 @@ namespace MBDoc
         return(TextModifier(~uint64_t(Left)));
     }
     //sligthly hacky, but probably fine as these elements should only be read by compilers
-    struct TextColor
-    {
-
-    private:
-        bool m_Default = true;
-    public:
-        TextColor(){};
-        TextColor(uint8_t NR,uint8_t  NG,uint8_t NB)
-        {
-            R = NR;   
-            G = NG;   
-            B = NB;   
-            m_Default = false;
-        }
-        bool IsDefault() const
-        {
-            return(m_Default);   
-        }
-        uint8_t R = 0;   
-        uint8_t G = 0;   
-        uint8_t B = 0;   
-    };
 
     enum class TextElementType
     {
@@ -1456,38 +1437,6 @@ namespace MBDoc
         bool HasEnded() const;
         void NextDirectory(); 
     };
-    typedef int ColorTypeIndex; 
-    struct Coloring
-    {
-        size_t ByteOffset = 0;
-        //Guaranteed default
-        ColorTypeIndex Color = 0;
-        int Length = 0;
-        bool operator<(Coloring const& Rhs) const
-        {
-            return(ByteOffset < Rhs.ByteOffset);   
-        }
-    };
-    struct ProcessedRegexColoring
-    {
-        std::unordered_map<ColorTypeIndex,std::vector<std::regex>> Regexes;
-    };
-    struct ProcessedLanguageColorConfig
-    {
-        std::string LSP;       
-        ProcessedRegexColoring RegexColoring;
-    };
-    struct ProcessedColorInfo
-    {
-        TextColor DefaultColor;      
-        std::unordered_map<std::string,ColorTypeIndex> ColoringNameToIndex;
-        std::vector<TextColor> ColorMap;
-    };
-    struct ProcessedColorConfiguration
-    {
-        ProcessedColorInfo ColorInfo; 
-        std::unordered_map<std::string,ProcessedLanguageColorConfig> LanguageConfigs;
-    };
     class LineIndex
     {
         std::vector<int> m_LineToOffset; 
@@ -1518,7 +1467,6 @@ namespace MBDoc
     };
 
 
-    ProcessedColorConfiguration ProcessColorConfig(ColorConfiguration const& Config);
 
     class DocumentFilesystem 
     {

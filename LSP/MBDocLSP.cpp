@@ -8,22 +8,22 @@
 namespace MBDoc
 {
 
-    bool MBDocLSP::LoadedServer::FileLoaded(std::string const& FilePath)
+    bool MBDocLSP::LoadedServer::FileLoaded(std::string const& URI)
     {
-        return m_OpenedFiles.find(FilePath) != m_OpenedFiles.end();
+        return m_OpenedFiles.find(URI) != m_OpenedFiles.end();
     }
-    void MBDocLSP::LoadedServer::LoadFile(std::string const& FilePath,int TotalLines,std::vector<CodeBlock> const& CodeBlocks)
+    void MBDocLSP::LoadedServer::LoadFile(std::string const& URI,int TotalLines,std::vector<CodeBlock> const& CodeBlocks)
     {
         std::string TotalData;
-        if(m_OpenedFiles.find(FilePath) != m_OpenedFiles.end())
+        if(m_OpenedFiles.find(URI) != m_OpenedFiles.end())
         {
             MBLSP::DidCloseTextDocument_Notification CloseNotification;
-            CloseNotification.params.textDocument.uri = MBLSP::URLEncodePath(FilePath);
+            CloseNotification.params.textDocument.uri = URI;
             m_AssociatedServer->SendNotification(CloseNotification);
         }
         else
         {
-            m_OpenedFiles.insert(FilePath);
+            m_OpenedFiles.insert(URI);
         }
         int PreviousLine = 0;
         for(auto const& Block : CodeBlocks)
@@ -34,10 +34,10 @@ namespace MBDoc
             PreviousLine = Block.LineEnd+1;
             assert(PreviousLine >= 0);
         }
-        TotalData += std::string(TotalLines-PreviousLine,'\n');
+        TotalData += std::string( (TotalLines-PreviousLine)+1,'\n');
         MBLSP::DidOpenTextDocument_Notification OpenNotification;
         OpenNotification.params.textDocument.text = TotalData;
-        OpenNotification.params.textDocument.uri = MBLSP::URLEncodePath(FilePath);
+        OpenNotification.params.textDocument.uri = URI;
         m_AssociatedServer->SendNotification(OpenNotification);
     }
     bool MBDocLSP::LoadedServer::p_LineInBlocks(int LineIndex,std::vector<CodeBlock> const& Blocks)
@@ -52,11 +52,11 @@ namespace MBDoc
         }
         return ReturnValue;
     }
-    void MBDocLSP::LoadedServer::UpdateContent(std::string const& FilePath,int TotalLines,std::vector<CodeBlock> const& OldBlock,std::vector<MBLSP::TextChange> const& Changes)
+    void MBDocLSP::LoadedServer::UpdateContent(std::string const& URI,int TotalLines,std::vector<CodeBlock> const& OldBlock,std::vector<MBLSP::TextChange> const& Changes)
     {
-        if(!FileLoaded(FilePath))
+        if(!FileLoaded(URI))
         {
-            LoadFile(FilePath,TotalLines,OldBlock);
+            LoadFile(URI,TotalLines,OldBlock);
             return;
         }
         MBLSP::ChangeIndex ChangesResult(Changes);
@@ -68,7 +68,7 @@ namespace MBDoc
             if(BeginChange != MBLSP::LineChangeType::Null || EndChange != MBLSP::LineChangeType::Null)
             {
                 MBLSP::DidChangeTextDocument_Notification RemoveCodeblockChange;
-                RemoveCodeblockChange.params.textDocument.uri = MBLSP::URLEncodePath(FilePath);
+                RemoveCodeblockChange.params.textDocument.uri = URI;
                 MBLSP::TextDocumentContentChangeEvent Change;
                 Change.text = std::string( (CodeBlock.LineEnd - CodeBlock.LineBegin)-1,'\n');
                 Change.range = MBLSP::Range();
@@ -106,15 +106,15 @@ namespace MBDoc
             }
         }
         MBLSP::DidChangeTextDocument_Notification UpdateNotification;
-        UpdateNotification.params.textDocument.uri = MBLSP::URLEncodePath(FilePath);
+        UpdateNotification.params.textDocument.uri = URI;
         UpdateNotification.params.contentChanges = MBLSP::LineChangesToChangeEvents(NewChanges);
         m_AssociatedServer->SendNotification(UpdateNotification);
     }
-    void MBDocLSP::LoadedServer::UpdateNewBlocks(std::string const& FilePath,int TotalLines,std::vector<CodeBlock> const& NewBlocks,std::vector<MBLSP::TextChange> const& Changes)
+    void MBDocLSP::LoadedServer::UpdateNewBlocks(std::string const& URI,int TotalLines,std::vector<CodeBlock> const& NewBlocks,std::vector<MBLSP::TextChange> const& Changes)
     {
-        if(!FileLoaded(FilePath))
+        if(!FileLoaded(URI))
         {
-            LoadFile(FilePath,TotalLines,NewBlocks);
+            LoadFile(URI,TotalLines,NewBlocks);
             return;
         }
         MBLSP::ChangeIndex ChangesResult(Changes);
@@ -125,7 +125,7 @@ namespace MBDoc
             if(BeginChange != MBLSP::LineChangeType::Null || EndChange != MBLSP::LineChangeType::Null)
             {
                 MBLSP::DidChangeTextDocument_Notification RemoveCodeblockChange;
-                RemoveCodeblockChange.params.textDocument.uri = MBLSP::URLEncodePath(FilePath);
+                RemoveCodeblockChange.params.textDocument.uri = URI;
                 MBLSP::TextDocumentContentChangeEvent Change;
                 Change.text = CodeBlock.Content;
                 Change.range = MBLSP::Range();
@@ -180,10 +180,17 @@ namespace MBDoc
         {
             return;
         }
-        if(m_UserLSPInfo.Servers.find(LanguageName) != m_UserLSPInfo.Servers.end())
+        auto ConfigIt = m_UserColorInfo.LanguageConfigs.find(LanguageName);
+        if(ConfigIt != m_UserColorInfo.LanguageConfigs.end())
         {
-            auto& NewInfo = m_LoadedServers[LanguageName];
-            NewInfo = LoadedServer(StartLSPServer(m_UserLSPInfo.Servers[LanguageName]));
+            if(ConfigIt->second.LSP != "")
+            {
+                if(m_UserLSPInfo.Servers.find(ConfigIt->second.LSP) != m_UserLSPInfo.Servers.end())
+                {
+                    auto& NewInfo = m_LoadedServers[LanguageName];
+                    NewInfo = LoadedServer(StartLSPServer(m_UserLSPInfo.Servers[ConfigIt->second.LSP]));
+                }
+            }
         }
     }
     std::unordered_map<std::string,std::vector<CodeBlock>> MBDocLSP::p_ExtractCodeblocks(DocumentSource const& SourceToInspect)
@@ -198,16 +205,18 @@ namespace MBDoc
         Traverser.Traverse(SourceToInspect,Visitor);
         return ReturnValue;
     }
-    void MBDocLSP::p_InitializeFile(std::string const& FilePath,std::string const& Content)
+    void MBDocLSP::p_InitializeFile(std::string const& URI,std::string const& Content)
     {
-        auto CanonicalPath = std::filesystem::canonical(FilePath);
-        std::string CanonicalString = MBUnicode::PathToUTF8(CanonicalPath);
-        LoadedFile& NewFile = m_LoadedFiles.emplace(std::make_pair(CanonicalString,LoadedFile()) ).first->second;
-        NewFile.ContainingBuild = p_FindFirstContainingBuild(CanonicalPath);
+        auto Path = MBLSP::URLDecodePath(URI);
+        //std::string CanonicalString = MBUnicode::PathToUTF8(CanonicalPath);
+        LoadedFile& NewFile = m_LoadedFiles.emplace(std::make_pair(URI,LoadedFile()) ).first->second;
+        NewFile.ContainingBuild = p_FindFirstContainingBuild(Path);
+        NewFile.Content = Content;
+        NewFile.Index = MBLSP::LineIndex(Content);
 
         DocumentParsingContext Parser;
         MBError Result = true;
-        NewFile.Source = Parser.ParseSource(Content.data(),Content.size(),MBUnicode::PathToUTF8(CanonicalPath.filename()),Result);
+        NewFile.Source = Parser.ParseSource(Content.data(),Content.size(),MBUnicode::PathToUTF8(Path.filename()),Result);
         if(!Result)
         {
             NewFile.ParseError = true;   
@@ -222,24 +231,27 @@ namespace MBDoc
             auto It = m_LoadedServers.find(Language.first);
             if(It != m_LoadedServers.end())
             {
-                It->second.LoadFile(MBUnicode::PathToUTF8(CanonicalPath),TotalLines,Language.second);
+                It->second.LoadFile(URI,TotalLines,Language.second);
             }
         }
     }
-    void MBDocLSP::p_UpdateFile(std::string const& FilePath,std::string const& Content,std::vector<MBLSP::TextChange> const& Changes)
+    void MBDocLSP::p_UpdateFile(std::string const& URI,std::string const& Content,std::vector<MBLSP::TextChange> const& Changes)
     {
-        auto CanonicalPath = std::filesystem::canonical(FilePath);
-        std::string CanonicalString = MBUnicode::PathToUTF8(CanonicalPath);
-        auto FileIt = m_LoadedFiles.find(CanonicalString);
+        auto Path = MBLSP::URLDecodePath(URI);
+        auto FileIt = m_LoadedFiles.find(URI);
         if(FileIt == m_LoadedFiles.end())
         {
             return;   
         }
         auto& CurrentFile = FileIt->second;
 
+        CurrentFile.Content = Content;
+        CurrentFile.Index = MBLSP::LineIndex(Content);
+        CurrentFile.Tokens = MBLSP::UpdateSemanticTokens(CurrentFile.Tokens,Changes);
+
         MBLSP::ChangeIndex ChangesResult(Changes);
         MBLSP::DidChangeTextDocument_Notification GenericChanges;
-        GenericChanges.params.textDocument.uri = MBLSP::URLEncodePath(CanonicalPath);
+        GenericChanges.params.textDocument.uri = URI;
         GenericChanges.params.contentChanges = MBLSP::LineChangesToChangeEvents(Changes);
 
 
@@ -250,14 +262,14 @@ namespace MBDoc
             p_InitializeLSP(Language.first);
             if(auto ServerIt = m_LoadedServers.find(Language.first); ServerIt != m_LoadedServers.end())
             {
-                ServerIt->second.UpdateContent(CanonicalString,TotalLines,Language.second,Changes);
+                ServerIt->second.UpdateContent(URI,TotalLines,Language.second,Changes);
             }
         }
         
         DocumentParsingContext Parser;
         MBError Result = true;
         DocumentSource NewSource;
-        NewSource = Parser.ParseSource(Content.data(),Content.size(),MBUnicode::PathToUTF8(CanonicalPath.filename()),Result);
+        NewSource = Parser.ParseSource(Content.data(),Content.size(),MBUnicode::PathToUTF8(Path.filename()),Result);
         if(!Result)
         {
             FileIt->second.ParseError = true;
@@ -271,18 +283,18 @@ namespace MBDoc
                 p_InitializeLSP(Language.first);    
                 if(auto LangIt = m_LoadedServers.find(Language.first); LangIt != m_LoadedServers.end())
                 {
-                    LangIt->second.UpdateNewBlocks(CanonicalString,TotalLines,Language.second,Changes);
+                    LangIt->second.UpdateNewBlocks(URI,TotalLines,Language.second,Changes);
                 }
             }
         }
     }
     void MBDocLSP::OpenedDocument(std::string const& URI,std::string const& Content)
     {
-        p_InitializeFile(MBUnicode::PathToUTF8(MBLSP::URLDecodePath(URI)),Content);
+        p_InitializeFile(URI,Content);
     }
     void MBDocLSP::DocumentChanged(std::string const& URI,std::string const& NewContent, std::vector<MBLSP::TextChange> const& Changes)
     {
-        p_UpdateFile(MBUnicode::PathToUTF8(MBLSP::URLDecodePath(URI)),NewContent,Changes);
+        p_UpdateFile(URI,NewContent,Changes);
     }
 
     std::vector<int> MBDocLSP::p_MergeTokens(std::vector<std::pair<std::string, std::vector<int>>> const& TotalTokens)
@@ -323,22 +335,35 @@ namespace MBDoc
             ReturnValue.insert(ReturnValue.end(),CurrentContainer.begin()+ OffsetInfo.CurrentIndex,
                      CurrentContainer.begin()+ OffsetInfo.CurrentIndex+5);
             int CurrentTokenID = ReturnValue[ReturnValue.size()-2];
-            if(ServerCapabilities.semanticTokensProvider.IsInitalized() && ServerCapabilities.semanticTokensProvider->legend.tokenTypes.size() > CurrentTokenID)
-            {
-                auto const& ServerMap = ServerCapabilities.semanticTokensProvider->legend.tokenTypes;
-                ReturnValue[ReturnValue.size()-2] = m_TokenToIndex[ ServerMap[CurrentTokenID]];
-            }
+            //if(ServerCapabilities.semanticTokensProvider.IsInitalized() && ServerCapabilities.semanticTokensProvider->legend.tokenTypes.size() > CurrentTokenID)
+            //{
+            //    auto const& ServerMap = ServerCapabilities.semanticTokensProvider->legend.tokenTypes;
+            //    ReturnValue[ReturnValue.size()-2] = m_TokenToIndex[ ServerMap[CurrentTokenID]];
+            //}
             OffsetInfo.CurrentIndex += 5;
         }
         return ReturnValue;
     }
-    std::vector<int> MBDocLSP::p_CalculateDocumentTokens(std::string const& DocumentPath,LoadedFile& File)
+    void MBDocLSP::p_NormalizeTypes(std::vector<int>& LSPTokens,std::vector<std::string> const& LSPTypes)
+    {
+        int Offset = 0;
+        while(Offset + 3 < LSPTokens.size())
+        {
+            int& CurrentType = LSPTokens[Offset+3];
+            if(CurrentType < LSPTypes.size())
+            {
+                CurrentType = m_TokenToIndex[LSPTypes[LSPTokens[Offset+3]]];
+            }
+            Offset += 5;
+        }
+    }
+    std::vector<int> MBDocLSP::p_CalculateDocumentTokens(std::string const& URI,LoadedFile const& File)
     {
         std::vector<int> ReturnValue;
         if(File.ParseError != true)
         {
             MBLSP::SemanticToken_Request Request;
-            Request.params.textDocument.uri  = MBLSP::URLEncodePath(DocumentPath);
+            Request.params.textDocument.uri  = URI;
             std::vector<std::pair<std::string,std::future<MBLSP::SemanticToken_Response>>> Futures;
             std::vector<std::pair<std::string, std::vector<int>>> Results;
             for(auto const& Language : File.LangaugeCodeblocks)
@@ -355,7 +380,24 @@ namespace MBDoc
                 auto Response = std::move(Future.second.get());
                 if(Response.result.IsInitalized())
                 {
-                    Results.emplace_back(std::make_pair(Future.first,std::move(Response.result.Value().data)));
+                    std::vector<int> Tokens = std::move(Response.result.Value().data);
+                    auto& Client = m_LoadedServers[Future.first].GetClient();
+                    auto const& CurrentCapabilites = Client.GetServerCapabilites();
+                    if(CurrentCapabilites.semanticTokensProvider.IsInitalized())
+                    {
+                        p_NormalizeTypes(Tokens,CurrentCapabilites.semanticTokensProvider->legend.tokenTypes);
+                    }
+                    auto ColorIt = m_UserColorInfo.LanguageConfigs.find(Future.first);
+                    if(ColorIt != m_UserColorInfo.LanguageConfigs.end())
+                    {
+                        auto const& Regexes = ColorIt->second.RegexColoring;
+                        auto LSPColorings = ConvertColoring(Tokens,File.Index);
+                        auto RegexColorings = GetRegexColorings(LSPColorings,Regexes,File.Content);
+                        auto CombinedColors = CombineColorings(LSPColorings,RegexColorings);
+                        Tokens = ConvertColoring(CombinedColors,File.Index);
+                    }
+
+                    Results.emplace_back(std::make_pair(Future.first,std::move(Tokens)));
                     if(Results.back().second.size() % 5 != 0)
                     {
                         throw std::runtime_error("Server sent semantic tokens count not divisible by 5");
@@ -370,6 +412,10 @@ namespace MBDoc
             //merge results, taking into account that different languages might be interwoven
             ReturnValue = p_MergeTokens(Results);
         }
+        else
+        {
+            ReturnValue = File.Tokens;   
+        }
         return ReturnValue;
     }
     std::vector<std::string> MBDocLSP::p_PossibleResponses(DocumentFilesystem const& AssociatedFilesystem,std::string const& ReferenceString,
@@ -382,6 +428,31 @@ namespace MBDoc
         MBLSP::Initialize_Response ReturnValue;
         ReturnValue.result = MBLSP::Initialize_Result();
         ReturnValue.result->capabilities = MBLSP::GetDefaultServerCapabilities(*this);
+
+
+        std::unordered_set<std::string> AddedColors;
+        std::vector<std::string> ColorMap;
+        std::vector<std::pair<std::string,ColorTypeIndex>> ConfigColors;
+        for(auto const& Pair : m_UserColorInfo.ColorInfo.ColoringNameToIndex)
+        {
+            ConfigColors.push_back(Pair);
+        }
+        std::sort(ConfigColors.begin(),ConfigColors.end(), [](auto const& lhs,auto const& rhs){return lhs.second < rhs.second; });
+        for(auto const& Pair : ConfigColors)
+        {
+            ColorMap.push_back(Pair.first);
+            AddedColors.insert(Pair.first);
+        }
+
+        for(auto const& Color : ReturnValue.result->capabilities.semanticTokensProvider->legend.tokenTypes)
+        {
+            if(AddedColors.find(Color) == AddedColors.end())
+            {
+                AddedColors.insert(Color);
+                ColorMap.emplace_back(Color);
+            }
+        }
+        ReturnValue.result->capabilities.semanticTokensProvider->legend.tokenTypes = std::move(ColorMap);
         for(int i = 0; i < ReturnValue.result->capabilities.semanticTokensProvider->legend.tokenTypes.size();i++)
         {
             m_TokenToIndex[ReturnValue.result->capabilities.semanticTokensProvider->legend.tokenTypes[i]] = i;
@@ -390,33 +461,44 @@ namespace MBDoc
     }
     MBLSP::GotoDefinition_Response MBDocLSP::HandleRequest(MBLSP::GotoDefinition_Request const& Request)
     {
-        std::string CanonicalPath = MBUnicode::PathToUTF8(std::filesystem::canonical(Request.params.textDocument.uri));
         MBLSP::GotoDefinition_Response Response;
-        auto FielIt = m_LoadedFiles.find(CanonicalPath);
+        auto FileIt = m_LoadedFiles.find(Request.params.textDocument.uri);
+
+        if(FileIt == m_LoadedFiles.end())
+        {
+            return Response;
+        }
+        auto const& CurrentFile = FileIt->second;
+        if(p_DelegatePositionRequest(Request.params.position,CurrentFile,Request,Response))
+        {
+            return Response;
+        }
         return Response;
     }
     MBLSP::SemanticToken_Response MBDocLSP::HandleRequest(MBLSP::SemanticToken_Request const& Request)
     {
-        std::string Path = MBUnicode::PathToUTF8(std::filesystem::canonical(MBLSP::URLDecodePath(Request.params.textDocument.uri)));
+        std::string URI = Request.params.textDocument.uri;
         MBLSP::SemanticToken_Response Response;
         MBLSP::SemanticTokens Result = MBLSP::SemanticTokens();
-        auto FileIt = m_LoadedFiles.find(Path);
+        auto FileIt = m_LoadedFiles.find(URI);
         if(FileIt != m_LoadedFiles.end())
         {
-            Result.data = p_CalculateDocumentTokens(Path,FileIt->second);
+            Result.data = p_CalculateDocumentTokens(URI,FileIt->second);
+            FileIt->second.Tokens = Result.data;
         }
         Response.result = std::move(Result);
         return Response;
     }
     MBLSP::SemanticTokensRange_Response MBDocLSP::HandleRequest(MBLSP::SemanticTokensRange_Request const& Request)
     {
-        std::string Path = MBUnicode::PathToUTF8(std::filesystem::canonical(MBLSP::URLDecodePath(Request.params.textDocument.uri)));
+        std::string URI = Request.params.textDocument.uri;
         MBLSP::SemanticTokensRange_Response Response;
         MBLSP::SemanticTokens Result = MBLSP::SemanticTokens();
-        auto FileIt = m_LoadedFiles.find(Path);
+        auto FileIt = m_LoadedFiles.find(URI);
         if(FileIt != m_LoadedFiles.end())
         {
-            std::vector<int> TotalData = p_CalculateDocumentTokens(Path,FileIt->second);
+            std::vector<int> TotalData = p_CalculateDocumentTokens(URI,FileIt->second);
+            FileIt->second.Tokens = TotalData;
             Result.data = MBLSP::GetTokenRange(TotalData,Request.params.range);
         }
         Response.result = std::move(Result);
@@ -424,11 +506,21 @@ namespace MBDoc
     }
     MBLSP::Completion_Response MBDocLSP::HandleRequest(MBLSP::Completion_Request const& Request)
     {
-        std::string Path = MBUnicode::PathToUTF8(std::filesystem::canonical(Request.params.textDocument.uri));
-        auto FileIt = m_LoadedFiles.find(Path);
-
+        std::string URI = Request.params.textDocument.uri;
+        auto FileIt = m_LoadedFiles.find(URI);
         MBLSP::Completion_Response Response;
         Response.result = MBLSP::Completion_Result();
+        //TODO fix
+        return Response;
+        if(FileIt == m_LoadedFiles.end())
+        {
+            return Response;   
+        }
+        auto const& CurrentFile = FileIt->second;
+        if(p_DelegatePositionRequest(Request.params.position,CurrentFile,Request,Response))
+        {
+            return Response;
+        }
 
         DocumentPath AssociatedPath;
         DocumentSource const& AssociatedDocument = DocumentSource();
