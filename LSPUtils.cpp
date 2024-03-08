@@ -50,6 +50,16 @@ namespace MBDoc
         }
         return(StartLSPServer(ServerToStart,InitReq));
     }
+    std::unique_ptr<MBLSP::LSP_Client> StartLSPServer(LSPServer const& ServerToStart,MBParsing::JSONObject const& RawInitRequest)
+    {
+        std::unique_ptr<MBLSP::LSP_Client> ReturnValue;
+        std::unique_ptr<MBSystem::BiDirectionalSubProcess> SubProcess = 
+            std::make_unique<MBSystem::BiDirectionalSubProcess>(ServerToStart.CommandName,ServerToStart.CommandArguments);
+        std::unique_ptr<MBUtility::IndeterminateInputStream> InputStream = std::make_unique<MBUtility::NonOwningIndeterminateInputStream>(SubProcess.get());
+        ReturnValue = std::make_unique<MBLSP::LSP_Client>(std::move(InputStream),std::move(SubProcess));
+        ReturnValue->InitializeServer(RawInitRequest);
+        return ReturnValue;
+    }
     std::unique_ptr<MBLSP::LSP_Client> StartLSPServer(LSPServer const& ServerToStart,MBLSP::InitializeRequest const& InitReq)
     {
         std::unique_ptr<MBLSP::LSP_Client> ReturnValue;
@@ -171,6 +181,7 @@ namespace MBDoc
             NewColoring.Color = LSPColoring[Offset+3];
             Offset += 5;
         }
+        std::sort(ReturnValue.begin(),ReturnValue.end());
         return ReturnValue;
     }
     std::vector<int> ConvertColoring(std::vector<Coloring> const& MBDColorings,MBLSP::LineIndex const& Index)
@@ -321,6 +332,7 @@ namespace MBDoc
         std::vector<Coloring> ReturnValue;
         std::vector<Coloring> PrunedRegexColoring = RemoveDuplicates(LSPColoring,RegexColoring);
         ReturnValue.resize(PrunedRegexColoring.size()+LSPColoring.size());
+        std::sort(PrunedRegexColoring.begin(),PrunedRegexColoring.end());
         std::merge(PrunedRegexColoring.begin(),PrunedRegexColoring.end(),LSPColoring.begin(),LSPColoring.end(),ReturnValue.begin());
         ReturnValue = RemoveDuplicates(ReturnValue); 
         return ReturnValue;

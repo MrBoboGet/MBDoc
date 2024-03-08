@@ -7,7 +7,26 @@
 #include <MBLSP/Capabilities.h>
 namespace MBDoc
 {
-
+    //DiagnosticsStore
+    std::string MBDocLSP::DiagnosticsStore::NormalizeURI(std::string const& URI)
+    {
+       return MBUnicode::PathToUTF8(std::filesystem::canonical(MBLSP::URLDecodePath(URI)));
+    }
+    void MBDocLSP::DiagnosticsStore::StoreDiagnostics(std::string const& URI,std::string const& Language,std::vector<MBLSP::Diagnostic> const& Diagnostics)
+    {
+        std::lock_guard Lock(m_InternalsMutex);
+        m_StoredDiagnostics[NormalizeURI(URI)][Language] = Diagnostics;
+    }
+    std::vector<MBLSP::Diagnostic> MBDocLSP::DiagnosticsStore::GetDiagnostics(std::string const& URI)
+    {
+        std::vector<MBLSP::Diagnostic> ReturnValue;
+        for(auto const& Language : m_StoredDiagnostics[NormalizeURI(URI)])
+        {
+            ReturnValue.insert(ReturnValue.end(),Language.second.begin(),Language.second.end());
+        }
+        return ReturnValue;
+    }
+    // 
     bool MBDocLSP::LoadedServer::FileLoaded(std::string const& URI)
     {
         return m_OpenedFiles.find(URI) != m_OpenedFiles.end();
@@ -40,12 +59,13 @@ namespace MBDoc
         OpenNotification.params.textDocument.uri = URI;
         m_AssociatedServer->SendNotification(OpenNotification);
     }
-    bool MBDocLSP::LoadedServer::p_LineInBlocks(int LineIndex,std::vector<CodeBlock> const& Blocks)
+    bool MBDocLSP::LoadedServer::p_LineInBlocks(MBLSP::TextChange const& Change,std::vector<CodeBlock> const& Blocks)
     {
         bool ReturnValue = false;
         for(auto const& Block : Blocks)
         {
-            if(Block.LineBegin < LineIndex && LineIndex < Block.LineEnd)
+            if(Block.LineBegin < Change.LinePosition && Change.LinePosition < Block.LineEnd || 
+                    (std::holds_alternative<MBLSP::TextChange_AddedLine>(Change.Change) && Change.LinePosition == Block.LineEnd))
             {
                 return true;   
             }
@@ -81,7 +101,7 @@ namespace MBDoc
         std::vector<MBLSP::TextChange> NewChanges;
         for(auto const& Change : Changes)
         {
-            if(p_LineInBlocks(Change.LinePosition,OldBlock))
+            if(p_LineInBlocks(Change,OldBlock))
             {
                 NewChanges.push_back(Change);
             }
@@ -187,8 +207,43 @@ namespace MBDoc
             {
                 if(m_UserLSPInfo.Servers.find(ConfigIt->second.LSP) != m_UserLSPInfo.Servers.end())
                 {
+                    auto const& Server = m_UserLSPInfo.Servers[ConfigIt->second.LSP];
                     auto& NewInfo = m_LoadedServers[LanguageName];
-                    NewInfo = LoadedServer(StartLSPServer(m_UserLSPInfo.Servers[ConfigIt->second.LSP]));
+                    MBLSP::InitializeRequest InitReq;
+                    if(Server.initializationOptions)
+                    {
+                        InitReq.params.initializationOptions = Server.initializationOptions.Value();   
+                    }
+                    //MBParsing::JSONObject InitReq = m_ParentRequest;
+                    //if(Server.initializationOptions)
+                    //{
+                    //    InitReq["params"]["initializationOptions"] = Server.initializationOptions.Value();
+                    //    //InitReq.params.initializationOptions = Server.initializationOptions.Value();   
+                    //}
+                    //else
+                    //{
+                    //    //ensure that the servers doesnt send config for this LSP to other LSP's
+                    //    auto& Map = InitReq["params"].GetMapData();
+                    //    auto InitOptionsIt = Map.find("initializationOptions");
+                    //    if(InitOptionsIt != Map.end())
+                    //    {
+                    //        Map.erase(InitOptionsIt);
+                    //    }
+                    //}
+                    NewInfo = LoadedServer(StartLSPServer(m_UserLSPInfo.Servers[ConfigIt->second.LSP],InitReq));
+
+                    NewInfo.GetClient().AddRawNotificationHandler( [&,Lang=LanguageName](MBParsing::JSONObject Notification)
+                            {
+                                if(Notification.HasAttribute("method") && Notification.GetAttribute("method").GetStringData() == "textDocument/publishDiagnostics")
+                                {
+                                    //Should probably normalise all URI's...
+                                    MBLSP::PublishDiagnostics_Notification SentNotification;
+                                    SentNotification.FillObject(Notification);
+                                    m_DiagnosticsStore.StoreDiagnostics(SentNotification.params.uri,Lang,std::move(SentNotification.params.diagnostics));
+                                    p_SendDiagnosticsRequest(SentNotification.params.uri);
+                                }
+                            });
+
                 }
             }
         }
@@ -214,6 +269,8 @@ namespace MBDoc
         NewFile.Content = Content;
         NewFile.Index = MBLSP::LineIndex(Content);
 
+
+
         DocumentParsingContext Parser;
         MBError Result = true;
         NewFile.Source = Parser.ParseSource(Content.data(),Content.size(),MBUnicode::PathToUTF8(Path.filename()),Result);
@@ -221,6 +278,8 @@ namespace MBDoc
         {
             NewFile.ParseError = true;   
         }
+        m_DiagnosticsStore.StoreDiagnostics(URI,"",p_GetDiagnostics(NewFile.Source));
+        p_SendDiagnosticsRequest(URI);
         //extract codeblocks
         NewFile.LangaugeCodeblocks = p_ExtractCodeblocks(NewFile.Source);
         //initialize server, and get opening content
@@ -270,6 +329,8 @@ namespace MBDoc
         MBError Result = true;
         DocumentSource NewSource;
         NewSource = Parser.ParseSource(Content.data(),Content.size(),MBUnicode::PathToUTF8(Path.filename()),Result);
+        m_DiagnosticsStore.StoreDiagnostics(URI,"",p_GetDiagnostics(NewSource));
+        p_SendDiagnosticsRequest(URI);
         if(!Result)
         {
             FileIt->second.ParseError = true;
@@ -287,6 +348,31 @@ namespace MBDoc
                 }
             }
         }
+    }
+    std::vector<MBLSP::Diagnostic> MBDocLSP::p_GetDiagnostics(DocumentSource const& LoadedSource)
+    {
+        std::vector<MBLSP::Diagnostic> ReturnValue;
+        auto RefVisitor = [&](DocReference const& Ref)
+        {
+            if(Ref.IsType<UnresolvedReference>())
+            {
+                auto& NewDiagnostic = ReturnValue.emplace_back();
+                NewDiagnostic.message = "Unresolved reference";
+                NewDiagnostic.range.start = Ref.Begin;
+                NewDiagnostic.range.end = Ref.End;
+            }
+        };
+        LambdaVisitor Visitor(&RefVisitor);
+        DocumentTraverser Traverser;
+        Traverser.Traverse(LoadedSource,Visitor);
+        return ReturnValue;
+    }
+    void MBDocLSP::p_SendDiagnosticsRequest(std::string const& URI)
+    {
+        MBLSP::PublishDiagnostics_Notification DiagnosticNotification;
+        DiagnosticNotification.params.uri = URI;
+        DiagnosticNotification.params.diagnostics = m_DiagnosticsStore.GetDiagnostics(URI);
+        m_Handler->SendNotification(DiagnosticNotification);
     }
     void MBDocLSP::OpenedDocument(std::string const& URI,std::string const& Content)
     {
@@ -429,7 +515,7 @@ namespace MBDoc
         ReturnValue.result = MBLSP::Initialize_Result();
         ReturnValue.result->capabilities = MBLSP::GetDefaultServerCapabilities(*this);
 
-
+        m_ParentRequest = m_Handler->GetRawServerMessage();
         std::unordered_set<std::string> AddedColors;
         std::vector<std::string> ColorMap;
         std::vector<std::pair<std::string,ColorTypeIndex>> ConfigColors;
@@ -469,8 +555,10 @@ namespace MBDoc
             return Response;
         }
         auto const& CurrentFile = FileIt->second;
+        MBParsing::JSONObject RawResponse;
         if(p_DelegatePositionRequest(Request.params.position,CurrentFile,Request,Response))
         {
+            //m_Handler->UseRawResponse(std::move(RawResponse));
             return Response;
         }
         return Response;
@@ -504,6 +592,39 @@ namespace MBDoc
         Response.result = std::move(Result);
         return Response;
     }
+    //MBParsing::JSONObject MBDocLSP::HandleGenericRequest(MBParsing::JSONObject const& Request)
+    //{
+    //    MBParsing::JSONObject ReturnValue;
+    //    if(Request.HasAttribute("textDocument") && Request["textDocument"].HasAttribute("uri") && Request.HasAttribute("position"))
+    //    {
+    //        std::string URI = Request["textDocument"]["uri"].GetStringData();
+    //        MBLSP::Position TargetPos;
+    //        TargetPos.Parse(Request["position"]);
+    //        auto FileIt = m_LoadedFiles.find(URI);
+    //        if(FileIt != m_LoadedFiles.end())
+    //        {
+    //            auto const& File = FileIt->second;
+    //            if(p_DelegatePositionRequest(TargetPos,File,Request,ReturnValue))
+    //            {
+    //                return ReturnValue;
+    //            }
+    //            else
+    //            {
+    //                throw std::runtime_error("invalid position");   
+    //            }
+    //        }
+    //        else
+    //        {
+    //            throw std::runtime_error("file not loaded");   
+    //        }
+    //    }
+    //    else
+    //    {
+    //        throw std::runtime_error("Request not implemented");
+    //    }
+
+    //    return ReturnValue;
+    //}
     MBLSP::Completion_Response MBDocLSP::HandleRequest(MBLSP::Completion_Request const& Request)
     {
         std::string URI = Request.params.textDocument.uri;
@@ -517,8 +638,10 @@ namespace MBDoc
             return Response;   
         }
         auto const& CurrentFile = FileIt->second;
+        MBParsing::JSONObject RawResponse;
         if(p_DelegatePositionRequest(Request.params.position,CurrentFile,Request,Response))
         {
+            //m_Handler->UseRawResponse(std::move(RawResponse));
             return Response;
         }
 

@@ -26,6 +26,7 @@ namespace MBDoc
         ProcessedColorInfo ColorInfo; 
         std::unordered_map<std::string,ProcessedLanguageColorConfig> LanguageConfigs;
     };
+    std::unique_ptr<MBLSP::LSP_Client> StartLSPServer(LSPServer const& ServerToStart,MBParsing::JSONObject const& RawInitRequest);
     std::unique_ptr<MBLSP::LSP_Client> StartLSPServer(LSPServer const& ServerToStart,MBLSP::InitializeRequest const& InitReq);
     std::unique_ptr<MBLSP::LSP_Client> StartLSPServer(LSPServer const& ServerToStart);
     
