@@ -31,6 +31,15 @@ namespace MBDoc
     {
         return m_OpenedFiles.find(URI) != m_OpenedFiles.end();
     }
+    std::string const& MBDocLSP::LoadedServer::GetFileContent(std::string const& URI)
+    {
+        auto FileIt = m_OpenedFiles.find(URI);
+        if(FileIt == m_OpenedFiles.end())
+        {
+            throw std::runtime_error(URI+" not opened");
+        }
+        return FileIt->second;
+    }
     void MBDocLSP::LoadedServer::LoadFile(std::string const& URI,int TotalLines,std::vector<CodeBlock> const& CodeBlocks)
     {
         std::string TotalData;
@@ -40,10 +49,10 @@ namespace MBDoc
             CloseNotification.params.textDocument.uri = URI;
             m_AssociatedServer->SendNotification(CloseNotification);
         }
-        else
-        {
-            m_OpenedFiles.insert(URI);
-        }
+        //else
+        //{
+        //    m_OpenedFiles.insert(URI);
+        //}
         int PreviousLine = 0;
         for(auto const& Block : CodeBlocks)
         {
@@ -54,6 +63,7 @@ namespace MBDoc
             assert(PreviousLine >= 0);
         }
         TotalData += std::string( (TotalLines-PreviousLine)+1,'\n');
+        m_OpenedFiles[URI] = TotalData;
         MBLSP::DidOpenTextDocument_Notification OpenNotification;
         OpenNotification.params.textDocument.text = TotalData;
         OpenNotification.params.textDocument.uri = URI;
@@ -89,11 +99,12 @@ namespace MBDoc
             {
                 MBLSP::DidChangeTextDocument_Notification RemoveCodeblockChange;
                 RemoveCodeblockChange.params.textDocument.uri = URI;
-                MBLSP::TextDocumentContentChangeEvent Change;
+                MBLSP::TextDocumentContentChangeEvent& Change = RemoveCodeblockChange.params.contentChanges.emplace_back();
                 Change.text = std::string( (CodeBlock.LineEnd - CodeBlock.LineBegin)-1,'\n');
                 Change.range = MBLSP::Range();
                 Change.range->start = MBLSP::Position{CodeBlock.LineBegin+1,0};
                 Change.range->end = MBLSP::Position{CodeBlock.LineEnd,0};
+                m_OpenedFiles[URI] = MBLSP::ApplyEdits(m_OpenedFiles[URI],RemoveCodeblockChange.params.contentChanges).Text;
                 m_AssociatedServer->SendNotification(RemoveCodeblockChange);
             }
         }
@@ -128,6 +139,7 @@ namespace MBDoc
         MBLSP::DidChangeTextDocument_Notification UpdateNotification;
         UpdateNotification.params.textDocument.uri = URI;
         UpdateNotification.params.contentChanges = MBLSP::LineChangesToChangeEvents(NewChanges);
+        m_OpenedFiles[URI] = MBLSP::ApplyEdits(m_OpenedFiles[URI],UpdateNotification.params.contentChanges).Text;
         m_AssociatedServer->SendNotification(UpdateNotification);
     }
     void MBDocLSP::LoadedServer::UpdateNewBlocks(std::string const& URI,int TotalLines,std::vector<CodeBlock> const& NewBlocks,std::vector<MBLSP::TextChange> const& Changes)
@@ -146,11 +158,13 @@ namespace MBDoc
             {
                 MBLSP::DidChangeTextDocument_Notification RemoveCodeblockChange;
                 RemoveCodeblockChange.params.textDocument.uri = URI;
-                MBLSP::TextDocumentContentChangeEvent Change;
+                MBLSP::TextDocumentContentChangeEvent& Change = RemoveCodeblockChange.params.contentChanges.emplace_back();
                 Change.text = CodeBlock.Content;
                 Change.range = MBLSP::Range();
                 Change.range->start = MBLSP::Position{CodeBlock.LineBegin+1,0};
                 Change.range->end = MBLSP::Position{CodeBlock.LineEnd,0};
+
+                m_OpenedFiles[URI] = MBLSP::ApplyEdits(m_OpenedFiles[URI],RemoveCodeblockChange.params.contentChanges).Text;
                 m_AssociatedServer->SendNotification(RemoveCodeblockChange);
             }
         }
@@ -210,28 +224,16 @@ namespace MBDoc
                     auto const& Server = m_UserLSPInfo.Servers[ConfigIt->second.LSP];
                     auto& NewInfo = m_LoadedServers[LanguageName];
                     MBLSP::InitializeRequest InitReq;
+                    InitReq = m_ParentRequest;
                     if(Server.initializationOptions)
                     {
                         InitReq.params.initializationOptions = Server.initializationOptions.Value();   
                     }
-                    //MBParsing::JSONObject InitReq = m_ParentRequest;
-                    //if(Server.initializationOptions)
-                    //{
-                    //    InitReq["params"]["initializationOptions"] = Server.initializationOptions.Value();
-                    //    //InitReq.params.initializationOptions = Server.initializationOptions.Value();   
-                    //}
-                    //else
-                    //{
-                    //    //ensure that the servers doesnt send config for this LSP to other LSP's
-                    //    auto& Map = InitReq["params"].GetMapData();
-                    //    auto InitOptionsIt = Map.find("initializationOptions");
-                    //    if(InitOptionsIt != Map.end())
-                    //    {
-                    //        Map.erase(InitOptionsIt);
-                    //    }
-                    //}
+                    if(m_ParentRequest.params.capabilities.completion)
+                    {
+                        InitReq.params.capabilities.completion = m_ParentRequest.params.capabilities.completion;
+                    }
                     NewInfo = LoadedServer(StartLSPServer(m_UserLSPInfo.Servers[ConfigIt->second.LSP],InitReq));
-
                     NewInfo.GetClient().AddRawNotificationHandler( [&,Lang=LanguageName](MBParsing::JSONObject Notification)
                             {
                                 if(Notification.HasAttribute("method") && Notification.GetAttribute("method").GetStringData() == "textDocument/publishDiagnostics")
@@ -243,7 +245,6 @@ namespace MBDoc
                                     p_SendDiagnosticsRequest(SentNotification.params.uri);
                                 }
                             });
-
                 }
             }
         }
@@ -267,7 +268,6 @@ namespace MBDoc
         LoadedFile& NewFile = m_LoadedFiles.emplace(std::make_pair(URI,LoadedFile()) ).first->second;
         NewFile.ContainingBuild = p_FindFirstContainingBuild(Path);
         NewFile.Content = Content;
-        NewFile.Index = MBLSP::LineIndex(Content);
 
 
 
@@ -305,7 +305,6 @@ namespace MBDoc
         auto& CurrentFile = FileIt->second;
 
         CurrentFile.Content = Content;
-        CurrentFile.Index = MBLSP::LineIndex(Content);
         CurrentFile.Tokens = MBLSP::UpdateSemanticTokens(CurrentFile.Tokens,Changes);
 
         MBLSP::ChangeIndex ChangesResult(Changes);
@@ -467,7 +466,8 @@ namespace MBDoc
                 if(Response.result.IsInitalized())
                 {
                     std::vector<int> Tokens = std::move(Response.result.Value().data);
-                    auto& Client = m_LoadedServers[Future.first].GetClient();
+                    auto& Server = m_LoadedServers[Future.first];
+                    auto& Client = Server.GetClient();
                     auto const& CurrentCapabilites = Client.GetServerCapabilites();
                     if(CurrentCapabilites.semanticTokensProvider.IsInitalized())
                     {
@@ -476,11 +476,13 @@ namespace MBDoc
                     auto ColorIt = m_UserColorInfo.LanguageConfigs.find(Future.first);
                     if(ColorIt != m_UserColorInfo.LanguageConfigs.end())
                     {
+                        std::string const& Contents = Server.GetFileContent(URI);
+                        MBLSP::LineIndex Index(Contents);
                         auto const& Regexes = ColorIt->second.RegexColoring;
-                        auto LSPColorings = ConvertColoring(Tokens,File.Index);
-                        auto RegexColorings = GetRegexColorings(LSPColorings,Regexes,File.Content);
+                        auto LSPColorings = ConvertColoring(Tokens,Index);
+                        auto RegexColorings = GetRegexColorings(LSPColorings,Regexes,Contents);
                         auto CombinedColors = CombineColorings(LSPColorings,RegexColorings);
-                        Tokens = ConvertColoring(CombinedColors,File.Index);
+                        Tokens = ConvertColoring(CombinedColors,Index);
                     }
 
                     Results.emplace_back(std::make_pair(Future.first,std::move(Tokens)));
@@ -515,7 +517,7 @@ namespace MBDoc
         ReturnValue.result = MBLSP::Initialize_Result();
         ReturnValue.result->capabilities = MBLSP::GetDefaultServerCapabilities(*this);
 
-        m_ParentRequest = m_Handler->GetRawServerMessage();
+        m_ParentRequest = Request;
         std::unordered_set<std::string> AddedColors;
         std::vector<std::string> ColorMap;
         std::vector<std::pair<std::string,ColorTypeIndex>> ConfigColors;
@@ -631,14 +633,17 @@ namespace MBDoc
         auto FileIt = m_LoadedFiles.find(URI);
         MBLSP::Completion_Response Response;
         Response.result = MBLSP::Completion_Result();
-        //TODO fix
-        return Response;
         if(FileIt == m_LoadedFiles.end())
         {
             return Response;   
         }
+        //auto Test = m_LoadedServers["cpp"].GetClient().SendRequest(MBLSP::Completion_Request());
+        //return Response;
         auto const& CurrentFile = FileIt->second;
-        MBParsing::JSONObject RawResponse;
+        //auto NewRequest = Request;
+        //std::string RequestToSendString = NewRequest.GetJSON().ToPrettyString();
+        //std::string RawRequestStrign = m_Handler->GetRawServerMessage().ToPrettyString();
+        //NewRequest.params.textDocument.uri = MBLSP::URLEncodePath(MBLSP::URLDecodePath(Request.params.textDocument.uri));
         if(p_DelegatePositionRequest(Request.params.position,CurrentFile,Request,Response))
         {
             //m_Handler->UseRawResponse(std::move(RawResponse));
@@ -674,5 +679,25 @@ namespace MBDoc
         DocumentTraverser Traverser;
         Traverser.Traverse(AssociatedDocument,Visitor);
         return Response;
+    }
+    MBLSP::CompletionItemResolve_Response MBDocLSP::HandleRequest(MBLSP::CompletionItemResolve_Request const& Request) 
+    {
+        MBLSP::CompletionItemResolve_Response ReturnValue;
+        ReturnValue.result = Request.params;
+        if(m_LastAnsweredServer == "Default")
+        {
+            return ReturnValue;
+        }
+        auto ServerIt = m_LoadedServers.find(m_LastAnsweredServer);
+        if(ServerIt != m_LoadedServers.end())
+        {
+            auto const& Capabilities = ServerIt->second.GetClient().GetServerCapabilites();
+            if(Capabilities.completionProvider && Capabilities.completionProvider && Capabilities.completionProvider->resolveProvider && 
+                    Capabilities.completionProvider->resolveProvider.Value())
+            {
+                ReturnValue = ServerIt->second.GetClient().SendRequest(Request);
+            }
+        }
+        return ReturnValue;
     }
 }

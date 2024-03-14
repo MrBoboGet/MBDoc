@@ -37,7 +37,6 @@ namespace MBDoc
             DocumentSource Source;
             bool ParseError = false;
             std::vector<int> Tokens;
-            MBLSP::LineIndex Index;
             std::string Content;
             std::unordered_map<std::string,std::vector<CodeBlock>> LangaugeCodeblocks;
         };
@@ -45,7 +44,7 @@ namespace MBDoc
         {
         private:
             std::unique_ptr<MBLSP::LSP_Client> m_AssociatedServer;
-            std::unordered_set<std::string> m_OpenedFiles;
+            std::unordered_map<std::string,std::string> m_OpenedFiles;
 
             bool p_LineInBlocks(MBLSP::TextChange const& Change,std::vector<CodeBlock> const& Blocks);
         public:
@@ -55,6 +54,7 @@ namespace MBDoc
             LoadedServer(std::unique_ptr<MBLSP::LSP_Client> Client) : m_AssociatedServer(std::move(Client)){};
 
             bool FileLoaded(std::string const& URI);
+            std::string const& GetFileContent(std::string const& URI);
             void LoadFile(std::string const& URI,int TotalLines,std::vector<CodeBlock> const& CodeBlocks);
             void UpdateContent(std::string const& URI,int TotalLines,std::vector<CodeBlock> const& OldBlock,std::vector<MBLSP::TextChange> const& Changes);
             void UpdateNewBlocks(std::string const& URI,int TotalLines,std::vector<CodeBlock> const& NewBlocks,std::vector<MBLSP::TextChange> const& Changes);
@@ -80,8 +80,10 @@ namespace MBDoc
         ProcessedColorConfiguration m_UserColorInfo;
         std::unordered_map<std::string,int> m_TokenToIndex;
 
+        std::string m_LastAnsweredServer = "Default";
+
         //could exists problems with sending everything indiscriminently...
-        MBParsing::JSONObject m_ParentRequest;
+        MBLSP::InitializeRequest m_ParentRequest;
         
         std::unordered_map<std::string,LoadedBuild> m_LoadedBuilds;
         std::unordered_map<std::string,LoadedFile> m_LoadedFiles;
@@ -129,10 +131,12 @@ namespace MBDoc
                             auto const& Error = Response.error.Value();
                             int hej = 2;
                         }
+                        m_LastAnsweredServer = ServerIt->first;
                         return true;
                     }
                 }
             }
+            m_LastAnsweredServer = "Default";
             return ReturnValue;
         }
         bool p_DelegatePositionRequest(MBLSP::Position const& TargetPosition,LoadedFile const& File,MBParsing::JSONObject const& RawRequest,MBParsing::JSONObject& Response)
@@ -177,6 +181,7 @@ namespace MBDoc
         virtual MBLSP::SemanticToken_Response HandleRequest(MBLSP::SemanticToken_Request const& Request) override;
         virtual MBLSP::SemanticTokensRange_Response HandleRequest(MBLSP::SemanticTokensRange_Request const& Request) override;
         virtual MBLSP::Completion_Response HandleRequest(MBLSP::Completion_Request const& Request) override;
+        virtual MBLSP::CompletionItemResolve_Response HandleRequest(MBLSP::CompletionItemResolve_Request const& Request) override;
         //virtual MBParsing::JSONObject HandleGenericRequest(MBParsing::JSONObject const& Request) override;
 
 

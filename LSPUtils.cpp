@@ -241,6 +241,7 @@ namespace MBDoc
                     continue;
                 }
             }
+            TextToInspectEnd = std::min(TextToInspectEnd,DocumentContent.size());
             for(auto const& RegexCategory : RegexesToUse.Regexes)
             {
                 ColorTypeIndex CurrentColor = RegexCategory.first;
