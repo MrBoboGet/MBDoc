@@ -6,29 +6,128 @@ namespace MBDoc
 {
     class MBDocLSP : public MBLSP::LSP_Server
     {
-        struct LoadedBuild
+        class LoadedBuild
         {
-            bool ParseError = false;
+            bool m_ParseError = false;
             //std::unordered_set<std::string> AssociatedFiles;
-            DocumentFilesystem Filesystem;
-            std::vector<std::pair<std::string,IndexType>> Files;
+            DocumentFilesystem m_Filesystem = DocumentFilesystem::CreateDefaultFilesystem();
+            std::vector<std::pair<std::string,IndexType>> m_Files;
+            std::filesystem::path m_BuildDirectory;
 
-            void UpdateFileMetadata(std::string const& CanonicalPath,DocumentSource const& AssociatedSource)
+            bool p_PathIsContained(std::filesystem::path const& PathToCompare) const
+            {
+                bool ReturnValue = true;
+                //default build contains all other files
+                if(m_BuildDirectory.empty())
+                {
+                    return true;
+                }
+                auto FirstMismatch = std::mismatch(m_BuildDirectory.begin(),m_BuildDirectory.end(),PathToCompare.begin(),PathToCompare.end());
+                return FirstMismatch.first == m_BuildDirectory.end();
+            }
+        public:
+            LoadedBuild()
             {
                    
             }
-            bool FileExists(std::string const& CanonicalPath) const
+            LoadedBuild(std::filesystem::path const& BuildToreadPath)
             {
-                bool ReturnValue = false;
-                auto It = std::lower_bound(Files.begin(),Files.end(),CanonicalPath,[](std::pair<std::string,IndexType> const& lhs,std::string const& rhs)
+                MBError Result(true);
+                m_BuildDirectory = BuildToreadPath.parent_path();
+                MBParsing::JSONObject BuildObject = MBParsing::ParseJSONObject(BuildToreadPath,&Result);
+                if(Result)
+                {
+                    DocumentBuild AssociatedBuild = DocumentBuild::ParseDocumentBuild(BuildToreadPath,Result);
+                    if(Result)
+                    {
+                        Result = DocumentFilesystem::CreateDocumentFilesystem(AssociatedBuild,
+                                LSPInfo(),
+                                ProcessedColorConfiguration(),
+                                m_Filesystem,false);
+                        m_Files = m_Filesystem.GetAllDocuments();
+                    }
+                }
+                if(!Result)
+                {
+                    m_ParseError = true;
+                }
+            }
+            //called on create / load, either updates metadata for files, or add's the file to the filesystem
+            void UpdateFileMetadata(std::string const& CanonicalPath,DocumentSource const& AssociatedSource)
+            {
+                auto FileIt = std::lower_bound(m_Files.begin(),m_Files.end(),CanonicalPath,[](std::pair<std::string,IndexType> const& lhs,std::string const& rhs)
                         {
                             return lhs.first < rhs;
                         });
-                if(It != Files.end() && It->first == CanonicalPath)
+                if(FileIt != m_Files.end() && FileIt->first == CanonicalPath)
                 {
-                    ReturnValue = true;
+                    //update metadata
                 }
-                return ReturnValue;
+                else
+                {
+                    //path doesnt exist, insert path
+                    std::filesystem::path RelativePath;
+                    if(!m_BuildDirectory.empty())
+                    {
+                        RelativePath = std::filesystem::relative(CanonicalPath,m_BuildDirectory);
+                    }
+                    else
+                    {
+                        RelativePath =std::filesystem::path(CanonicalPath).filename();   
+                    }
+                    DocumentPath NewPath;
+                    for(auto const& Part : RelativePath)
+                    {
+                        NewPath.AddDirectory(MBUnicode::PathToUTF8(Part));
+                    }
+                    auto NewIndex = m_Filesystem.InsertFile(NewPath,AssociatedSource);
+                    for(auto& File : m_Files)
+                    {
+                        if(File.second >= NewIndex)
+                        {
+                            File.second += 1;
+                        }
+                    }
+                    auto NewFileIt = std::lower_bound(m_Files.begin(),m_Files.end(),NewIndex,[](std::pair<std::string,IndexType> const& lhs,IndexType rhs)
+                        {
+                            return lhs.second < rhs;
+                        });
+                    m_Files.insert(NewFileIt,{CanonicalPath,NewIndex});
+                }
+            }
+            bool IsValidBuild() const
+            {
+                return m_ParseError;
+            }
+            void ResolveReferences(DocumentSource& SourceToModify)
+            {
+                std::string CanonicalPath = MBUnicode::PathToUTF8(std::filesystem::canonical(SourceToModify.Path));
+                auto IndexIt = std::lower_bound(m_Files.begin(),m_Files.end(),CanonicalPath,
+                        [](std::pair<std::string,IndexType> const& Lhs,std::string const& Rhs)
+                        {
+                            return Lhs.first < Rhs;
+                        });
+                if(IndexIt != m_Files.end() && IndexIt->first == CanonicalPath)
+                {
+                    DocumentPath SourceDocPath = m_Filesystem.GetDocumentPath(IndexIt->second);
+                    m_Filesystem.ResolveReferences(SourceDocPath,SourceToModify);
+                }
+            }
+            bool FileInBuild(std::string const& CanonicalPath) const
+            {
+                //only using heuristic for this
+                return p_PathIsContained(CanonicalPath);
+
+                //bool ReturnValue = false;
+                //auto It = std::lower_bound(m_Files.begin(),m_Files.end(),CanonicalPath,[](std::pair<std::string,IndexType> const& lhs,std::string const& rhs)
+                //        {
+                //            return lhs.first < rhs;
+                //        });
+                //if(It != m_Files.end() && It->first == CanonicalPath)
+                //{
+                //    ReturnValue = true;
+                //}
+                //return ReturnValue;
             }
         };
         struct LoadedFile
@@ -82,9 +181,8 @@ namespace MBDoc
 
         std::string m_LastAnsweredServer = "Default";
 
-        //could exists problems with sending everything indiscriminently...
         MBLSP::InitializeRequest m_ParentRequest;
-        
+       
         std::unordered_map<std::string,LoadedBuild> m_LoadedBuilds;
         std::unordered_map<std::string,LoadedFile> m_LoadedFiles;
         std::unordered_map<std::string,LoadedServer> m_LoadedServers;
@@ -166,6 +264,8 @@ namespace MBDoc
         {
             m_UserLSPInfo = LoadLSPConfig();   
             m_UserColorInfo = LoadColorConfig();   
+            //default for files without an associated build
+            m_LoadedBuilds[""] = LoadedBuild();
         }
         
         void SetHandler(MBLSP::LSP_ServerHandler* NewHandler) override{m_Handler = NewHandler;};

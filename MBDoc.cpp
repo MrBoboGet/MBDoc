@@ -3755,6 +3755,19 @@ namespace MBDoc
         }
         return(ReturnValue);  
     }
+    DocumentFilesystem DocumentFilesystem::CreateDefaultFilesystem()
+    {
+        DocumentFilesystem ReturnValue;
+        auto& TopDir = ReturnValue.m_DirectoryInfos.emplace_back();
+        TopDir.DirectoryIndexBegin = 1;
+        TopDir.DirectoryIndexEnd = 1;
+        TopDir.FileIndexBegin = 0;
+        TopDir.FileIndexEnd = 0;
+        TopDir.FirstFileIndex = 0;
+        TopDir.FirstSubDirIndex = 0;
+        TopDir.Name = "/";
+        return ReturnValue;
+    }
     MBParsing::JSONObject ToJSON(DocumentSource const& Source)
     {
         MBParsing::JSONObject Result(MBParsing::JSONObjectType::Aggregate);
@@ -4029,6 +4042,143 @@ namespace MBDoc
             }
             Iterator++; 
         }
+    }
+    //mega slow, should improve
+    IndexType DocumentFilesystem::p_InsertNewDirectories(IndexType ParentDir,int DirOffset,DocumentPath const& Documentpath)
+    {
+        //TODO take into considerations home intervalls
+        //returns directory index, and file index
+        //IndexType ReturnValue = m_DirectoryInfos[ParentDir].;
+        auto& DirectoryParent = m_DirectoryInfos[ParentDir];
+        auto NewDirPosition = std::lower_bound(m_DirectoryInfos.begin()+DirectoryParent.DirectoryIndexBegin,m_DirectoryInfos.begin()+DirectoryParent.DirectoryIndexEnd,Documentpath[DirOffset]);
+        IndexType NewDirIndex = NewDirPosition-m_DirectoryInfos.begin();
+        IndexType FirstChildDirPosition = 0;
+        IndexType NewFilePosition = 0;
+        if(NewDirIndex != DirectoryParent.DirectoryIndexEnd)
+        {
+            FirstChildDirPosition = m_DirectoryInfos[NewDirIndex].DirectoryIndexBegin+1;
+            NewFilePosition = m_DirectoryInfos[NewDirIndex].FileIndexBegin;
+        }
+        else
+        {
+            FirstChildDirPosition = DirectoryParent.DirectoryIndexEnd;
+            NewFilePosition = m_TotalSources.size();
+        }
+        DirectoryParent.DirectoryIndexEnd += 1;
+        for(int i = NewDirIndex; i < m_TotalSources.size();i++)
+        {
+            m_DirectoryInfos[i].DirectoryIndexBegin += 1;
+            m_DirectoryInfos[i].DirectoryIndexEnd += 1;
+            if(m_DirectoryInfos[i].ParentDirectoryIndex >= NewDirIndex && m_DirectoryInfos[i].ParentDirectoryIndex != -1)
+            {
+                m_DirectoryInfos[i].ParentDirectoryIndex += 1;
+            }
+        }
+        DocumentDirectoryInfo FirstNewDir;
+        FirstNewDir.DirectoryIndexBegin = FirstChildDirPosition;
+        FirstNewDir.DirectoryIndexBegin = FirstChildDirPosition+ (Documentpath.ComponentCount()-DirOffset-1);
+        FirstNewDir.FirstSubDirIndex = 0;
+        FirstNewDir.FirstFileIndex = 0;
+        FirstNewDir.FileIndexBegin = NewDirIndex != m_DirectoryInfos.size() ? m_TotalSources.size() : m_DirectoryInfos[NewDirIndex].FirstFileIndex;
+        FirstNewDir.FileIndexEnd = FirstNewDir.FirstFileIndex + 1;
+        FirstNewDir.Name = Documentpath[DirOffset];
+        //TODO update properly
+        FirstNewDir.NextDirectory = -1;
+
+        m_DirectoryInfos.insert(NewDirPosition,FirstNewDir);
+        if(DirOffset+1 < Documentpath.ComponentCount()-1)
+        {
+            return p_InsertNewDirectories(ParentDir,DirOffset+1,Documentpath);
+        }
+        else
+        {
+            return NewDirIndex;
+        }
+    }
+    IndexType DocumentFilesystem::InsertFile(DocumentPath const& Documentpath,DocumentSource const& NewSource)
+    {
+        IndexType ReturnValue = 0;
+
+        int FirstNewDirectoryIndex = -1;
+        IndexType ReplacedDirectoryParent = -1;
+        IndexType CurrentDirIndex = 0;
+        for(int i = 0; i < Documentpath.ComponentCount() - 1;i++)
+        {
+            auto const& CurrentDir = m_DirectoryInfos[CurrentDirIndex];
+            auto SubDirIt = std::lower_bound(
+                    m_DirectoryInfos.begin()+CurrentDir.DirectoryIndexBegin,m_DirectoryInfos.end()+CurrentDir.DirectoryIndexEnd,Documentpath[i]);
+            if(SubDirIt == m_DirectoryInfos.begin()+CurrentDir.DirectoryIndexEnd || SubDirIt->Name != Documentpath[i])
+            {
+                //new directories needs to be inserted
+                FirstNewDirectoryIndex = i;
+                break;
+            }
+            else
+            {
+                CurrentDirIndex = SubDirIt - m_DirectoryInfos.begin();
+            }
+        }
+        IndexType FileDirectoryIndex = CurrentDirIndex;
+        if(FirstNewDirectoryIndex != -1)
+        {
+
+            FileDirectoryIndex = p_InsertNewDirectories(FirstNewDirectoryIndex,FirstNewDirectoryIndex,Documentpath);
+        }
+
+        auto& FileDir = m_DirectoryInfos[FileDirectoryIndex];
+        auto FilePosition = std::lower_bound(m_TotalSources.begin()+FileDir.FileIndexBegin,m_TotalSources.begin()+FileDir.FileIndexEnd,Documentpath[Documentpath.ComponentCount()-1]);
+        ReturnValue = FilePosition-m_TotalSources.begin();
+        FileDir.FileIndexEnd += 1;
+        //temp
+        auto NewFile = m_TotalSources.insert(FilePosition,FilesystemDocumentInfo());
+        NewFile->Document.ExternalReferences = NewSource.ExternalReferences;
+        NewFile->Document.Name = NewSource.Name;
+        NewFile->Document.Path = NewSource.Path;
+        NewFile->Document.ReferenceTargets = NewSource.ReferenceTargets;
+        NewFile->Document.Timestamp = NewSource.Timestamp;
+        NewFile->Document.Title = NewSource.Title;
+        //TODO update NextFile pointers
+        
+        int ExtraDirectoriesCount = FirstNewDirectoryIndex == -1 ? 0 : FirstNewDirectoryIndex+1;
+        for(int i = FileDirectoryIndex+1; i < m_DirectoryInfos.size();i++)
+        {
+            auto& CurrentDir = m_DirectoryInfos[i];
+            CurrentDir.FileIndexBegin += 1;
+            CurrentDir.FileIndexEnd += 1;
+        }
+        
+        return ReturnValue;
+    }
+    void DocumentFilesystem::ResolveReferences(DocumentPath const& DocumentPath,DocumentSource& SourceToUpdate)
+    {
+        DocumentFilesystemReferenceResolver Resolver(this,DocumentPath,SourceToUpdate.Path,&m_ResourceMap);
+        DocumentTraverser Traverser;
+        Traverser.Traverse(SourceToUpdate,Resolver);
+    }
+    IndexType DocumentFilesystem::GetPathFile(DocumentPath const& DocumentPath) const
+    {
+        return p_GetFileIndex(DocumentPath);
+    }
+    std::vector<std::pair<std::string,IndexType>> DocumentFilesystem::GetAllDocuments() const
+    {
+        std::vector<std::pair<std::string,IndexType>> ReturnValue;
+        for(int i = 0; i < m_TotalSources.size();i++)
+        {
+            auto const& CurrentSource = m_TotalSources[i];
+            auto& NewValue = ReturnValue.emplace_back();
+            NewValue.first = MBUnicode::PathToUTF8(std::filesystem::canonical(CurrentSource.Document.Path));
+            NewValue.second = i;
+        }
+        std::sort(ReturnValue.begin(),ReturnValue.end());
+        return ReturnValue;
+    }
+    DocumentPath DocumentFilesystem::GetDocumentPath(IndexType FileID) const
+    {
+        if(FileID < 0 || FileID >= m_TotalSources.size())
+        {
+            throw std::runtime_error("Invalid file id: "+std::to_string(FileID));   
+        }
+        return p_GetFileIndexPath(FileID);
     }
     ResolvedCodeText DocumentFilesystem::p_CombineColorings(std::vector<Coloring> const& RegexColoring,std::vector<Coloring> const& LSPColoring,
             std::string const& OriginalContent,LineIndex const& Index,ProcessedColorInfo const& ColorInfo,LSPReferenceResolver* OptionalLSPResolver)

@@ -49,10 +49,6 @@ namespace MBDoc
             CloseNotification.params.textDocument.uri = URI;
             m_AssociatedServer->SendNotification(CloseNotification);
         }
-        //else
-        //{
-        //    m_OpenedFiles.insert(URI);
-        //}
         int PreviousLine = 0;
         for(auto const& Block : CodeBlocks)
         {
@@ -173,7 +169,7 @@ namespace MBDoc
        
     MBDocLSP::LoadedBuild const& MBDocLSP::p_GetBuild(std::string const& CanonicalPath)
     {
-        LoadedBuild NewBuild;
+        LoadedBuild NewBuild(CanonicalPath);
         m_LoadedBuilds[CanonicalPath] = std::move(NewBuild);
         return m_LoadedBuilds[CanonicalPath];
     }
@@ -189,7 +185,7 @@ namespace MBDoc
                 {
                     std::string CanonicalBuildPath = MBUnicode::PathToUTF8(std::filesystem::canonical(CurrentPath/"MBDocBuild.json"));
                     auto const& Build = p_GetBuild(CanonicalBuildPath);
-                    if(Build.ParseError != true && Build.FileExists(MBUnicode::PathToUTF8(Filepath)))
+                    if(Build.IsValidBuild() != true && Build.FileInBuild(MBUnicode::PathToUTF8(Filepath)))
                     {
                         return CanonicalBuildPath;
                     }
@@ -274,6 +270,14 @@ namespace MBDoc
         DocumentParsingContext Parser;
         MBError Result = true;
         NewFile.Source = Parser.ParseSource(Content.data(),Content.size(),MBUnicode::PathToUTF8(Path.filename()),Result);
+        NewFile.Source.Path = std::filesystem::canonical(Path);
+        auto BuildIt = m_LoadedBuilds.find(NewFile.ContainingBuild);
+        if(BuildIt != m_LoadedBuilds.end())
+        {
+            std::string CanonicalPathString = MBUnicode::PathToUTF8(std::filesystem::canonical(Path));
+            BuildIt->second.UpdateFileMetadata(CanonicalPathString,NewFile.Source);
+            BuildIt->second.ResolveReferences(NewFile.Source);
+        }
         if(!Result)
         {
             NewFile.ParseError = true;   
@@ -328,16 +332,24 @@ namespace MBDoc
         MBError Result = true;
         DocumentSource NewSource;
         NewSource = Parser.ParseSource(Content.data(),Content.size(),MBUnicode::PathToUTF8(Path.filename()),Result);
-        m_DiagnosticsStore.StoreDiagnostics(URI,"",p_GetDiagnostics(NewSource));
-        p_SendDiagnosticsRequest(URI);
+        NewSource.Path = std::filesystem::canonical(Path);
         if(!Result)
         {
             FileIt->second.ParseError = true;
         }
         else
         {
+            auto BuildIt = m_LoadedBuilds.find(CurrentFile.ContainingBuild);
+            if(BuildIt != m_LoadedBuilds.end())
+            {
+                std::string CanonicalPathString = MBUnicode::PathToUTF8(std::filesystem::canonical(Path));
+                BuildIt->second.UpdateFileMetadata(CanonicalPathString,NewSource);
+                BuildIt->second.ResolveReferences(NewSource);
+            }
             CurrentFile.LangaugeCodeblocks = p_ExtractCodeblocks(NewSource);
             CurrentFile.Source = std::move(NewSource);
+            m_DiagnosticsStore.StoreDiagnostics(URI,"",p_GetDiagnostics(CurrentFile.Source));
+            p_SendDiagnosticsRequest(URI);
             for(auto const& Language : CurrentFile.LangaugeCodeblocks)
             {
                 p_InitializeLSP(Language.first);    
@@ -420,11 +432,6 @@ namespace MBDoc
             ReturnValue.insert(ReturnValue.end(),CurrentContainer.begin()+ OffsetInfo.CurrentIndex,
                      CurrentContainer.begin()+ OffsetInfo.CurrentIndex+5);
             int CurrentTokenID = ReturnValue[ReturnValue.size()-2];
-            //if(ServerCapabilities.semanticTokensProvider.IsInitalized() && ServerCapabilities.semanticTokensProvider->legend.tokenTypes.size() > CurrentTokenID)
-            //{
-            //    auto const& ServerMap = ServerCapabilities.semanticTokensProvider->legend.tokenTypes;
-            //    ReturnValue[ReturnValue.size()-2] = m_TokenToIndex[ ServerMap[CurrentTokenID]];
-            //}
             OffsetInfo.CurrentIndex += 5;
         }
         return ReturnValue;
@@ -637,13 +644,7 @@ namespace MBDoc
         {
             return Response;   
         }
-        //auto Test = m_LoadedServers["cpp"].GetClient().SendRequest(MBLSP::Completion_Request());
-        //return Response;
         auto const& CurrentFile = FileIt->second;
-        //auto NewRequest = Request;
-        //std::string RequestToSendString = NewRequest.GetJSON().ToPrettyString();
-        //std::string RawRequestStrign = m_Handler->GetRawServerMessage().ToPrettyString();
-        //NewRequest.params.textDocument.uri = MBLSP::URLEncodePath(MBLSP::URLDecodePath(Request.params.textDocument.uri));
         if(p_DelegatePositionRequest(Request.params.position,CurrentFile,Request,Response))
         {
             //m_Handler->UseRawResponse(std::move(RawResponse));

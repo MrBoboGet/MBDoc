@@ -982,6 +982,11 @@ namespace MBDoc
         std::vector<FormatElementComponent> Contents;
         friend MBParsing::JSONObject ToJSON(DocumentSource const& Source);
         friend void FromJSON(DocumentSource& Source, MBParsing::JSONObject const& ObjectToParse);
+
+        friend bool operator<(DocumentSource const& Lhs,std::string const& Rhs)
+        {
+            return Lhs.Name < Rhs;
+        }
     };
     class Document
     {
@@ -1346,6 +1351,11 @@ namespace MBDoc
         IndexType NextDirectory = -1;
         IndexType FirstFileIndex = -1;
         IndexType FirstSubDirIndex = -1;
+
+        friend bool operator<(DocumentDirectoryInfo const& lhs,std::string const& rhs)
+        {
+            return lhs.Name < rhs;
+        }
         friend MBParsing::JSONObject ToJSON(DocumentDirectoryInfo const& Source);
         friend void FromJSON(DocumentDirectoryInfo& Directory, MBParsing::JSONObject const& ObjectToParse);
     };
@@ -1353,6 +1363,11 @@ namespace MBDoc
     {
         DocumentSource Document;
         IndexType NextFile = -1;
+
+        friend bool operator<(FilesystemDocumentInfo const& lhs,std::string const& rhs)
+        {
+            return lhs.Document < rhs;   
+        }
         friend MBParsing::JSONObject ToJSON(FilesystemDocumentInfo const& DocumentInfo)
         {
             MBParsing::JSONObject ReturnValue(MBParsing::JSONObjectType::Aggregate);
@@ -1636,6 +1651,9 @@ namespace MBDoc
 
 
 
+
+        IndexType p_InsertNewDirectories(IndexType ParentDir,int DirOffset,DocumentPath const& Directories); 
+
         //Incremental builds
         
         //ensures that all indecies are within bounds, that directories content doesn't overlap,
@@ -1648,9 +1666,17 @@ namespace MBDoc
 
         std::vector<std::pair<std::string,IndexType>> GetAllDocuments() const;
         DocumentPath GetDocumentPath(IndexType FileID) const;
+        DocumentPath ResolveReference(DocumentPath const& DocumentPath,std::string const& PathIdentifier,MBError& OutResult) const;
+
+        //really slow, but needed for LSP...
+        IndexType InsertFile(DocumentPath const& Documentpath,DocumentSource const& NewSource);
 
         DocumentFilesystemIterator begin() const;
-        DocumentPath ResolveReference(DocumentPath const& DocumentPath,std::string const& PathIdentifier,MBError& OutResult) const;
+
+        void ResolveReferences(DocumentPath const& DocumentPath,DocumentSource& SourceToUpdate);
+        IndexType GetPathFile(DocumentPath const& DocumentPath) const;
+
+
         bool DocumentExists(DocumentPath const& DocumentPath) const;
         bool DocumentExists(DocumentPath const& DocumentPath,IndexType& OutIndex) const;
 
@@ -1658,6 +1684,7 @@ namespace MBDoc
         static MBError CreateDocumentFilesystem(DocumentBuild const& BuildToParse,LSPInfo const& LSPConf,ProcessedColorConfiguration const& ColorConf,DocumentFilesystem& OutBuild,bool ParseSource = true);
         //previous build is modified, transfering it's metadata to the new build 
         static MBError CreateDocumentFilesystem(DocumentBuild const& BuildToParse,LSPInfo const& LSPConf,ProcessedColorConfiguration const& ColorConf,DocumentFilesystem& OutBuild,DocumentFilesystem& PreviousBuild,std::vector<IndexType>& OutdatedFiles);
+        static DocumentFilesystem CreateDefaultFilesystem();
         void __PrintDirectoryStructure() const;
     };
 
@@ -1677,12 +1704,4 @@ namespace MBDoc
         virtual ~DocumentCompiler() {};
         //virtual void Compile(DocumentFilesystem const& FilesystemToCompile,CommonCompilationOptions const& Options) = 0;
     };
-
-
-
-
-
-
-
-
 }
