@@ -5,6 +5,8 @@
 #include <MBLSP/TextChanges.h>
 
 #include <MBLSP/Capabilities.h>
+
+#include <MBUtility/Visiting.h>
 namespace MBDoc
 {
     //DiagnosticsStore
@@ -12,6 +14,29 @@ namespace MBDoc
     {
        return MBUnicode::PathToUTF8(std::filesystem::canonical(MBLSP::URLDecodePath(URI)));
     }
+    void MBDocLSP::DiagnosticsStore::UpdateDiagnostics(std::string const& URI,MBLSP::ChangeIndex const& ChangeType,MBLSP::OffsetIndex const& OffsetTypes)
+    {
+        std::lock_guard Lock(m_InternalsMutex);
+        auto& CurrentStore = m_StoredDiagnostics[NormalizeURI(URI)];
+        for(auto& Language : CurrentStore)
+        {
+            std::vector<MBLSP::Diagnostic> NewDiagnostics;
+            for(auto& Diagnostic : Language.second)
+            {
+                auto CurrentChangeType = ChangeType.GetChangeType(Diagnostic.range.start.line);
+                if(!(CurrentChangeType == MBLSP::LineChangeType::Removed || CurrentChangeType == MBLSP::LineChangeType::Modified))
+                {
+                    auto& NewDiagnostic = NewDiagnostics.emplace_back(std::move(Diagnostic));
+                    NewDiagnostic.range.start.line = OffsetTypes.GetLinePosition(NewDiagnostic.range.start.line);
+                    NewDiagnostic.range.end.line = OffsetTypes.GetLinePosition(NewDiagnostic.range.end.line);
+                }
+            }
+            std::swap(Language.second,NewDiagnostics);
+        }
+
+    }
+
+
     void MBDocLSP::DiagnosticsStore::StoreDiagnostics(std::string const& URI,std::string const& Language,std::vector<MBLSP::Diagnostic> const& Diagnostics)
     {
         std::lock_guard Lock(m_InternalsMutex);
@@ -327,6 +352,8 @@ namespace MBDoc
                 ServerIt->second.UpdateContent(URI,TotalLines,Language.second,Changes);
             }
         }
+        MBLSP::OffsetIndex OffsetIndex(Changes);
+        m_DiagnosticsStore.UpdateDiagnostics(URI,ChangesResult,OffsetIndex);
         
         DocumentParsingContext Parser;
         MBError Result = true;
@@ -349,7 +376,6 @@ namespace MBDoc
             CurrentFile.LangaugeCodeblocks = p_ExtractCodeblocks(NewSource);
             CurrentFile.Source = std::move(NewSource);
             m_DiagnosticsStore.StoreDiagnostics(URI,"",p_GetDiagnostics(CurrentFile.Source));
-            p_SendDiagnosticsRequest(URI);
             for(auto const& Language : CurrentFile.LangaugeCodeblocks)
             {
                 p_InitializeLSP(Language.first);    
@@ -359,6 +385,7 @@ namespace MBDoc
                 }
             }
         }
+        p_SendDiagnosticsRequest(URI);
     }
     std::vector<MBLSP::Diagnostic> MBDocLSP::p_GetDiagnostics(DocumentSource const& LoadedSource)
     {
@@ -373,7 +400,20 @@ namespace MBDoc
                 NewDiagnostic.range.end = Ref.End;
             }
         };
-        LambdaVisitor Visitor(&RefVisitor);
+        auto MediaVisitor = [&](MediaInclude const& Media)
+        {
+            if(!std::filesystem::exists(LoadedSource.Path/Media.MediaPath))
+            {
+                auto& NewDiagnostic = ReturnValue.emplace_back();
+                NewDiagnostic.message = "File doesn't exist: "+Media.MediaPath;
+                NewDiagnostic.range.start = Media.Position;
+                NewDiagnostic.range.end = Media.Position + Media.Length;
+            }
+        };
+
+        MBUtility::VisitorCombiner VisitorCombiner = MBUtility::VisitorCombiner(std::move(RefVisitor),std::move(MediaVisitor));
+        VisitorCombiner(MediaInclude());
+        LambdaVisitor Visitor(&VisitorCombiner);
         DocumentTraverser Traverser;
         Traverser.Traverse(LoadedSource,Visitor);
         return ReturnValue;

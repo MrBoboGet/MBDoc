@@ -168,6 +168,7 @@ namespace MBDoc
 
             static std::string NormalizeURI(std::string const& URI);
         public:
+            void UpdateDiagnostics(std::string const& URI,MBLSP::ChangeIndex const& ChangeType,MBLSP::OffsetIndex const& OffsetTypes);
             void StoreDiagnostics(std::string const& URI,std::string const& Language,std::vector<MBLSP::Diagnostic> const& Diagnostics);
             std::vector<MBLSP::Diagnostic> GetDiagnostics(std::string const& URI);
         };

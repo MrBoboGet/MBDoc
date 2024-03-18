@@ -143,7 +143,7 @@ namespace MBDoc
         {
                
         }
-        template<typename T>
+        template<typename T, typename = std::enable_if_t<std::is_base_of_v<DocReference,T>>>
         bool IsType() const
         {
             //TODO make so this interface is not necessary...
@@ -153,7 +153,7 @@ namespace MBDoc
             }
             return false;
         }
-        template<typename T>
+        template<typename T, typename = std::enable_if_t<std::is_base_of_v<DocReference,T>>>
         T const& GetType() const
         {
             //TODO make so this interface is not necessary...
@@ -628,6 +628,9 @@ namespace MBDoc
         {
             Type = BlockElementType::MediaInclude; 
         };
+        MBLSP::Position Position;
+        int Length = 0;
+
         std::string MediaPath;
         int ID = -1;
     };

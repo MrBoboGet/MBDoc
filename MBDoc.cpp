@@ -822,6 +822,7 @@ namespace MBDoc
     {
         std::unique_ptr<BlockElement> ReturnValue = std::make_unique<MediaInclude>();
         MediaInclude& NewElement = (MediaInclude&)*ReturnValue;
+        NewElement.Position.line = Retriever.GetLineIndex();
         std::string IncludeString;
         Retriever.GetLine(IncludeString);
         size_t ParseOffset = 0; 
@@ -845,6 +846,8 @@ namespace MBDoc
         {
             throw std::runtime_error("Invalid MediaInclude: Need delimitng ( and ending ) for path");  
         }
+        NewElement.Position.character = ParseOffset+1;
+        NewElement.Length = (EndIt-IncludeString.begin()) -NewElement.Position.character;
         NewElement.MediaPath = std::string(IncludeString.begin()+ParseOffset+1,EndIt); 
         return(ReturnValue);
     }
@@ -4018,7 +4021,15 @@ namespace MBDoc
     }
     void DocumentFilesystem::DocumentFilesystemReferenceResolver::Visit(MediaInclude& MediaInclude) 
     {
-        MediaInclude.MediaPath = MBUnicode::PathToUTF8(std::filesystem::canonical(m_DocumentPath.parent_path()/MediaInclude.MediaPath));
+        std::filesystem::path RelativePath = m_DocumentPath.parent_path()/MediaInclude.MediaPath;
+        if(std::filesystem::exists(RelativePath))
+        {
+            MediaInclude.MediaPath = MBUnicode::PathToUTF8(std::filesystem::canonical(RelativePath));
+        }
+        else
+        {
+            MediaInclude.MediaPath = MBUnicode::PathToUTF8(RelativePath);
+        }
         MediaInclude.ID = m_ResourceMapping->GetResourceID(MediaInclude.MediaPath);
     }
     void DocumentFilesystem::p_ResolveReferences(std::vector<IndexType> const& ModifiedSources)
