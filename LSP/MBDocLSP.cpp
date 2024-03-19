@@ -195,8 +195,11 @@ namespace MBDoc
        
     MBDocLSP::LoadedBuild const& MBDocLSP::p_GetBuild(std::string const& CanonicalPath)
     {
-        LoadedBuild NewBuild(CanonicalPath);
-        m_LoadedBuilds[CanonicalPath] = std::move(NewBuild);
+        if(m_LoadedBuilds.find(CanonicalPath) == m_LoadedBuilds.end())
+        {
+            LoadedBuild NewBuild(CanonicalPath);
+            m_LoadedBuilds[CanonicalPath] = std::move(NewBuild);
+        }
         return m_LoadedBuilds[CanonicalPath];
     }
     std::string MBDocLSP::p_FindFirstContainingBuild(std::filesystem::path const& Filepath)

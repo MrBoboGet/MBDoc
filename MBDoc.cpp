@@ -4156,16 +4156,31 @@ namespace MBDoc
         IndexType NewFilePosition = 0;
         if(NewDirIndex != DirectoryParent.DirectoryIndexEnd)
         {
-            FirstChildDirPosition = m_DirectoryInfos[NewDirIndex].DirectoryIndexBegin+1;
+            FirstChildDirPosition = m_DirectoryInfos[NewDirIndex].DirectoryIndexBegin;
             NewFilePosition = m_DirectoryInfos[NewDirIndex].FileIndexBegin;
         }
         else
         {
-            FirstChildDirPosition = DirectoryParent.DirectoryIndexEnd;
+            //+1 because we now take this position
+            FirstChildDirPosition = DirectoryParent.DirectoryIndexEnd+1;
             NewFilePosition = m_TotalSources.size();
         }
+        for(int i = DirectoryParent.DirectoryIndexBegin; i < DirectoryParent.DirectoryIndexEnd;i++)
+        {
+            auto& Dir = m_DirectoryInfos[i];
+            if(Dir.NextDirectory == -1)
+            {
+                Dir.NextDirectory = NewDirIndex-DirectoryParent.DirectoryIndexBegin;
+                break;
+            }
+        }
+        if(DirectoryParent.FirstSubDirIndex >= NewDirIndex && (DirectoryParent.DirectoryIndexEnd-DirectoryParent.DirectoryIndexBegin) != 0)
+        {
+            DirectoryParent.FirstSubDirIndex += 1;
+        }
+
         DirectoryParent.DirectoryIndexEnd += 1;
-        for(int i = NewDirIndex; i < m_TotalSources.size();i++)
+        for(int i = NewDirIndex; i < m_DirectoryInfos.size();i++)
         {
             m_DirectoryInfos[i].DirectoryIndexBegin += 1;
             m_DirectoryInfos[i].DirectoryIndexEnd += 1;
@@ -4175,20 +4190,23 @@ namespace MBDoc
             }
         }
         DocumentDirectoryInfo FirstNewDir;
+        FirstNewDir.ParentDirectoryIndex = ParentDir;
         FirstNewDir.DirectoryIndexBegin = FirstChildDirPosition;
-        FirstNewDir.DirectoryIndexBegin = FirstChildDirPosition+ (Documentpath.ComponentCount()-DirOffset-1);
+        FirstNewDir.DirectoryIndexEnd = FirstChildDirPosition+ (Documentpath.ComponentCount()-DirOffset-2);
         FirstNewDir.FirstSubDirIndex = 0;
-        FirstNewDir.FirstFileIndex = 0;
+        FirstNewDir.FirstFileIndex = -1;
         FirstNewDir.FileIndexBegin = NewDirIndex != m_DirectoryInfos.size() ? m_TotalSources.size() : m_DirectoryInfos[NewDirIndex].FirstFileIndex;
-        FirstNewDir.FileIndexEnd = FirstNewDir.FirstFileIndex + 1;
+        FirstNewDir.FileIndexEnd = FirstNewDir.FileIndexBegin;
         FirstNewDir.Name = Documentpath[DirOffset];
         //TODO update properly
+        IndexType DirIndex = NewDirPosition-m_DirectoryInfos.begin();
         FirstNewDir.NextDirectory = -1;
+
 
         m_DirectoryInfos.insert(NewDirPosition,FirstNewDir);
         if(DirOffset+1 < Documentpath.ComponentCount()-1)
         {
-            return p_InsertNewDirectories(ParentDir,DirOffset+1,Documentpath);
+            return p_InsertNewDirectories(DirIndex,DirOffset+1,Documentpath);
         }
         else
         {
@@ -4206,7 +4224,7 @@ namespace MBDoc
         {
             auto const& CurrentDir = m_DirectoryInfos[CurrentDirIndex];
             auto SubDirIt = std::lower_bound(
-                    m_DirectoryInfos.begin()+CurrentDir.DirectoryIndexBegin,m_DirectoryInfos.end()+CurrentDir.DirectoryIndexEnd,Documentpath[i]);
+                    m_DirectoryInfos.begin()+CurrentDir.DirectoryIndexBegin,m_DirectoryInfos.begin()+CurrentDir.DirectoryIndexEnd,Documentpath[i]);
             if(SubDirIt == m_DirectoryInfos.begin()+CurrentDir.DirectoryIndexEnd || SubDirIt->Name != Documentpath[i])
             {
                 //new directories needs to be inserted
@@ -4228,8 +4246,24 @@ namespace MBDoc
         auto& FileDir = m_DirectoryInfos[FileDirectoryIndex];
         auto FilePosition = std::lower_bound(m_TotalSources.begin()+FileDir.FileIndexBegin,m_TotalSources.begin()+FileDir.FileIndexEnd,Documentpath[Documentpath.ComponentCount()-1]);
         ReturnValue = FilePosition-m_TotalSources.begin();
+        for(int i = FileDir.FileIndexBegin; i < FileDir.FileIndexEnd && i < m_TotalSources.size();i++)
+        {
+            auto& File = m_TotalSources[i];
+            if(File.NextFile == -1)
+            {
+                File.NextFile = ReturnValue-FileDir.FileIndexBegin;   
+                break;
+            }
+        }
+        if(FileDir.FirstFileIndex == -1)
+        {
+            FileDir.FirstFileIndex = 0;
+        }
+        else if(FileDir.FirstFileIndex >= ReturnValue)
+        {
+            FileDir.FirstFileIndex += 1;
+        }
         FileDir.FileIndexEnd += 1;
-        //temp
         auto NewFile = m_TotalSources.insert(FilePosition,FilesystemDocumentInfo());
         NewFile->Document.ExternalReferences = NewSource.ExternalReferences;
         NewFile->Document.Name = NewSource.Name;
@@ -4237,7 +4271,6 @@ namespace MBDoc
         NewFile->Document.ReferenceTargets = NewSource.ReferenceTargets;
         NewFile->Document.Timestamp = NewSource.Timestamp;
         NewFile->Document.Title = NewSource.Title;
-        //TODO update NextFile pointers
         
         int ExtraDirectoriesCount = FirstNewDirectoryIndex == -1 ? 0 : FirstNewDirectoryIndex+1;
         for(int i = FileDirectoryIndex+1; i < m_DirectoryInfos.size();i++)
@@ -4288,13 +4321,20 @@ namespace MBDoc
         else
         {
             IndexType ResultDirectoryIndex = -1;
-            if(OriginalRef.PartSpecifier.size() <= 1)
+            if(OriginalRef.PathSpecifiers.size() <= 1)
             {
                 ResultDirectoryIndex = p_GetFileDirectoryIndex(FilePath);
             }
             else
             {
-                OriginalRef.PartSpecifier.pop_back();
+                if(OriginalRef.PathSpecifiers.back().PathNames.size() > 1)
+                {
+                    OriginalRef.PathSpecifiers.back().PathNames.pop_back();   
+                }
+                else
+                {
+                    OriginalRef.PathSpecifiers.pop_back();   
+                }
                 auto ResolvedPath = p_ResolvePath(FilePath,OriginalRef,&ResolveResult);
                 if(!ResolveResult || ResolvedPath.Index == -1 || ResolvedPath.Type == DocumentFSType::Null)
                 {
@@ -4302,7 +4342,8 @@ namespace MBDoc
                 }
                 if(ResolvedPath.Type == DocumentFSType::Directory)
                 {
-                    ResultDirectoryIndex = m_DirectoryInfos[ResolvedPath.Index].ParentDirectoryIndex;
+                    //ResultDirectoryIndex = m_DirectoryInfos[ResolvedPath.Index].ParentDirectoryIndex;
+                    ResultDirectoryIndex = ResolvedPath.Index;
                 }
                 else
                 {

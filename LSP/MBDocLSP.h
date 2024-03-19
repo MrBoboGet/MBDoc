@@ -88,9 +88,9 @@ namespace MBDoc
                             File.second += 1;
                         }
                     }
-                    auto NewFileIt = std::lower_bound(m_Files.begin(),m_Files.end(),NewIndex,[](std::pair<std::string,IndexType> const& lhs,IndexType rhs)
+                    auto NewFileIt = std::lower_bound(m_Files.begin(),m_Files.end(),CanonicalPath,[](std::pair<std::string,IndexType> const& lhs,std::string const& rhs)
                         {
-                            return lhs.second < rhs;
+                            return lhs.first < rhs;
                         });
                     m_Files.insert(NewFileIt,{CanonicalPath,NewIndex});
                 }
