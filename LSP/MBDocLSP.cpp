@@ -625,9 +625,10 @@ namespace MBDoc
                     auto const& FileRef = Ref.GetType<FileReference>();
                     MBLSP::Location& NewLocation = Response.result->emplace_back();
                     NewLocation.uri = MBLSP::URLEncodePath(BuildIt->second.GetDocumentPath(Ref.GetType<FileReference>().Path));
+                    auto const& TargetDocument = BuildIt->second.GetDocument(FileRef.Path);
                     if(!FileRef.Path.GetPartIdentifier().empty())
                     {
-                        NewLocation.range = FileIt->second.Source.ReferenceTargets.GetLabelRange(FileRef.Path.GetPartIdentifier());
+                        NewLocation.range = TargetDocument.ReferenceTargets.GetLabelRange(FileRef.Path.GetPartIdentifier());
                     }
                 }
             }
@@ -716,25 +717,28 @@ namespace MBDoc
             //m_Handler->UseRawResponse(std::move(RawResponse));
             return Response;
         }
-
-        DocumentPath AssociatedPath;
-        DocumentSource const& AssociatedDocument = DocumentSource();
-        DocumentFilesystem const& AssociatedFilesystem = DocumentFilesystem();
+        auto BuildIt = m_LoadedBuilds.find(FileIt->second.ContainingBuild);
+        if(BuildIt == m_LoadedBuilds.end())
+        {
+            return Response;   
+        }
         auto ReferenceTraverser = [&](DocReference const& NewRef)
         {
             //TODO make so this interface is not necessary...
-            if(MBLSP::Contains(NewRef.Begin,NewRef.End,Request.params.position))
+            if(MBLSP::Contains(NewRef.ReferenceBegin,NewRef.End,Request.params.position))
             {
                 std::string ReferenceString;
                 if(NewRef.IsType<FileReference>())
                 {
-                    ReferenceString = NewRef.GetType<FileReference>().Path.GetString();
+                    ReferenceString = NewRef.GetType<FileReference>().ReferenceString;
                 }
                 else if(NewRef.IsType<UnresolvedReference>())
                 {
                     ReferenceString = NewRef.GetType<UnresolvedReference>().ReferenceString;
                 }
-                auto PossibleValues = p_PossibleResponses(AssociatedFilesystem,ReferenceString,AssociatedPath);
+                ReferenceString.resize(Request.params.position.character-NewRef.ReferenceBegin.character);
+                auto PossibleValues = BuildIt->second.GetCompletions(
+                        MBUnicode::PathToUTF8(std::filesystem::weakly_canonical(MBLSP::URLDecodePath(URI))),ReferenceString);
                 for(auto& Value : PossibleValues)
                 {
                     MBLSP::CompletionItem& NewItem = Response.result->items.emplace_back();
@@ -744,7 +748,7 @@ namespace MBDoc
         };
         LambdaVisitor Visitor = LambdaVisitor(&ReferenceTraverser);
         DocumentTraverser Traverser;
-        Traverser.Traverse(AssociatedDocument,Visitor);
+        Traverser.Traverse(FileIt->second.Source,Visitor);
         return Response;
     }
     MBLSP::CompletionItemResolve_Response MBDocLSP::HandleRequest(MBLSP::CompletionItemResolve_Request const& Request) 

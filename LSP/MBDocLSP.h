@@ -107,6 +107,34 @@ namespace MBDoc
 
                 return ReturnValue;
             } 
+            DocumentSource const& GetDocument(DocumentPath const& Path)
+            {
+                IndexType FileIndex = m_Filesystem.GetPathFile(Path);
+                if(FileIndex != -1)
+                {
+                    return m_Filesystem.GetFile(FileIndex);
+                }
+                throw std::runtime_error("Cannot find document with path: "+Path.GetString());
+            }
+            std::vector<std::string> GetCompletions(std::string const& CanonicalPath,std::string const& ReferenceString)
+            {
+                std::vector<std::string> ReturnValue;
+                auto FileIt = std::lower_bound(m_Files.begin(),m_Files.end(),CanonicalPath,[](std::pair<std::string,IndexType> const& lhs,std::string const& rhs)
+                        {
+                            return lhs.first < rhs;
+                        });
+                if(FileIt == m_Files.end())
+                {
+                    return ReturnValue;   
+                }
+                else
+                {
+                    return m_Filesystem.GetCompletions(FileIt->second,ReferenceString);   
+                }
+                return ReturnValue;
+            }
+
+
 
             bool IsValidBuild() const
             {

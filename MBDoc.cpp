@@ -509,6 +509,7 @@ namespace MBDoc
         MBLSP::Position Begin;
         Begin.line = InitialLine;
         Begin.character = InitialLineOffset;
+        MBLSP::Position RefBegin = Begin;
         std::unique_ptr<DocReference> Reference;
         size_t InitialParseOffset = ParseOffset;
         //ASSUMPTION reference is not escaped 
@@ -543,6 +544,7 @@ namespace MBDoc
             {
                 throw std::runtime_error("Unexpected end of reference identifier");   
             }
+            RefBegin.character = Begin.character+(ParseOffset+1-InitialParseOffset);
             ReferenceString = std::string(CharData+ParseOffset+1,CharData+ReferenceIDEnd);
             ParseOffset = ReferenceIDEnd + 1;
         }
@@ -551,6 +553,7 @@ namespace MBDoc
             if (CharData[ParseOffset + 1] != '(') 
             {
                 size_t DelimiterPosition = MBParsing::GetNextDelimiterPosition({ '\t',' ','\n',',','.' }, Data, DataSize, ParseOffset, nullptr);
+                RefBegin.character = Begin.character+(ParseOffset+1-InitialParseOffset);
                 ReferenceString = std::string(CharData + ParseOffset + 1, CharData + DelimiterPosition);
                 ParseOffset = DelimiterPosition;
             }
@@ -561,6 +564,7 @@ namespace MBDoc
                 {
                     throw std::runtime_error("Unexpected end of reference identifier, missing )");
                 }
+                RefBegin.character = Begin.character+(ParseOffset+2-InitialParseOffset);
                 ReferenceString = std::string(CharData + ParseOffset + 2, CharData + IdentifierEnd);
                 ParseOffset = IdentifierEnd + 1;
             }
@@ -584,7 +588,8 @@ namespace MBDoc
         }
         Reference->Begin = Begin;
         Reference->End.line = InitialLine;
-        Reference->End.character = Reference->Begin.character+(ParseOffset-InitialLineOffset);
+        Reference->End.character = Reference->Begin.character+(ParseOffset-InitialParseOffset);
+        Reference->ReferenceBegin = RefBegin;
         ReturnValue = TextElement(std::move(Reference));
         *OutParseOffset = ParseOffset;
         return(ReturnValue);    
@@ -1684,6 +1689,24 @@ namespace MBDoc
                     }
                     FirstMatching++;
                 }
+            }
+        }
+        return ReturnValue;
+    }
+    std::vector<std::string> ReferenceTargetsResolver::GetAllLabelNames() const
+    {
+        std::vector<std::string> ReturnValue;
+        if(m_Nodes.size() == 0)
+        {
+            return ReturnValue;
+        }
+        std::unordered_set<std::string> VisitedNames;
+        for(size_t i = 1; i < m_Nodes.size();i++)
+        {
+            if(VisitedNames.find(m_Nodes[i].Name) == VisitedNames.end())
+            {
+                VisitedNames.insert(m_Nodes[i].Name);
+                ReturnValue.push_back(m_Nodes[i].Name);
             }
         }
         return ReturnValue;
@@ -3104,10 +3127,8 @@ namespace MBDoc
         return(ReturnValue);
     }
      
-    DocumentPath DocumentFilesystem::p_ResolveReference(DocumentPath const& FilePath,DocumentReference const& ReferenceIdentifier,bool* OutResult) const
+    DocumentFilesystem::FSSearchResult DocumentFilesystem::p_ResolvePath(DocumentPath const& FilePath,DocumentReference const& ReferenceIdentifier,bool* OutResult) const
     {
-        bool Result = true;
-        DocumentPath ReturnValue;
         FSSearchResult SearchRoot;
         SearchRoot.Type = DocumentFSType::Directory;
         SearchRoot.Index = 0;//Root directory
@@ -3120,7 +3141,7 @@ namespace MBDoc
             if(SearchRoot.Type == DocumentFSType::Null)
             {
                 *OutResult = false;   
-                return ReturnValue;
+                return SearchRoot;
             }
         }
         if (ReferenceIdentifier.PathSpecifiers.size() > 0)
@@ -3135,14 +3156,14 @@ namespace MBDoc
                     if (SearchRoot.Index == -1)
                     {
                         *OutResult = false;
-                        return(ReturnValue);
+                        return(SearchRoot);
                     }
                 }
                 SearchRoot = p_ResolveAbsoluteDirectory(SearchRoot.Index, ReferenceIdentifier.PathSpecifiers[0]);
                 if (SearchRoot.Type == DocumentFSType::Null)
                 {
                     *OutResult = false;
-                    return(ReturnValue);
+                    return(SearchRoot);
                 }
             }
             else
@@ -3151,7 +3172,7 @@ namespace MBDoc
                 if (SearchRoot.Index == -1)
                 {
                     *OutResult = false;
-                    return(ReturnValue);
+                    return(SearchRoot);
                 }
             }
             if (SpecifierOffset == 0 || ReferenceIdentifier.PathSpecifiers.size() > 1)
@@ -3159,14 +3180,14 @@ namespace MBDoc
                 if (SearchRoot.Type == DocumentFSType::File)
                 {
                     *OutResult = false;
-                    return(ReturnValue);
+                    return(SearchRoot);
                 }
                 SearchRoot = p_ResolveDirectorySpecifier(SearchRoot.Index, ReferenceIdentifier, SpecifierOffset);
             }
             if (SearchRoot.Type == DocumentFSType::Null)
             {
                 *OutResult = false;
-                return(ReturnValue);
+                return(SearchRoot);
             }
         }
         else
@@ -3176,7 +3197,7 @@ namespace MBDoc
             if (SearchRoot.Index == -1)
             {
                 *OutResult = false;
-                return(ReturnValue);
+                return(SearchRoot);
             }
         }
         if(ReferenceIdentifier.PartSpecifier.size() != 0)
@@ -3186,7 +3207,19 @@ namespace MBDoc
         if(SearchRoot.Type == DocumentFSType::Null)
         {
             *OutResult = false;   
-            return(ReturnValue);
+            return(SearchRoot);
+        }
+        return SearchRoot;
+    }
+    DocumentPath DocumentFilesystem::p_ResolveReference(DocumentPath const& FilePath,DocumentReference const& ReferenceIdentifier,bool* OutResult) const
+    {
+        bool Result = true;
+        DocumentPath ReturnValue;
+        auto SearchRoot = p_ResolvePath(FilePath,ReferenceIdentifier,&Result);
+        if(SearchRoot.Index == -1 || SearchRoot.Type == DocumentFSType::Null)
+        {
+            *OutResult = false;   
+            return ReturnValue;
         }
         if (SearchRoot.Type == DocumentFSType::Directory)
         {
@@ -4026,6 +4059,8 @@ namespace MBDoc
             NewRef.Path = NewPath;
             NewRef.Begin = Ref.Begin;
             NewRef.End = Ref.End;
+            NewRef.ReferenceBegin = Ref.ReferenceBegin;
+            NewRef.ReferenceString = Ref.ReferenceString;
             m_Result = TextElement(std::unique_ptr<DocReference>(new FileReference(std::move(NewRef))));
             m_ShouldUpdate = true;
         }
@@ -4039,6 +4074,7 @@ namespace MBDoc
                 NewRef.VisibleText = Ref.VisibleText;
                 NewRef.Begin = Ref.Begin;
                 NewRef.End = Ref.End;
+                NewRef.ReferenceBegin = Ref.ReferenceBegin;
                 NewRef.ResourceCanonicalPath = MBUnicode::PathToUTF8(std::filesystem::canonical(m_DocumentPath.parent_path()/Ref.ReferenceString));
                 NewRef.ID = m_ResourceMapping->GetResourceID(NewRef.ResourceCanonicalPath);
                 m_Result = TextElement(std::unique_ptr<DocReference>(new ResourceReference(std::move(NewRef))));
@@ -4218,6 +4254,77 @@ namespace MBDoc
         DocumentFilesystemReferenceResolver Resolver(this,DocumentPath,SourceToUpdate.Path,&m_ResourceMap);
         DocumentTraverser Traverser;
         Traverser.Traverse(SourceToUpdate,Resolver);
+    }
+    std::vector<std::string> DocumentFilesystem::GetCompletions(IndexType FileID,std::string const& ReferenceString)
+    {
+        std::vector<std::string> ReturnValue;
+        auto FilePath = p_GetFileIndexPath(FileID);
+        MBError ParseResult(true);
+        DocumentReference OriginalRef = DocumentReference::ParseReference(ReferenceString,ParseResult);
+        if(!ParseResult)
+        {
+            return ReturnValue;   
+        }
+        bool ResolveResult = true;
+        if(OriginalRef.PartSpecifier.size() != 0)
+        {
+            FSSearchResult ResolvedPath;
+            OriginalRef.PartSpecifier.clear();
+            if(OriginalRef.PathSpecifiers.size() != 0 || OriginalRef.HomeSpecifier.size() != 0)
+            {
+                ResolvedPath =  p_ResolvePath(FilePath,OriginalRef,&ResolveResult);
+            }
+            else
+            {
+                ResolvedPath.Index = FileID;
+                ResolvedPath.Type = DocumentFSType::File;
+            }
+            if(ResolvedPath.Index != -1 && ResolvedPath.Type == DocumentFSType::File)
+            {
+                auto const& Source = m_TotalSources[ResolvedPath.Index];
+                ReturnValue = Source.Document.ReferenceTargets.GetAllLabelNames();
+            }
+        }
+        else
+        {
+            IndexType ResultDirectoryIndex = -1;
+            if(OriginalRef.PartSpecifier.size() <= 1)
+            {
+                ResultDirectoryIndex = p_GetFileDirectoryIndex(FilePath);
+            }
+            else
+            {
+                OriginalRef.PartSpecifier.pop_back();
+                auto ResolvedPath = p_ResolvePath(FilePath,OriginalRef,&ResolveResult);
+                if(!ResolveResult || ResolvedPath.Index == -1 || ResolvedPath.Type == DocumentFSType::Null)
+                {
+                    return ReturnValue;   
+                }
+                if(ResolvedPath.Type == DocumentFSType::Directory)
+                {
+                    ResultDirectoryIndex = m_DirectoryInfos[ResolvedPath.Index].ParentDirectoryIndex;
+                }
+                else
+                {
+                    //parent resolves to file, child cannot exist
+                }
+
+            }
+            if(ResultDirectoryIndex != -1)
+            {
+                auto const& Dir = m_DirectoryInfos[ResultDirectoryIndex];
+                for(int i = Dir.DirectoryIndexBegin; i < Dir.DirectoryIndexEnd;i++)
+                {
+                    ReturnValue.push_back(m_DirectoryInfos[i].Name);
+                }
+                for(int i = Dir.FileIndexBegin; i < Dir.FileIndexEnd;i++)
+                {
+                    ReturnValue.push_back(m_TotalSources[i].Document.Name);
+                }
+            }
+
+        }
+        return ReturnValue;
     }
     IndexType DocumentFilesystem::GetPathFile(DocumentPath const& DocumentPath) const
     {

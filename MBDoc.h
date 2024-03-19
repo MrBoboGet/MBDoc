@@ -134,6 +134,7 @@ namespace MBDoc
         //not neccesarilly be neccessary for references
         std::string VisibleText;
         MBLSP::Position Begin;
+        MBLSP::Position ReferenceBegin;
         //sentinel for use in LSP when determining of there was a parser error
         MBLSP::Position End = MBLSP::Position{-1,-1};
         virtual void Accept(ReferenceVisitor& Visitor) const = 0;
@@ -169,6 +170,7 @@ namespace MBDoc
     struct FileReference : public DocReference
     {
         DocumentPath Path;
+        std::string ReferenceString;
         virtual void Accept(ReferenceVisitor& Visitor) const;
         virtual void Accept(ReferenceVisitor& Visitor);
         std::unique_ptr<DocReference> Copy()
@@ -962,6 +964,8 @@ namespace MBDoc
         static void FromJSON(ReferenceTargetsResolver& Result,MBParsing::JSONObject const& ObjectToParse);
         bool ContainsLabels(std::vector<std::string> const& Labels) const;
         MBLSP::Range GetLabelRange(std::vector<std::string> const& Labels) const;
+
+        std::vector<std::string> GetAllLabelNames() const;
         ReferenceTargetsResolver();
         ReferenceTargetsResolver(std::vector<FormatElementComponent> const& FormatsToInspect);
     };
@@ -1626,6 +1630,7 @@ namespace MBDoc
         IndexType p_GetFileDirectoryIndex(DocumentPath const& PathToSearch) const;
         IndexType p_GetFileIndex(DocumentPath const& PathToSearch) const;
          
+        FSSearchResult p_ResolvePath(DocumentPath const& CurrentPath,DocumentReference const& ReferenceIdentifier,bool* OutResult) const;
         DocumentPath p_ResolveReference(DocumentPath const& CurrentPath,DocumentReference const& ReferenceIdentifier,bool* OutResult) const;
 
         //DocumentDirectoryInfo p_UpdateFilesystemOverFiles(DocumentBuild const& CurrentBuild,size_t FileIndexBegin,size_t DirectoryIndex,BuildDirectory const& DirectoryToCompile);
@@ -1683,6 +1688,7 @@ namespace MBDoc
         DocumentFilesystemIterator begin() const;
 
         void ResolveReferences(DocumentPath const& DocumentPath,DocumentSource& SourceToUpdate);
+        std::vector<std::string> GetCompletions(IndexType FileID,std::string const& ReferenceString);
         IndexType GetPathFile(DocumentPath const& DocumentPath) const;
         DocumentSource const& GetFile(IndexType ID) const;
 
