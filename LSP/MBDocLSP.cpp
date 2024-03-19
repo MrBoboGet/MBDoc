@@ -171,10 +171,11 @@ namespace MBDoc
             return;
         }
         MBLSP::ChangeIndex ChangesResult(Changes);
+        MBLSP::OffsetIndex OffsetIndex(Changes);
         for(auto const& CodeBlock : NewBlocks)
         {
-            auto BeginChange = ChangesResult.GetChangeType(CodeBlock.LineBegin);
-            auto EndChange = ChangesResult.GetChangeType(CodeBlock.LineEnd);
+            auto BeginChange = ChangesResult.GetChangeType(OffsetIndex.GetOldLinePosition(CodeBlock.LineBegin));
+            auto EndChange = ChangesResult.GetChangeType(OffsetIndex.GetOldLinePosition(CodeBlock.LineEnd));
             if(BeginChange != MBLSP::LineChangeType::Null || EndChange != MBLSP::LineChangeType::Null)
             {
                 MBLSP::DidChangeTextDocument_Notification RemoveCodeblockChange;
@@ -210,7 +211,7 @@ namespace MBDoc
                 {
                     std::string CanonicalBuildPath = MBUnicode::PathToUTF8(std::filesystem::canonical(CurrentPath/"MBDocBuild.json"));
                     auto const& Build = p_GetBuild(CanonicalBuildPath);
-                    if(Build.IsValidBuild() != true && Build.FileInBuild(MBUnicode::PathToUTF8(Filepath)))
+                    if(Build.IsValidBuild() != true && Build.FileInBuild(MBUnicode::PathToUTF8(std::filesystem::weakly_canonical( Filepath))))
                     {
                         return CanonicalBuildPath;
                     }
@@ -412,7 +413,6 @@ namespace MBDoc
         };
 
         MBUtility::VisitorCombiner VisitorCombiner = MBUtility::VisitorCombiner(std::move(RefVisitor),std::move(MediaVisitor));
-        VisitorCombiner(MediaInclude());
         LambdaVisitor Visitor(&VisitorCombiner);
         DocumentTraverser Traverser;
         Traverser.Traverse(LoadedSource,Visitor);
@@ -598,10 +598,15 @@ namespace MBDoc
     {
         MBLSP::GotoDefinition_Response Response;
         auto FileIt = m_LoadedFiles.find(Request.params.textDocument.uri);
-
+        Response.result = std::vector<MBLSP::Location>();
         if(FileIt == m_LoadedFiles.end())
         {
             return Response;
+        }
+        auto BuildIt = m_LoadedBuilds.find(FileIt->second.ContainingBuild);
+        if(BuildIt == m_LoadedBuilds.end())
+        {
+            return Response;   
         }
         auto const& CurrentFile = FileIt->second;
         MBParsing::JSONObject RawResponse;
@@ -610,6 +615,27 @@ namespace MBDoc
             //m_Handler->UseRawResponse(std::move(RawResponse));
             return Response;
         }
+
+        auto ReferenceVisitor = [&](DocReference const& Ref)
+        {
+            if(Ref.IsType<FileReference>())
+            {
+                if(MBLSP::Contains(Ref.Begin,Ref.End,Request.params.position))
+                {
+                    auto const& FileRef = Ref.GetType<FileReference>();
+                    MBLSP::Location& NewLocation = Response.result->emplace_back();
+                    NewLocation.uri = MBLSP::URLEncodePath(BuildIt->second.GetDocumentPath(Ref.GetType<FileReference>().Path));
+                    if(!FileRef.Path.GetPartIdentifier().empty())
+                    {
+                        NewLocation.range = FileIt->second.Source.ReferenceTargets.GetLabelRange(FileRef.Path.GetPartIdentifier());
+                    }
+                }
+            }
+        };
+
+        LambdaVisitor Visitor(&ReferenceVisitor);
+        DocumentTraverser Traverser;
+        Traverser.Traverse(FileIt->second.Source,Visitor);
         return Response;
     }
     MBLSP::SemanticToken_Response MBDocLSP::HandleRequest(MBLSP::SemanticToken_Request const& Request)

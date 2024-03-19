@@ -775,7 +775,7 @@ namespace MBDoc
                 //TODO fix efficiently, jank
                 ReturnValue.push_back(std::move(NewText));
                 //increase line count
-                CurrentExtraLines = std::count(Data+ParseOffset,Data+NextTextModifier,'\n');
+                CurrentExtraLines += std::count(Data+ParseOffset,Data+NextModifier,'\n');
                 ParseOffset = NextModifier;
             }
             if (NextModifier >= DataSize)
@@ -792,6 +792,7 @@ namespace MBDoc
                     if(Data[LastNewLinePosition] == '\n')
                     {
                         NewLineOffset = (ParseOffset-LastNewLinePosition)-1;
+                        break;
                     }
                     LastNewLinePosition--;
                 }
@@ -1381,6 +1382,10 @@ namespace MBDoc
                     }
                     size_t FirstNameCharacter = 0;
                     MBParsing::SkipWhitespace(CurrentLine, FirstNonEmptyCharacter + 1, &FirstNameCharacter);
+                    TopFormat.DefinitionRange.start.line = Retriever.GetLineIndex();
+                    TopFormat.DefinitionRange.start.character = FirstNameCharacter;
+                    TopFormat.DefinitionRange.end.line = Retriever.GetLineIndex();
+                    TopFormat.DefinitionRange.end.character = CurrentLine.size();
                     TopFormat.Name = h_NormalizeName(CurrentLine.substr(FirstNameCharacter));
                     if(TopFormat.Name.size() > 0 && TopFormat.Name[0] == '.')
                     {
@@ -1580,6 +1585,7 @@ namespace MBDoc
     {
         ReferenceTargetsResolver::LabelNode ReturnValue;
         ReturnValue.Name = ElementToConvert.Name;
+        ReturnValue.DefinitionRange = ElementToConvert.DefinitionRange;
         for(auto const& Child : ElementToConvert.Contents)
         {
             if(Child.GetType() == FormatComponentType::Format)
@@ -1606,6 +1612,7 @@ namespace MBDoc
     {
         FlatLabelNode ReturnValue;
         ReturnValue.Name = NodeToFlatten.Name;
+        ReturnValue.DefinitionRange = NodeToFlatten.DefinitionRange;
         ReturnValue.ChildrenBegin = OutNodes.size();
         ReturnValue.ChildrenEnd = ReturnValue.ChildrenBegin+NodeToFlatten.Children.size();
         OutNodes.resize(OutNodes.size()+NodeToFlatten.Children.size());
@@ -1629,45 +1636,79 @@ namespace MBDoc
         ReturnValue[0] = std::move(FlatTopNode);
         return(ReturnValue);
     }
-    bool ReferenceTargetsResolver::p_ContainsLabel(ReferenceTargetsResolver::LabelNodeIndex NodeIndex,std::vector<std::string> const& Labels,int LabelIndex) const
+    ReferenceTargetsResolver::FlatLabelNode const*  ReferenceTargetsResolver::p_ContainsLabel(ReferenceTargetsResolver::LabelNodeIndex NodeIndex,std::vector<std::string> const& Labels,int LabelIndex) const
     {
-        bool ReturnValue = false;       
+        FlatLabelNode const*  ReturnValue = nullptr;       
+        if(m_Nodes.size() == 0)
+        {
+            return ReturnValue;   
+        }
         assert(NodeIndex < m_Nodes.size());
         FlatLabelNode const& NodeToInspect = m_Nodes[NodeIndex];
         std::string const& NameToSearch = Labels[LabelIndex];
         LabelNodeIndex FirstMatching = std::lower_bound(m_Nodes.data()+NodeToInspect.ChildrenBegin,m_Nodes.data()+NodeToInspect.ChildrenEnd,NameToSearch,
                 [](FlatLabelNode const& lhs,std::string const& rhs) -> bool {return(lhs.Name < rhs);})-m_Nodes.data();
+        bool MatchSucceeded = true;
         if(FirstMatching == NodeToInspect.ChildrenEnd || m_Nodes[FirstMatching].Name != NameToSearch)
         {
-            return(false);
+            MatchSucceeded = false;
         }
         assert(Labels.size() != 0);
-        if(LabelIndex == Labels.size() -1)
+        if(LabelIndex == Labels.size() -1 && MatchSucceeded)
         {
-            return(true);
+            return &m_Nodes[FirstMatching];
         }
         else
         {
-            while(FirstMatching < NodeToInspect.ChildrenEnd && m_Nodes[FirstMatching].Name == NameToSearch)
+            if(!MatchSucceeded)
             {
-                bool HasSubmatch = p_ContainsLabel(FirstMatching,Labels,LabelIndex+1);
-                if(HasSubmatch)
+                //search all children with current index offset
+                for(int i = NodeToInspect.ChildrenBegin; i < NodeToInspect.ChildrenEnd;i++)
                 {
-                    ReturnValue = true;
-                    break;
+                    auto ChildResult = p_ContainsLabel(i,Labels,LabelIndex);
+                    if(ChildResult)
+                    {
+                        return ChildResult;   
+                    }
                 }
-                FirstMatching++;
+            }
+            else
+            {
+                //multiple children can have the same name
+                while(FirstMatching < NodeToInspect.ChildrenEnd && m_Nodes[FirstMatching].Name == NameToSearch)
+                {
+                    auto HasSubmatch = p_ContainsLabel(FirstMatching,Labels,LabelIndex+1);
+                    if(HasSubmatch)
+                    {
+                        return HasSubmatch;
+                    }
+                    FirstMatching++;
+                }
             }
         }
-        return(ReturnValue);
+        return ReturnValue;
+    }
+    MBLSP::Range ReferenceTargetsResolver::GetLabelRange(std::vector<std::string> const& Labels) const
+    {
+        MBLSP::Range ReturnValue;
+        auto LabelPointer = p_ContainsLabel(0,Labels,0);
+        if(LabelPointer != nullptr)
+        {
+            ReturnValue = LabelPointer->DefinitionRange;
+        }
+        else
+        {
+            throw std::runtime_error("Label not found");
+        }
+        return ReturnValue;
     }
     bool ReferenceTargetsResolver::ContainsLabels(std::vector<std::string> const& Labels) const
     {
-        if(Labels.size() == 0)
+        if(Labels.size() == 0 || m_Nodes.size() == 0)
         {
             return(false);   
         }
-        return(p_ContainsLabel(0,Labels,0));  
+        return(p_ContainsLabel(0,Labels,0) != nullptr);  
     }
     ReferenceTargetsResolver::ReferenceTargetsResolver()
     {
@@ -3441,6 +3482,15 @@ namespace MBDoc
         }
         return(ReturnValue);
     }
+    size_t DocumentFilesystem::p_GetDirectoryFiles(DocumentBuild const& Directory)
+    {
+        size_t TotalSubFiles = 0;
+        for (auto const& SubDirectory : Directory.SubDirectories) 
+        {
+            TotalSubFiles += SubDirectory.second.DirectoryFiles.size();
+        }
+        return TotalSubFiles;
+    }
     DocumentDirectoryInfo DocumentFilesystem::p_UpdateOverDirectory(DocumentBuild const& Directory, IndexType FileIndexBegin, IndexType DirectoryIndex,bool ParseSource)
     {
         DocumentDirectoryInfo ReturnValue;
@@ -3494,12 +3544,7 @@ namespace MBDoc
                 m_TotalSources[FileIndexBegin+OriginalFileMap[i-1]].NextFile = OriginalFileMap[i];
             }
         }
-        size_t TotalSubFiles = 0;
-        size_t TotalDirectories = Directory.SubDirectories.size();
-        for (auto const& SubDirectory : Directory.SubDirectories) 
-        {
-            TotalSubFiles += SubDirectory.second.DirectoryFiles.size();
-        }
+        size_t TotalSubFiles = p_GetDirectoryFiles(Directory);
 
         IndexType NewFileIndexBegin = m_TotalSources.size();
         m_TotalSources.resize(TotalSubFiles + m_TotalSources.size());
@@ -3586,7 +3631,8 @@ namespace MBDoc
         OutFilesystem.m_HomeIntervalls.front().ParentIndex = -1;
         OutFilesystem.m_HomeIntervalls.front().Name = "/";
         //BuildDirectory Directory = p_ParseBuildDirectory(BuildToParse);
-        OutFilesystem.m_TotalSources.resize(BuildToParse.GetTotalFiles());
+        OutFilesystem.m_TotalSources.reserve(BuildToParse.GetTotalFiles());
+        OutFilesystem.m_TotalSources.resize(OutFilesystem.m_TotalSources.size()+BuildToParse.DirectoryFiles.size());
         DocumentDirectoryInfo TopInfo = OutFilesystem.p_UpdateOverDirectory(BuildToParse, 0, 0,ParseSources);
         if(OutFilesystem.m_HomeIntervalls.size() > 1)
         {
@@ -3606,14 +3652,17 @@ namespace MBDoc
         OutFilesystem.p_ResolveReferences(SourcesToUpdate);
     }
     MBError DocumentFilesystem::CreateDocumentFilesystem(DocumentBuild const& BuildToParse,LSPInfo const& LSPConf,ProcessedColorConfiguration const& 
-                ColorConf,DocumentFilesystem& OutFilesystem,bool ParseSource)
+                ColorConf,DocumentFilesystem& OutFilesystem,bool ParseSource,bool Colorize)
     {
         MBError ReturnValue = true;
         try 
         {
             DocumentFilesystem Result;
             p_CreateDirectoryStructure(Result,BuildToParse,ParseSource);
-            Result.p_ColorizeLSP(ColorConf,LSPConf,{});
+            if(Colorize)
+            {
+                Result.p_ColorizeLSP(ColorConf,LSPConf,{});
+            }
             Result.p_ResolveReferences({}); 
             if (ReturnValue)
             {
@@ -3975,6 +4024,8 @@ namespace MBDoc
             NewRef.Modifiers = Ref.Modifiers;
             NewRef.VisibleText = Ref.VisibleText;
             NewRef.Path = NewPath;
+            NewRef.Begin = Ref.Begin;
+            NewRef.End = Ref.End;
             m_Result = TextElement(std::unique_ptr<DocReference>(new FileReference(std::move(NewRef))));
             m_ShouldUpdate = true;
         }
@@ -3986,6 +4037,8 @@ namespace MBDoc
                 NewRef.Color = Ref.Color;
                 NewRef.Modifiers = Ref.Modifiers;
                 NewRef.VisibleText = Ref.VisibleText;
+                NewRef.Begin = Ref.Begin;
+                NewRef.End = Ref.End;
                 NewRef.ResourceCanonicalPath = MBUnicode::PathToUTF8(std::filesystem::canonical(m_DocumentPath.parent_path()/Ref.ReferenceString));
                 NewRef.ID = m_ResourceMapping->GetResourceID(NewRef.ResourceCanonicalPath);
                 m_Result = TextElement(std::unique_ptr<DocReference>(new ResourceReference(std::move(NewRef))));
@@ -4169,6 +4222,14 @@ namespace MBDoc
     IndexType DocumentFilesystem::GetPathFile(DocumentPath const& DocumentPath) const
     {
         return p_GetFileIndex(DocumentPath);
+    }
+    DocumentSource const& DocumentFilesystem::GetFile(IndexType ID) const
+    {
+        if(ID < 0 || ID >= m_TotalSources.size())
+        {
+            throw std::runtime_error("Invalid ID: "+std::to_string(ID));   
+        }
+        return m_TotalSources[ID].Document;
     }
     std::vector<std::pair<std::string,IndexType>> DocumentFilesystem::GetAllDocuments() const
     {

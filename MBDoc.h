@@ -892,6 +892,8 @@ namespace MBDoc
         std::string Name;
         AttributeList  Attributes;
         std::vector<FormatElementComponent> Contents;    
+
+        MBLSP::Range DefinitionRange;
     };
     
     class DirectiveVisitor
@@ -931,6 +933,7 @@ namespace MBDoc
         {
             std::string Name;      
             std::vector<LabelNode> Children;
+            MBLSP::Range DefinitionRange;
             bool operator<(LabelNode const& rhs) 
             {
                 return(Name < rhs.Name);
@@ -940,6 +943,7 @@ namespace MBDoc
         struct FlatLabelNode
         {
             std::string Name;
+            MBLSP::Range DefinitionRange;
             LabelNodeIndex ChildrenBegin = 0; 
             LabelNodeIndex ChildrenEnd = 0; 
         };
@@ -952,11 +956,12 @@ namespace MBDoc
         static FlatLabelNode p_UpdateFlatNodeList(std::vector<FlatLabelNode>& OutNodes,LabelNode const& NodeToFlatten);
         static std::vector<FlatLabelNode> p_GetFlatLabelNodes(std::vector<LabelNode> NodeToConvert);
 
-        bool p_ContainsLabel(LabelNodeIndex NodeIndex,std::vector<std::string> const& Labels,int LabelIndex) const;
+        FlatLabelNode const* p_ContainsLabel(LabelNodeIndex NodeIndex,std::vector<std::string> const& Labels,int LabelIndex) const;
     public:      
         static MBParsing::JSONObject ToJSON(ReferenceTargetsResolver const& ObjectToConvert);
         static void FromJSON(ReferenceTargetsResolver& Result,MBParsing::JSONObject const& ObjectToParse);
         bool ContainsLabels(std::vector<std::string> const& Labels) const;
+        MBLSP::Range GetLabelRange(std::vector<std::string> const& Labels) const;
         ReferenceTargetsResolver();
         ReferenceTargetsResolver(std::vector<FormatElementComponent> const& FormatsToInspect);
     };
@@ -1627,6 +1632,7 @@ namespace MBDoc
         //DocumentDirectoryInfo p_UpdateFilesystemOverBuild(DocumentBuild const& BuildToAppend,size_t FileIndexBegin,size_t DirectoryIndex,std::string DirectoryName,MBError& OutError);
 
         //static BuildDirectory p_ParseBuildDirectory(DocumentBuild const&  BuildToParse);
+        static size_t p_GetDirectoryFiles(DocumentBuild const& Directory);
         DocumentDirectoryInfo p_UpdateOverDirectory(DocumentBuild const& Directory,IndexType FileIndexBegin,IndexType DirectoryIndex,bool ParseSource);
         static void p_CreateDirectoryStructure(DocumentFilesystem& OutFilesystem,DocumentBuild const& BuildToParse,bool ParseSources);
         static void p_PostProcessSources(DocumentFilesystem& OutFilesystem, LSPInfo const& LSPConf, ProcessedColorConfiguration const& ColorConf,std::vector<IndexType> const& SourcesToUpdate = {});
@@ -1678,13 +1684,14 @@ namespace MBDoc
 
         void ResolveReferences(DocumentPath const& DocumentPath,DocumentSource& SourceToUpdate);
         IndexType GetPathFile(DocumentPath const& DocumentPath) const;
+        DocumentSource const& GetFile(IndexType ID) const;
 
 
         bool DocumentExists(DocumentPath const& DocumentPath) const;
         bool DocumentExists(DocumentPath const& DocumentPath,IndexType& OutIndex) const;
 
         [[nodiscard]] 
-        static MBError CreateDocumentFilesystem(DocumentBuild const& BuildToParse,LSPInfo const& LSPConf,ProcessedColorConfiguration const& ColorConf,DocumentFilesystem& OutBuild,bool ParseSource = true);
+        static MBError CreateDocumentFilesystem(DocumentBuild const& BuildToParse,LSPInfo const& LSPConf,ProcessedColorConfiguration const& ColorConf,DocumentFilesystem& OutBuild,bool ParseSource = true,bool Colorize = true);
         //previous build is modified, transfering it's metadata to the new build 
         static MBError CreateDocumentFilesystem(DocumentBuild const& BuildToParse,LSPInfo const& LSPConf,ProcessedColorConfiguration const& ColorConf,DocumentFilesystem& OutBuild,DocumentFilesystem& PreviousBuild,std::vector<IndexType>& OutdatedFiles);
         static DocumentFilesystem CreateDefaultFilesystem();

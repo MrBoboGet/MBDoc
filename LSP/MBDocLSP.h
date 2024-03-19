@@ -43,7 +43,7 @@ namespace MBDoc
                         Result = DocumentFilesystem::CreateDocumentFilesystem(AssociatedBuild,
                                 LSPInfo(),
                                 ProcessedColorConfiguration(),
-                                m_Filesystem,false);
+                                m_Filesystem,true,false);
                         m_Files = m_Filesystem.GetAllDocuments();
                     }
                 }
@@ -95,6 +95,19 @@ namespace MBDoc
                     m_Files.insert(NewFileIt,{CanonicalPath,NewIndex});
                 }
             }
+
+            std::filesystem::path GetDocumentPath(DocumentPath const& Path)
+            {
+                std::filesystem::path ReturnValue;  
+                IndexType FileIndex = m_Filesystem.GetPathFile(Path);
+                if(FileIndex != -1)
+                {
+                    ReturnValue = m_Filesystem.GetFile(FileIndex).Path;
+                }
+
+                return ReturnValue;
+            } 
+
             bool IsValidBuild() const
             {
                 return m_ParseError;

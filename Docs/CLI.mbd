@@ -43,7 +43,7 @@ alternative index.
         build.
 
         As a build file already specifies a root for the 
-        @[document filessystem](BuildPipeline.mbd#The Document Filesystem)  so
+        @[document filessystem](#BuildPipeline.mbd#The Document Filesystem)  so
         is it not possible to specify any other files with a build, and doing so
         is treated as a fatal error.
 

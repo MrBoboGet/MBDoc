@@ -13,6 +13,7 @@ describe the implementantation. An overview of the implementation can be find
 @[here](CodeIndex.mbd).
 
 
+
 #_ The pipeline
     
     # Build specification
@@ -115,6 +116,7 @@ describe the implementantation. An overview of the implementation can be find
             format looks is given to the actual markup langauge and moved to the
             semantic.
         /#
+
 
         In software so is a compiler determined by the output format and
         semantic, which recieves as argument the 

@@ -109,7 +109,7 @@ AttributeList = '[[' ((Name|ValueAttribute) [,| ])*  ']]'
 
 #_ Default attributes
     While attributes are something that, 
-    @[by design](Attributes and arbirary semantics) are optionally supported by
+    @[by design](#Attributes and arbirary semantics) are optionally supported by
     a compiler, so are there a couple of attributes that are supported by all
     the builtin compilers. These attributes are also encouraged to be supported
     by custom compilers, as they most likely have familiarity and easy enough
